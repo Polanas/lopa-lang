@@ -27,6 +27,11 @@ impl<'a> Tokenizer<'a> {
         self.input.peek()
     }
 
+    fn peek_next(&mut self) -> Option<char> {
+        let mut input = self.input.clone();
+        input.nth(1)
+    }
+
     fn consume_if(&mut self, func: impl Fn(char) -> bool) -> bool {
         if let Some(&ch) = self.peek() {
             if func(ch) {
@@ -87,6 +92,7 @@ impl<'a> Tokenizer<'a> {
                 {
                     Some(self.number(ch))
                 }
+                ch @ ('"' | '\'') => self.string(ch),
                 ch if ch.is_alphabetic() || ch == '_' => self.identifier(ch),
                 '(' => Some(TokenVariant::LeftParen),
                 ')' => Some(TokenVariant::RightParen),
@@ -139,6 +145,18 @@ impl<'a> Tokenizer<'a> {
             }
         }
         None
+    }
+
+    fn string(&mut self, quote_ch: char) -> Option<TokenVariant> {
+        let string: String = self
+            .consume_while(|ch| ch != quote_ch)
+            .into_iter()
+            .collect();
+        if self.input.next().is_none() {
+            Some(TokenVariant::UnterminatedString(string))
+        } else {
+            Some(TokenVariant::String(string))
+        }
     }
 
     fn identifier(&mut self, ch: char) -> Option<TokenVariant> {
@@ -203,7 +221,12 @@ impl<'a> Tokenizer<'a> {
             .collect::<String>();
         num_str.insert(0, ch);
 
-        let is_float = self.input.peek() == Some(&'.') || ch == '.';
+        let is_float = (self.peek() == Some(&'.')
+            && self
+                .peek_next()
+                .map(|ch| ch.is_ascii_digit())
+                .unwrap_or_default())
+            || ch == '.';
         if is_float && self.consume_if_next(|ch| ch.is_ascii_digit()) && ch != '.' {
             let num_fract_str = self
                 .consume_while(|ch| ch.is_ascii_digit())
@@ -211,8 +234,6 @@ impl<'a> Tokenizer<'a> {
                 .collect::<String>();
             num_str.push('.');
             num_str.push_str(&num_fract_str);
-        } else if self.input.peek() == Some(&'.') && ch != '.' {
-            self.next_char();
         }
 
         TokenVariant::Number(if is_float {
@@ -249,6 +270,7 @@ mod tests {
             .map(|tc| tc.value.clone())
             .collect()
     }
+
     #[test]
     fn identifier() {
         assert_eq!(
@@ -259,6 +281,15 @@ mod tests {
     }
 
     #[test]
+    fn string() {
+        assert_eq!(tokenize(" \"str1\"'str2''hi"), vec![
+            TokenVariant::String(String::from("str1")),
+            TokenVariant::String(String::from("str2")),
+            TokenVariant::UnterminatedString(String::from("hi")),
+        ])
+    }
+
+    #[test]
     fn number() {
         assert_eq!(
             tokenize("1.2 3 .4 5. .6."),
@@ -266,7 +297,8 @@ mod tests {
                 TokenVariant::Number(NumberToken::Float(1.2)),
                 TokenVariant::Number(NumberToken::Int(3)),
                 TokenVariant::Number(NumberToken::Float(0.4)),
-                TokenVariant::Number(NumberToken::Float(5.0)),
+                TokenVariant::Number(NumberToken::Int(5)),
+                TokenVariant::Dot,
                 TokenVariant::Number(NumberToken::Float(0.6)),
                 TokenVariant::Dot,
             ],

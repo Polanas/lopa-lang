@@ -1,3 +1,6 @@
-for i = 5, -10, -1 do
-	print(i)
-end
+local a = 20
+print(a)
+local aa = 20
+print(aa)
+local aaa = 20
+print(aaa)

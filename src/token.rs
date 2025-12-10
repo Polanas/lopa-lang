@@ -3,6 +3,7 @@ pub enum NumberToken {
     Int(i64),
     Float(f64),
 }
+//TODO: store comments for docs generation
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenVariant {
     LeftParen,
@@ -39,7 +40,7 @@ pub enum TokenVariant {
     Ampersand2,
 
     Identifier(String),
-    Literal(String),
+    String(String),
     Number(NumberToken),
 
     Let,
@@ -64,6 +65,7 @@ pub enum TokenVariant {
     Match,
     _Self,
 
+    UnterminatedString(String),
     Unknown(char),
 }
 
