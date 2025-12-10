@@ -92,7 +92,8 @@ impl<'a> Tokenizer<'a> {
                 {
                     Some(self.number(ch))
                 }
-                ch @ ('"' | '\'') => self.string(ch),
+                '"' => self.string(),
+                '\'' => self.label(),
                 ch if ch.is_alphabetic() || ch == '_' => self.identifier(ch),
                 '(' => Some(TokenVariant::LeftParen),
                 ')' => Some(TokenVariant::RightParen),
@@ -108,6 +109,20 @@ impl<'a> Tokenizer<'a> {
                 '/' => {
                     if self.consume_if(|ch| ch == '/') {
                         self.consume_while(|ch| ch != '\n');
+                        None
+                    } else if self.consume_if(|ch| ch == '*') {
+                        let mut stack = 1;
+                        while let Some(ch) = self.next_char() {
+                            if stack == 0 {
+                                break;
+                            }
+                            if ch == '*' && self.peek() == Some(&'/') {
+                                stack -= 1;
+                            } else if ch == '/' && self.peek() == Some(&'*') {
+                                stack += 1;
+                            }
+                        }
+                        self.next_char();
                         None
                     } else {
                         Some(TokenVariant::Slash)
@@ -147,11 +162,16 @@ impl<'a> Tokenizer<'a> {
         None
     }
 
-    fn string(&mut self, quote_ch: char) -> Option<TokenVariant> {
-        let string: String = self
-            .consume_while(|ch| ch != quote_ch)
-            .into_iter()
-            .collect();
+    fn label(&mut self) -> Option<TokenVariant> {
+        Some(TokenVariant::Label(
+            self.consume_while(|ch| ch.is_ascii_alphanumeric())
+                .into_iter()
+                .collect(),
+        ))
+    }
+
+    fn string(&mut self) -> Option<TokenVariant> {
+        let string: String = self.consume_while(|ch| ch != '"').into_iter().collect();
         if self.input.next().is_none() {
             Some(TokenVariant::UnterminatedString(string))
         } else {
@@ -197,6 +217,8 @@ impl<'a> Tokenizer<'a> {
             "impl" => Some(TokenVariant::Impl),
             "match" => Some(TokenVariant::Match),
             "self" => Some(TokenVariant::_Self),
+            "break" => Some(TokenVariant::Break),
+            "continue" => Some(TokenVariant::Continue),
             _ => None,
         }
     }
@@ -272,6 +294,19 @@ mod tests {
     }
 
     #[test]
+    fn comments() {
+        assert_eq!(tokenize("//a comment"), vec![]);
+        assert_eq!(
+            tokenize(
+                "/* /* */
+                 * mutiline comment
+                 * */"
+            ),
+            vec![]
+        );
+    }
+
+    #[test]
     fn identifier() {
         assert_eq!(
             tokenize("ident"),
@@ -281,12 +316,21 @@ mod tests {
     }
 
     #[test]
+    fn label() {
+        assert_eq!(
+            tokenize("'label"),
+            vec![TokenVariant::Label(String::from("label"))]
+        )
+    }
+
+    #[test]
     fn string() {
-        assert_eq!(tokenize(" \"str1\"'str2''hi"), vec![
-            TokenVariant::String(String::from("str1")),
-            TokenVariant::String(String::from("str2")),
-            TokenVariant::UnterminatedString(String::from("hi")),
-        ])
+        assert_eq!(
+            tokenize(" \"str\""),
+            vec![
+                TokenVariant::String(String::from("str")),
+            ]
+        )
     }
 
     #[test]

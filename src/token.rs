@@ -40,6 +40,7 @@ pub enum TokenVariant {
     Ampersand2,
 
     Identifier(String),
+    Label(String),
     String(String),
     Number(NumberToken),
 
@@ -54,6 +55,8 @@ pub enum TokenVariant {
     For,
     While,
     Loop,
+    Continue,
+    Break,
     In,
     Nil,
     Print,
