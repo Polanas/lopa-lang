@@ -1,8 +1,6 @@
 ```rust
-//A local-scoped immutable variable
+//A local-scoped variable
 let a: int = 20;
-//A mutable variable
-var b = 21;
 
 //Still an int
 let a_implicint = 20;
@@ -11,6 +9,14 @@ enum Idk {
   First(bool),
   Second(bool),
 }
+
+let a = 20;
+
+if b = if a > 20 {
+    true
+} else {
+    false
+};
 
 let idk = Idk::First(true);
 match idk {
@@ -76,7 +82,7 @@ if let idk = value {
 }
 
 //local function definition
-let add = fn(var a: int: b: int) -> int {
+let add = fn(a: int: b: int) -> int {
     a += 1;
     //erorr
     b += 1;
@@ -134,6 +140,7 @@ impl Point {
   }
 }
 
+
 let point = Point::new(1.0,2.0);
 match point {
     Point { x: > 2, y: < 1 } => {
@@ -144,4 +151,27 @@ match point {
 
 let str1 = "hello";
 let str2 = 'hi' + "hey";
+
+let mut tuple = (1,2);
+idk(tuple)
+
+fn main() {
+    a := 2
+    foo(a)
+    println(a) // prints `3`
+}
+
 ```
+```lua
+function foo(x)
+  x = 3
+  return x
+end
+
+function main()
+  local a = 2
+  a = foo(a)
+  print(a)
+end
+```
+

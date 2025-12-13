@@ -18,7 +18,7 @@ impl Span {
         Self { start, end }
     }
 
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             start: BytePos(0),
             end: BytePos(0),
@@ -26,6 +26,7 @@ impl Span {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct WithSpan<T> {
     pub value: T,
     pub span: Span,
@@ -36,10 +37,47 @@ impl<T> WithSpan<T> {
         Self { value, span }
     }
 
-    pub fn empty(value: T) -> Self {
+    pub const fn empty(value: T) -> Self {
         Self {
             value,
             span: Span::empty(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Diagnostic {
+    pub span: Span,
+    pub message: String,
+}
+
+pub struct LineOffsets {
+    offsets: Vec<usize>,
+    len: usize,
+}
+
+impl LineOffsets {
+    pub fn new(data: &str) -> Self {
+        let mut offsets = vec![0];
+
+        for (i, val) in data.bytes().enumerate() {
+            if val == b'\n' {
+                offsets.push((i + 1) as _);
+            }
+        }
+
+        Self {
+            offsets,
+            len: data.len(),
+        }
+    }
+
+    pub fn line(&self, offset: BytePos) -> usize {
+        let offset = offset.0;
+        assert!(offset <= self.len);
+        match self.offsets.binary_search(&offset) {
+            Ok(line) => line,
+            Err(line) => line,
         }
     }
 }

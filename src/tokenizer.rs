@@ -1,6 +1,6 @@
 use crate::{position, token};
 use std::str;
-use token::TokenVariant;
+use token::Token;
 
 pub struct Tokenizer<'a> {
     input: std::iter::Peekable<str::Chars<'a>>,
@@ -79,7 +79,7 @@ impl<'a> Tokenizer<'a> {
         chars
     }
 
-    fn next_token(&mut self) -> Option<TokenVariant> {
+    fn next_token(&mut self) -> Option<Token> {
         while let Some(ch) = self.next_char() {
             if let Some(t) = match ch {
                 ch if ch.is_whitespace() => None,
@@ -95,17 +95,17 @@ impl<'a> Tokenizer<'a> {
                 '"' => self.string(),
                 '\'' => self.label(),
                 ch if ch.is_alphabetic() || ch == '_' => self.identifier(ch),
-                '(' => Some(TokenVariant::LeftParen),
-                ')' => Some(TokenVariant::RightParen),
-                '{' => Some(TokenVariant::LeftBrace),
-                '}' => Some(TokenVariant::RightBrace),
-                ']' => Some(TokenVariant::RightBracket),
-                '[' => Some(TokenVariant::RightBracket),
-                ',' => Some(TokenVariant::Comma),
-                '.' => Some(TokenVariant::Dot),
-                '-' => Some(self.matches_or('>', TokenVariant::Arrow, TokenVariant::Minus)),
-                '+' => Some(TokenVariant::Plus),
-                ';' => Some(TokenVariant::Semicolon),
+                '(' => Some(Token::LeftParen),
+                ')' => Some(Token::RightParen),
+                '{' => Some(Token::LeftBrace),
+                '}' => Some(Token::RightBrace),
+                ']' => Some(Token::RightBracket),
+                '[' => Some(Token::RightBracket),
+                ',' => Some(Token::Comma),
+                '.' => Some(Token::Dot),
+                '-' => Some(self.matches_or('>', Token::Arrow, Token::Minus)),
+                '+' => Some(Token::Plus),
+                ';' => Some(Token::Semicolon),
                 '/' => {
                     if self.consume_if(|ch| ch == '/') {
                         self.consume_while(|ch| ch != '\n');
@@ -125,36 +125,40 @@ impl<'a> Tokenizer<'a> {
                         self.next_char();
                         None
                     } else {
-                        Some(TokenVariant::Slash)
+                        Some(Token::Slash)
                     }
                 }
-                '*' => Some(TokenVariant::Star),
-                '%' => Some(TokenVariant::Percent),
-                '#' => Some(TokenVariant::Hash),
-                '?' => Some(TokenVariant::QuestionMark),
-                ':' => Some(TokenVariant::Colon),
+                '*' => Some(Token::Star),
+                '%' => Some(Token::Percent),
+                '#' => Some(Token::Hash),
+                '?' => Some(self.matches_or(
+                    '.',
+                    Token::MarkDot,
+                    Token::Unknown('?'),
+                )),
+                ':' => Some(Token::Colon),
 
                 '=' => {
                     if let Some(next) = self.peek() {
                         match next {
-                            '>' => Some(TokenVariant::FatArrow),
-                            '=' => Some(TokenVariant::Equal2),
-                            _ => Some(TokenVariant::Equal),
+                            '>' => Some(Token::FatArrow),
+                            '=' => Some(Token::Equal2),
+                            _ => Some(Token::Equal),
                         }
                     } else {
-                        Some(TokenVariant::Equal)
+                        Some(Token::Equal)
                     }
                 }
-                '!' => Some(self.matches_or('=', TokenVariant::BangEqual, TokenVariant::Bang)),
-                '<' => Some(self.matches_or('=', TokenVariant::LessEqual, TokenVariant::Equal)),
+                '!' => Some(self.matches_or('=', Token::BangEqual, Token::Bang)),
+                '<' => Some(self.matches_or('=', Token::LessEqual, Token::Equal)),
                 '>' => {
-                    Some(self.matches_or('=', TokenVariant::GreaterEqual, TokenVariant::Greater))
+                    Some(self.matches_or('=', Token::GreaterEqual, Token::Greater))
                 }
                 '&' => {
-                    Some(self.matches_or('&', TokenVariant::Ampersand2, TokenVariant::Ampersand))
+                    Some(self.matches_or('&', Token::Ampersand2, Token::Ampersand))
                 }
-                '|' => Some(self.matches_or('|', TokenVariant::Bar2, TokenVariant::Bar)),
-                other => Some(TokenVariant::Unknown(other)),
+                '|' => Some(self.matches_or('|', Token::Bar2, Token::Bar)),
+                other => Some(Token::Unknown(other)),
             } {
                 return Some(t);
             }
@@ -162,24 +166,24 @@ impl<'a> Tokenizer<'a> {
         None
     }
 
-    fn label(&mut self) -> Option<TokenVariant> {
-        Some(TokenVariant::Label(
+    fn label(&mut self) -> Option<Token> {
+        Some(Token::Label(
             self.consume_while(|ch| ch.is_ascii_alphanumeric())
                 .into_iter()
                 .collect(),
         ))
     }
 
-    fn string(&mut self) -> Option<TokenVariant> {
+    fn string(&mut self) -> Option<Token> {
         let string: String = self.consume_while(|ch| ch != '"').into_iter().collect();
         if self.input.next().is_none() {
-            Some(TokenVariant::UnterminatedString(string))
+            Some(Token::UnterminatedString(string))
         } else {
-            Some(TokenVariant::String(string))
+            Some(Token::String(string))
         }
     }
 
-    fn identifier(&mut self, ch: char) -> Option<TokenVariant> {
+    fn identifier(&mut self, ch: char) -> Option<Token> {
         let mut identifier = String::from(ch);
         identifier.push_str(
             &self
@@ -190,35 +194,35 @@ impl<'a> Tokenizer<'a> {
         if let Some(token) = Self::keyword(&identifier) {
             Some(token)
         } else {
-            Some(TokenVariant::Identifier(identifier))
+            Some(Token::Identifier(identifier))
         }
     }
 
-    fn keyword(identifier: &str) -> Option<TokenVariant> {
+    fn keyword(identifier: &str) -> Option<Token> {
         match identifier {
-            "let" => Some(TokenVariant::Let),
-            "var" => Some(TokenVariant::Var),
-            "global" => Some(TokenVariant::Global),
-            "true" => Some(TokenVariant::True),
-            "false" => Some(TokenVariant::False),
-            "fn" => Some(TokenVariant::Fn),
-            "if" => Some(TokenVariant::If),
-            "else" => Some(TokenVariant::Else),
-            "for" => Some(TokenVariant::For),
-            "while" => Some(TokenVariant::While),
-            "loop" => Some(TokenVariant::Loop),
-            "in" => Some(TokenVariant::In),
-            "nil" => Some(TokenVariant::Nil),
-            "print" => Some(TokenVariant::Print),
-            "return" => Some(TokenVariant::Return),
-            "super" => Some(TokenVariant::Super),
-            "use" => Some(TokenVariant::Use),
-            "struct" => Some(TokenVariant::Struct),
-            "impl" => Some(TokenVariant::Impl),
-            "match" => Some(TokenVariant::Match),
-            "self" => Some(TokenVariant::_Self),
-            "break" => Some(TokenVariant::Break),
-            "continue" => Some(TokenVariant::Continue),
+            "let" => Some(Token::Let),
+            "var" => Some(Token::Var),
+            "global" => Some(Token::Global),
+            "true" => Some(Token::True),
+            "false" => Some(Token::False),
+            "fn" => Some(Token::Fn),
+            "if" => Some(Token::If),
+            "else" => Some(Token::Else),
+            "for" => Some(Token::For),
+            "while" => Some(Token::While),
+            "loop" => Some(Token::Loop),
+            "in" => Some(Token::In),
+            "nil" => Some(Token::Nil),
+            "print" => Some(Token::Print),
+            "return" => Some(Token::Return),
+            "super" => Some(Token::Super),
+            "use" => Some(Token::Use),
+            "struct" => Some(Token::Struct),
+            "impl" => Some(Token::Impl),
+            "match" => Some(Token::Match),
+            "self" => Some(Token::_Self),
+            "break" => Some(Token::Break),
+            "continue" => Some(Token::Continue),
             _ => None,
         }
     }
@@ -226,9 +230,9 @@ impl<'a> Tokenizer<'a> {
     fn matches_or(
         &mut self,
         to_match: char,
-        matched: TokenVariant,
-        unmatched: TokenVariant,
-    ) -> TokenVariant {
+        matched: Token,
+        unmatched: Token,
+    ) -> Token {
         if self.consume_if(|ch| ch == to_match) {
             matched
         } else {
@@ -236,7 +240,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn number(&mut self, ch: char) -> TokenVariant {
+    fn number(&mut self, ch: char) -> Token {
         let mut num_str = self
             .consume_while(|ch| ch.is_ascii_digit())
             .into_iter()
@@ -258,7 +262,7 @@ impl<'a> Tokenizer<'a> {
             num_str.push_str(&num_fract_str);
         }
 
-        TokenVariant::Number(if is_float {
+        Token::Number(if is_float {
             token::NumberToken::Float(num_str.parse::<f64>().unwrap())
         } else {
             token::NumberToken::Int(num_str.parse::<i64>().unwrap())
@@ -266,7 +270,7 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-pub fn tokenize(input: &str) -> Vec<position::WithSpan<TokenVariant>> {
+pub fn tokenize(input: &str) -> Vec<position::WithSpan<Token>> {
     let mut tokenizer = Tokenizer::new(input);
     let mut tokens = vec![];
     while let Some(token) = tokenizer.next_token() {
@@ -283,10 +287,10 @@ pub fn tokenize(input: &str) -> Vec<position::WithSpan<TokenVariant>> {
 mod tests {
     use crate::{
         token::{self, NumberToken},
-        tokenizer::{TokenVariant, Tokenizer},
+        tokenizer::{Token, Tokenizer},
     };
 
-    fn tokenize(input: &str) -> Vec<TokenVariant> {
+    fn tokenize(input: &str) -> Vec<Token> {
         super::tokenize(input)
             .iter()
             .map(|tc| tc.value.clone())
@@ -310,16 +314,16 @@ mod tests {
     fn identifier() {
         assert_eq!(
             tokenize("ident"),
-            vec![TokenVariant::Identifier(String::from("ident"))]
+            vec![Token::Identifier(String::from("ident"))]
         );
-        assert_eq!(tokenize("let"), vec![TokenVariant::Let]);
+        assert_eq!(tokenize("let"), vec![Token::Let]);
     }
 
     #[test]
     fn label() {
         assert_eq!(
             tokenize("'label"),
-            vec![TokenVariant::Label(String::from("label"))]
+            vec![Token::Label(String::from("label"))]
         )
     }
 
@@ -327,25 +331,53 @@ mod tests {
     fn string() {
         assert_eq!(
             tokenize(" \"str\""),
-            vec![
-                TokenVariant::String(String::from("str")),
-            ]
+            vec![Token::String(String::from("str")),]
         )
     }
 
     #[test]
     fn number() {
+        // let a = ((1 + (2 * 3)) - 4);
+        //Int, Plus, Int, Star, Int, Minus, Int
         assert_eq!(
             tokenize("1.2 3 .4 5. .6."),
             vec![
-                TokenVariant::Number(NumberToken::Float(1.2)),
-                TokenVariant::Number(NumberToken::Int(3)),
-                TokenVariant::Number(NumberToken::Float(0.4)),
-                TokenVariant::Number(NumberToken::Int(5)),
-                TokenVariant::Dot,
-                TokenVariant::Number(NumberToken::Float(0.6)),
-                TokenVariant::Dot,
+                Token::Number(NumberToken::Float(1.2)),
+                Token::Number(NumberToken::Int(3)),
+                Token::Number(NumberToken::Float(0.4)),
+                Token::Number(NumberToken::Int(5)),
+                Token::Dot,
+                Token::Number(NumberToken::Float(0.6)),
+                Token::Dot,
             ],
+        );
+    }
+
+    #[test]
+    fn dot() {
+        assert_eq!(
+            tokenize("a.b"),
+            vec![
+                Token::Identifier(String::from("a")),
+                Token::Dot,
+                Token::Identifier(String::from("b")),
+            ]
+        );
+        assert_eq!(
+            tokenize("a?.b"),
+            vec![
+                Token::Identifier(String::from("a")),
+                Token::MarkDot,
+                Token::Identifier(String::from("b")),
+            ]
+        );
+        assert_eq!(
+            tokenize("a?b"),
+            vec![
+                Token::Identifier(String::from("a")),
+                Token::Unknown('?'),
+                Token::Identifier(String::from("b")),
+            ]
         );
     }
 }
