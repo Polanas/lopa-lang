@@ -24,6 +24,13 @@ impl Span {
             end: BytePos(0),
         }
     }
+
+    pub fn union(&self, other: Self) -> Self {
+        Self {
+            start: other.start.min(self.start),
+            end: other.end.max(self.end),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -42,6 +49,10 @@ impl<T> WithSpan<T> {
             value,
             span: Span::empty(),
         }
+    }
+
+    pub fn union(&self, other: &Self) -> Span {
+        self.span.union(other.span)
     }
 }
 

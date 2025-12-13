@@ -215,7 +215,6 @@ impl<'a> Tokenizer<'a> {
             "nil" => Some(Token::Nil),
             "print" => Some(Token::Print),
             "return" => Some(Token::Return),
-            "super" => Some(Token::Super),
             "use" => Some(Token::Use),
             "struct" => Some(Token::Struct),
             "impl" => Some(Token::Impl),

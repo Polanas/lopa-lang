@@ -5,7 +5,7 @@ pub enum NumberToken {
 }
 
 //TODO: store comments for docs generation
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenKind {
     LeftParen,
     RightParen,
@@ -46,7 +46,6 @@ pub enum TokenKind {
     Number,
 
     Let,
-    Var,
     Global,
     True,
     False,
@@ -62,7 +61,6 @@ pub enum TokenKind {
     Nil,
     Print,
     Return,
-    Super,
     Use,
     Struct,
     Impl,
@@ -73,6 +71,73 @@ pub enum TokenKind {
     Unknown,
     EOF,
 }
+
+impl std::fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenKind::LeftParen => write!(f, "("),
+            TokenKind::RightParen => write!(f, ")"),
+            TokenKind::LeftBrace => write!(f, "{{"),
+            TokenKind::RightBrace => write!(f, "}}"),
+            TokenKind::LeftBracket => write!(f, "["),
+            TokenKind::RightBracket => write!(f, "]"),
+            TokenKind::Comma => write!(f, ","),
+            TokenKind::Dot => write!(f, "."),
+            TokenKind::Minus => write!(f, "-"),
+            TokenKind::Plus => write!(f, "+"),
+            TokenKind::Semicolon => write!(f, ":"),
+            TokenKind::Slash => write!(f, "/"),
+            TokenKind::Star => write!(f, "*"),
+            TokenKind::Percent => write!(f, "%"),
+            TokenKind::Hash => write!(f, "#"),
+            TokenKind::MarkDot => write!(f, "?."),
+            TokenKind::Colon => write!(f, ";"),
+            TokenKind::Bang => write!(f, "!"),
+            TokenKind::BangEqual => write!(f, "!="),
+            TokenKind::Equal => write!(f, "="),
+            TokenKind::Equal2 => write!(f, "=="),
+            TokenKind::Greater => write!(f, ">"),
+            TokenKind::GreaterEqual => write!(f, ">="),
+            TokenKind::Less => write!(f, "<"),
+            TokenKind::LessEqual => write!(f, "<="),
+            TokenKind::Arrow => write!(f, "->"),
+            TokenKind::FatArrow => write!(f, "=>"),
+            TokenKind::Bar => write!(f, "|"),
+            TokenKind::Ampersand => write!(f, "&"),
+            TokenKind::Bar2 => write!(f, "||"),
+            TokenKind::Ampersand2 => write!(f, "&&"),
+            TokenKind::Identifier => write!(f, "identifier"),
+            TokenKind::Label => write!(f, "label"),
+            TokenKind::String => write!(f, "string"),
+            TokenKind::Number => write!(f, "number"),
+            TokenKind::Let => write!(f, "let"),
+            TokenKind::Global => write!(f, "global"),
+            TokenKind::True => write!(f, "true"),
+            TokenKind::False => write!(f, "false"),
+            TokenKind::Fn => write!(f, "fn"),
+            TokenKind::If => write!(f, "if"),
+            TokenKind::Else => write!(f, "else"),
+            TokenKind::For => write!(f, "for"),
+            TokenKind::While => write!(f, "while"),
+            TokenKind::Loop => write!(f, "loop"),
+            TokenKind::Continue => write!(f, "continue"),
+            TokenKind::Break => write!(f, "break"),
+            TokenKind::In => write!(f, "in"),
+            TokenKind::Nil => write!(f, "nil"),
+            TokenKind::Print => write!(f, "print"),
+            TokenKind::Return => write!(f, "return"),
+            TokenKind::Use => write!(f, "use"),
+            TokenKind::Struct => write!(f, "struct"),
+            TokenKind::Impl => write!(f, "impl"),
+            TokenKind::Match => write!(f, "match"),
+            TokenKind::_Self => write!(f, "Self"),
+            TokenKind::UnterminatedString => write!(f, "unterminated string"),
+            TokenKind::Unknown => write!(f, "unknown"),
+            TokenKind::EOF => write!(f, "EOF"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     LeftParen,
@@ -114,7 +179,6 @@ pub enum Token {
     Number(NumberToken),
 
     Let,
-    Var,
     Global,
     True,
     False,
@@ -130,7 +194,6 @@ pub enum Token {
     Nil,
     Print,
     Return,
-    Super,
     Use,
     Struct,
     Impl,
@@ -181,7 +244,6 @@ impl From<&Token> for TokenKind {
             Token::String(_) => Self::String,
             Token::Number(_) => Self::Number,
             Token::Let => Self::Let,
-            Token::Var => Self::Var,
             Token::Global => Self::Global,
             Token::True => Self::True,
             Token::False => Self::False,
@@ -197,7 +259,6 @@ impl From<&Token> for TokenKind {
             Token::Nil => Self::Nil,
             Token::Print => Self::Print,
             Token::Return => Self::Return,
-            Token::Super => Self::Super,
             Token::Use => Self::Use,
             Token::Struct => Self::Struct,
             Token::Impl => Self::Impl,
