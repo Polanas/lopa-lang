@@ -93,7 +93,7 @@ impl<'t> Parser<'t> {
     }
 
     pub fn is_at_end(&self) -> bool {
-        self.peek() != TokenKind::EOF
+        self.peek() == TokenKind::EOF
     }
 
     // pub fn expect_optional(&mut self, expected: TokenKind) -> Option<bool> {
@@ -237,6 +237,15 @@ impl<'t> Parser<'t> {
                 }),
                 t.span,
             ))
+        } else if let Some(t) = self.match_token(TokenKind::Identifier) {
+            Some(WithSpan::new(
+                Expr::Identifier(if let Token::Identifier(i) = &t.value {
+                    i.clone()
+                } else {
+                    unreachable!()
+                }),
+                t.span,
+            ))
         } else if self.match_token(TokenKind::LeftParen).is_some() {
             let expr = self.parse_expr()?;
             let span = expr.span;
@@ -246,7 +255,7 @@ impl<'t> Parser<'t> {
             let token = self.advance();
             self.add_error(
                 &format!(
-                    "Expected one of: bool, nil, string, number, (, but got {}",
+                    "Expected expression, but got {}",
                     TokenKind::from(&token.value)
                 ),
                 token.span,
@@ -281,6 +290,90 @@ impl<'t> Parser<'t> {
             token = self.advance();
         }
     }
+
+    pub fn parse_stmt(&mut self) -> Option<WithSpan<Stmt>> {
+        if let Some(token) = self.match_tokens(&[TokenKind::Let, TokenKind::Global]) {
+            self.parse_binding(token)
+        } else if let Some(token) = self.match_tokens(&[TokenKind::Print]) {
+            let expr = self.parse_expr()?;
+            let semi = self.expect(TokenKind::Semicolon)?;
+            let span = token.span.union(semi.span);
+            Some(WithSpan::new(Stmt::Print(expr.into()), span))
+        } else {
+            self.advance();
+            None
+        }
+    }
+
+    pub fn parse_binding(&mut self, binding_token: &WithSpan<Token>) -> Option<WithSpan<Stmt>> {
+        let binding_type = match &binding_token.value {
+            Token::Let => BindingType::Let,
+            Token::Global => BindingType::Global,
+            _ => unreachable!(),
+        };
+        let identifyer = if let WithSpan {
+            value: Token::Identifier(identifyer),
+            span,
+        } = self.expect(TokenKind::Identifier)?
+        {
+            WithSpan::new(identifyer.clone(), *span)
+        } else {
+            unreachable!();
+        };
+        if self.match_token(TokenKind::Equal).is_some() {
+            let expr = self.parse_expr()?;
+            let semi = self.expect(TokenKind::Semicolon)?;
+
+            let span = binding_token.span.union(semi.span);
+            Some(WithSpan::new(
+                Stmt::Binding(Binding {
+                    binding_type,
+                    identifiers: vec![identifyer],
+                    values: Some(vec![expr]),
+                }),
+                span,
+            ))
+        } else {
+            let semi = self.expect(TokenKind::Semicolon)?;
+            let span = binding_token.span.union(semi.span);
+            Some(WithSpan::new(
+                Stmt::Binding(Binding {
+                    binding_type,
+                    identifiers: vec![identifyer],
+                    values: None,
+                }),
+                span,
+            ))
+        }
+    }
+
+    pub fn parse_program(&mut self) -> Option<Vec<WithSpan<Stmt>>> {
+        let mut statements = vec![];
+
+        while !self.is_at_end() {
+            if let Some(stmt) = self.parse_stmt() {
+                statements.push(stmt);
+            } else {
+                self.sync();
+            }
+        }
+
+        if self.diagnostics.is_empty() {
+            Some(statements)
+        } else {
+            None
+        }
+    }
+}
+
+pub fn parse_program(
+    tokens: &[WithSpan<Token>],
+) -> Result<Vec<WithSpan<Stmt>>, Vec<position::Diagnostic>> {
+    let mut parser = Parser::new(tokens);
+    match parser.parse_program() {
+        Some(output) => Ok(output),
+        None => Err(parser.diagnostics),
+    }
 }
 
 mod tests {
@@ -310,6 +403,6 @@ mod tests {
 
     #[test]
     fn debug_test() {
-        dbg!(parse_str("1)"));
+        dbg!(parse_str("1+(1+) abc a"));
     }
 }

@@ -201,7 +201,6 @@ impl<'a> Tokenizer<'a> {
     fn keyword(identifier: &str) -> Option<Token> {
         match identifier {
             "let" => Some(Token::Let),
-            "var" => Some(Token::Var),
             "global" => Some(Token::Global),
             "true" => Some(Token::True),
             "false" => Some(Token::False),
@@ -336,8 +335,6 @@ mod tests {
 
     #[test]
     fn number() {
-        // let a = ((1 + (2 * 3)) - 4);
-        //Int, Plus, Int, Star, Int, Minus, Int
         assert_eq!(
             tokenize("1.2 3 .4 5. .6."),
             vec![

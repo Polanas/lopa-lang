@@ -24,6 +24,22 @@ pub enum BinaryOperator {
 }
 
 impl BinaryOperator {
+    pub fn to_lua(&self) -> &str {
+        match self {
+            BinaryOperator::Div => "/",
+            BinaryOperator::Mult => "*",
+            BinaryOperator::Add => "+",
+            BinaryOperator::Sub => "-",
+            BinaryOperator::Greater => ">",
+            BinaryOperator::GreaterEqual => ">=",
+            BinaryOperator::Less => "<",
+            BinaryOperator::LessEqual => "<=",
+            BinaryOperator::NotEqual => "~=",
+            BinaryOperator::Equal => "==",
+            BinaryOperator::Modulo => "%",
+        }
+
+    }
     pub fn from_token(token: &token::Token) -> Option<Self> {
         match *token {
             token::Token::Slash => Some(Self::Div),
@@ -106,7 +122,7 @@ pub enum Expr {
     Grouping(Box<WithSpan<Expr>>),
     Unary(WithSpan<UnaryOp>, Box<WithSpan<Expr>>),
     Binary(BinaryExpr),
-    Variable(WithSpan<Identifier>),
+    Identifier(Identifier),
     Logical(LogicalExpr),
     Assign(Vec<WithSpan<Identifier>>, Vec<WithSpan<Expr>>),
     Call(Box<WithSpan<Expr>>, Vec<WithSpan<Expr>>),
@@ -116,16 +132,16 @@ pub enum Expr {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
-pub enum VariableDefType {
+pub enum BindingType {
     Let,
     Global,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct VariableDef {
-    def_type: VariableDefType,
-    names: Vec<WithSpan<Identifier>>,
-    values: Option<Vec<WithSpan<Expr>>>,
+pub struct Binding {
+    pub binding_type: BindingType,
+    pub identifiers: Vec<WithSpan<Identifier>>,
+    pub values: Option<Vec<WithSpan<Expr>>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -135,5 +151,6 @@ pub enum Item {}
 pub enum Stmt {
     Expr(Box<WithSpan<Expr>>),
     Item(Item),
-    VariableDef(VariableDef),
+    Binding(Binding),
+    Print(Box<WithSpan<Expr>>),
 }
