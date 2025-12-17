@@ -1,4 +1,5 @@
 pub mod code_gen;
+pub mod ir;
 pub mod tokenizer;
 pub mod parser;
 pub mod position;

@@ -5,15 +5,18 @@ use std::error::Error;
 
 use lopa_lang::{code_gen, parser, tokenizer};
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let program = "
-let x = (20+1)/4;
-let y = x - 1;
-let str = \"hi\";
+fn test(x: i32) -> i32 {
+    println!("x = {x}");
+    x
+}
 
-print y;
-print str;
-print 2 + 2;";
+fn main() -> Result<(), Box<dyn Error>> {
+        let program = "
+    let y =\"2\";
+    let z=15;
+    let w= 11;
+    let x = {print \"1\"; 2} + { print y; 2 }*2+z+w;
+    print x;";
     println!("program: {program}");
     println!();
     let tokens = tokenizer::tokenize(program);

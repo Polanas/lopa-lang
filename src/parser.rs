@@ -213,9 +213,9 @@ impl<'t> Parser<'t> {
 
     pub fn parse_primary(&mut self) -> Option<WithSpan<Expr>> {
         if let Some(t) = self.match_token(TokenKind::False) {
-            Some(WithSpan::new(Expr::Boolean(false), t.span))
+            Some(WithSpan::new(Expr::Bool(false), t.span))
         } else if let Some(t) = self.match_token(TokenKind::True) {
-            Some(WithSpan::new(Expr::Boolean(true), t.span))
+            Some(WithSpan::new(Expr::Bool(true), t.span))
         } else if let Some(t) = self.match_token(TokenKind::Nil) {
             Some(WithSpan::new(Expr::Nil, t.span))
         } else if let Some(t) = self.match_token(TokenKind::String) {
@@ -251,6 +251,8 @@ impl<'t> Parser<'t> {
             let span = expr.span;
             self.expect(TokenKind::RightParen)?;
             Some(WithSpan::new(Expr::Grouping(expr.into()), span))
+        } else if let Some(t) = self.match_token(TokenKind::LeftBrace) {
+            self.parse_block_expr(t)
         } else {
             let token = self.advance();
             self.add_error(
@@ -262,6 +264,24 @@ impl<'t> Parser<'t> {
             );
             None
         }
+    }
+
+    pub fn parse_block_expr(&mut self, left_brace: &WithSpan<Token>) -> Option<WithSpan<Expr>> {
+        let mut stmts = vec![];
+        let right_brace = loop {
+            if self.is_at_end() {
+                return None;
+            }
+            if let Some(t) = self.match_token(TokenKind::RightBrace) {
+                break t;
+            }
+            stmts.push(self.parse_stmt()?);
+        };
+
+        Some(WithSpan::new(
+            Expr::Block(stmts),
+            left_brace.span.union(right_brace.span),
+        ))
     }
 
     pub fn sync(&mut self) {
@@ -300,8 +320,8 @@ impl<'t> Parser<'t> {
             let span = token.span.union(semi.span);
             Some(WithSpan::new(Stmt::Print(expr.into()), span))
         } else {
-            self.advance();
-            None
+            let expr = self.parse_expr()?;
+            Some(WithSpan::new(Stmt::Expr(expr.value.into()), expr.span))
         }
     }
 

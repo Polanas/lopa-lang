@@ -21,6 +21,8 @@ pub enum BinaryOperator {
     NotEqual,
     Equal,
     Modulo,
+    And,
+    Or,
 }
 
 impl BinaryOperator {
@@ -37,8 +39,9 @@ impl BinaryOperator {
             BinaryOperator::NotEqual => "~=",
             BinaryOperator::Equal => "==",
             BinaryOperator::Modulo => "%",
+            BinaryOperator::And => "and",
+            BinaryOperator::Or => "or",
         }
-
     }
     pub fn from_token(token: &token::Token) -> Option<Self> {
         match *token {
@@ -56,12 +59,6 @@ impl BinaryOperator {
             _ => None,
         }
     }
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum LogicalOp {
-    And,
-    Or,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -88,13 +85,6 @@ impl UnaryOp {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct LogicalExpr {
-    pub left: Box<WithSpan<Expr>>,
-    pub right: Box<WithSpan<Expr>>,
-    pub op: LogicalOp,
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct IfExpr {
     pub condition: Box<WithSpan<Expr>>,
     pub then_branch: Vec<WithSpan<Stmt>>,
@@ -117,13 +107,12 @@ pub enum Number {
 pub enum Expr {
     Nil,
     Number(Number),
-    Boolean(bool),
+    Bool(bool),
     String(String),
     Grouping(Box<WithSpan<Expr>>),
     Unary(WithSpan<UnaryOp>, Box<WithSpan<Expr>>),
     Binary(BinaryExpr),
     Identifier(Identifier),
-    Logical(LogicalExpr),
     Assign(Vec<WithSpan<Identifier>>, Vec<WithSpan<Expr>>),
     Call(Box<WithSpan<Expr>>, Vec<WithSpan<Expr>>),
     If(IfExpr),
@@ -149,7 +138,7 @@ pub enum Item {}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Stmt {
-    Expr(Box<WithSpan<Expr>>),
+    Expr(Box<Expr>),
     Item(Item),
     Binding(Binding),
     Print(Box<WithSpan<Expr>>),
