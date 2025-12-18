@@ -1,6 +1,22 @@
 use crate::{ast, ir, position};
 
-pub type Identifier = String;
+type Identifier = String;
+type Label = String;
+
+#[derive(Clone, Debug)]
+pub enum FnArg {
+    Identifier(Identifier),
+    VarArgs,
+}
+
+impl std::fmt::Display for FnArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FnArg::Identifier(ident) => write!(f, "{ident}"),
+            FnArg::VarArgs => write!(f, "..."),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -10,6 +26,10 @@ pub enum Value {
     Bool(bool),
     Nil,
     Identifier(Identifier),
+    Table,
+    Fn(Vec<FnArg>, Vec<OpCode>),
+    Call(usize),
+    Get,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,22 +49,22 @@ pub enum BinaryOp {
     Or,
 }
 
-impl BinaryOp {
-    pub fn to_lua(&self) -> &str {
+impl std::fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BinaryOp::Add => "+",
-            BinaryOp::Sub => "-",
-            BinaryOp::Mult => "*",
-            BinaryOp::Div => "-",
-            BinaryOp::Modulo => "%",
-            BinaryOp::Greater => ">",
-            BinaryOp::GreaterEqual => ">=",
-            BinaryOp::Less => "<",
-            BinaryOp::LessEqual => "<=",
-            BinaryOp::NotEqual => "~=",
-            BinaryOp::Equal => "==",
-            BinaryOp::And => "and",
-            BinaryOp::Or => "or",
+            BinaryOp::Add => write!(f, "+"),
+            BinaryOp::Sub => write!(f, "-"),
+            BinaryOp::Mult => write!(f, "*"),
+            BinaryOp::Div => write!(f, "/"),
+            BinaryOp::Modulo => write!(f, "%"),
+            BinaryOp::Greater => write!(f, ">"),
+            BinaryOp::GreaterEqual => write!(f, ">="),
+            BinaryOp::Less => write!(f, "<"),
+            BinaryOp::LessEqual => write!(f, "<="),
+            BinaryOp::NotEqual => write!(f, "~="),
+            BinaryOp::Equal => write!(f, "=="),
+            BinaryOp::And => write!(f, "and"),
+            BinaryOp::Or => write!(f, "or"),
         }
     }
 }
@@ -55,11 +75,26 @@ pub enum UnaryOp {
     Not,
 }
 
-impl UnaryOp {
-    pub fn to_lua(&self) -> &str {
+impl std::fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UnaryOp::Minus => "-",
-            UnaryOp::Not => "not ",
+            UnaryOp::Minus => write!(f, "-"),
+            UnaryOp::Not => write!(f, "not "),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum BindingType {
+    Local,
+    Global,
+}
+
+impl std::fmt::Display for BindingType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BindingType::Local => write!(f, "local"),
+            BindingType::Global => write!(f, ""),
         }
     }
 }
@@ -67,10 +102,17 @@ impl UnaryOp {
 #[derive(Clone, Debug)]
 pub enum OpCode {
     Push(Value),
+    Pop,
     Store(Identifier),
     Unary(UnaryOp),
     Binary(BinaryOp),
-    Binding(Identifier),
+    Binding(BindingType, Identifier),
+    Assign(Identifier),
+    Label(Label),
+    Jump(Label),
+    CondJump(Label),
+    Return,
+    Set,
     Print,
     StmtStart,
     StmtEnd,
@@ -91,6 +133,10 @@ impl IRConverter {
         self.opcodes.push(opcode)
     }
 
+    fn pop(&mut self) {
+        self.add_opcode(OpCode::Pop);
+    }
+
     fn push(&mut self, value: Value) {
         self.add_opcode(OpCode::Push(value));
     }
@@ -107,8 +153,8 @@ impl IRConverter {
         self.add_opcode(OpCode::Binary(op));
     }
 
-    fn binding(&mut self, identifier: Identifier) {
-        self.add_opcode(OpCode::Binding(identifier));
+    fn binding(&mut self, binding_type: BindingType, identifier: Identifier) {
+        self.add_opcode(OpCode::Binding(binding_type, identifier));
     }
 
     fn print(&mut self) {
@@ -133,24 +179,51 @@ impl IRConverter {
     fn program(&mut self, program: &[position::WithSpan<ast::Stmt>]) {
         for stmt in program {
             self.stmt_start();
-            match &stmt.value {
-                ast::Stmt::Expr(expr) => self.expr(expr),
-                ast::Stmt::Binding(binding) => {
-                    for (i, ident) in binding.identifiers.iter().enumerate() {
-                        self.binding(ident.value.clone());
-                        if let Some(expr) = binding.values.as_ref().map(|values| &values[i]) {
-                            self.expr(&expr.value);
-                            self.store(ident.value.clone());
-                        }
+            self.stmt(stmt);
+            self.stmt_end();
+        }
+    }
+
+    fn block(&mut self, program: &[position::WithSpan<ast::Stmt>]) {
+        if program.is_empty() {
+            self.push(Value::Nil);
+            return;
+        }
+        for stmt in program {
+            self.stmt_start();
+            self.stmt(stmt);
+            self.stmt_end();
+        }
+    }
+
+    fn stmt(&mut self, stmt: &position::WithSpan<ast::Stmt>) {
+        match &stmt.value {
+            ast::Stmt::Expr(ast::StmtExpr { expr, semi }) => {
+                self.expr(expr);
+                if semi.is_some() {
+                    self.pop();
+                }
+            }
+            ast::Stmt::Binding(binding) => {
+                for (i, ident) in binding.identifiers.iter().enumerate() {
+                    self.binding(
+                        match binding.binding_type {
+                            ast::BindingType::Local => BindingType::Local,
+                            ast::BindingType::Global => BindingType::Global,
+                        },
+                        ident.value.clone(),
+                    );
+                    if let Some(expr) = binding.values.as_ref().map(|values| &values[i]) {
+                        self.expr(&expr.value);
+                        self.store(ident.value.clone());
                     }
                 }
-                ast::Stmt::Print(expr) => {
-                    self.expr(&expr.value);
-                    self.print();
-                }
-                ast::Stmt::Item(item) => {}
             }
-            self.stmt_end();
+            ast::Stmt::Print(expr) => {
+                self.expr(&expr.value);
+                self.print();
+            }
+            ast::Stmt::Item(item) => {}
         }
     }
 
@@ -175,36 +248,53 @@ impl IRConverter {
                 self.expr(&binary_expr.left.value);
                 self.expr(&binary_expr.right.value);
                 self.binary(match &binary_expr.op.value {
-                    ast::BinaryOperator::Div => BinaryOp::Div,
-                    ast::BinaryOperator::Mult => BinaryOp::Mult,
-                    ast::BinaryOperator::Add => BinaryOp::Add,
-                    ast::BinaryOperator::Sub => BinaryOp::Sub,
-                    ast::BinaryOperator::Greater => BinaryOp::Greater,
-                    ast::BinaryOperator::GreaterEqual => BinaryOp::GreaterEqual,
-                    ast::BinaryOperator::Less => BinaryOp::Less,
-                    ast::BinaryOperator::LessEqual => BinaryOp::LessEqual,
-                    ast::BinaryOperator::NotEqual => BinaryOp::NotEqual,
-                    ast::BinaryOperator::Equal => BinaryOp::Equal,
-                    ast::BinaryOperator::Modulo => BinaryOp::Modulo,
-                    ast::BinaryOperator::And => BinaryOp::And,
-                    ast::BinaryOperator::Or => BinaryOp::Or,
+                    ast::BinaryOp::Div => BinaryOp::Div,
+                    ast::BinaryOp::Mult => BinaryOp::Mult,
+                    ast::BinaryOp::Add => BinaryOp::Add,
+                    ast::BinaryOp::Sub => BinaryOp::Sub,
+                    ast::BinaryOp::Greater => BinaryOp::Greater,
+                    ast::BinaryOp::GreaterEqual => BinaryOp::GreaterEqual,
+                    ast::BinaryOp::Less => BinaryOp::Less,
+                    ast::BinaryOp::LessEqual => BinaryOp::LessEqual,
+                    ast::BinaryOp::NotEqual => BinaryOp::NotEqual,
+                    ast::BinaryOp::Equal => BinaryOp::Equal,
+                    ast::BinaryOp::Modulo => BinaryOp::Modulo,
+                    ast::BinaryOp::And => BinaryOp::And,
+                    ast::BinaryOp::Or => BinaryOp::Or,
                 });
             }
             ast::Expr::Identifier(i) => self.push(Value::Identifier(i.clone())),
             ast::Expr::Block(stmts) => {
                 self.block_start();
-                self.program(stmts);
+                self.block(stmts);
                 self.block_end();
             }
-            ast::Expr::Assign(idents, values) => {
-                for (ident, expr) in idents.iter().zip(values) {
-                    self.expr(&expr.value);
-                    self.store(ident.value.clone());
+            ast::Expr::Assign(assigns) => {
+                for assign in assigns {
+                    match assign {
+                        ast::Assign::Binding(_, v) => {
+                            self.expr(&v.value);
+                        }
+                    }
                 }
+                for assign in assigns.iter().rev() {
+                    match assign {
+                        ast::Assign::Binding(i, _) => {
+                            self.store(i.value.clone());
+                        }
+                    }
+                }
+                self.push(Value::Nil);
             }
             ast::Expr::Call(_, items) => todo!(),
             ast::Expr::If(if_expr) => todo!(),
-            ast::Expr::List(items) => todo!(),
+            multivalue @ ast::Expr::Multivalue(_, _) => {
+                let (values, _) =
+                    ast::flatten_multivalue(position::WithSpan::empty(multivalue.clone()));
+                for value in values {
+                    self.expr(&value.value);
+                }
+            }
         }
     }
 }

@@ -131,18 +131,20 @@ impl<'a> Tokenizer<'a> {
                 '*' => Some(Token::Star),
                 '%' => Some(Token::Percent),
                 '#' => Some(Token::Hash),
-                '?' => Some(self.matches_or(
-                    '.',
-                    Token::MarkDot,
-                    Token::Unknown('?'),
-                )),
+                '?' => Some(self.matches_or('.', Token::MarkDot, Token::Unknown('?'))),
                 ':' => Some(Token::Colon),
 
                 '=' => {
-                    if let Some(next) = self.peek() {
+                    if let Some(next) = self.peek().cloned() {
                         match next {
-                            '>' => Some(Token::FatArrow),
-                            '=' => Some(Token::Equal2),
+                            '>' => {
+                                self.next_char();
+                                Some(Token::FatArrow)
+                            }
+                            '=' => {
+                                self.next_char();
+                                Some(Token::Equal2)
+                            }
                             _ => Some(Token::Equal),
                         }
                     } else {
@@ -151,12 +153,8 @@ impl<'a> Tokenizer<'a> {
                 }
                 '!' => Some(self.matches_or('=', Token::BangEqual, Token::Bang)),
                 '<' => Some(self.matches_or('=', Token::LessEqual, Token::Equal)),
-                '>' => {
-                    Some(self.matches_or('=', Token::GreaterEqual, Token::Greater))
-                }
-                '&' => {
-                    Some(self.matches_or('&', Token::Ampersand2, Token::Ampersand))
-                }
+                '>' => Some(self.matches_or('=', Token::GreaterEqual, Token::Greater)),
+                '&' => Some(self.matches_or('&', Token::Ampersand2, Token::Ampersand)),
                 '|' => Some(self.matches_or('|', Token::Bar2, Token::Bar)),
                 other => Some(Token::Unknown(other)),
             } {
@@ -225,12 +223,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn matches_or(
-        &mut self,
-        to_match: char,
-        matched: Token,
-        unmatched: Token,
-    ) -> Token {
+    fn matches_or(&mut self, to_match: char, matched: Token, unmatched: Token) -> Token {
         if self.consume_if(|ch| ch == to_match) {
             matched
         } else {

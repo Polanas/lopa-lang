@@ -1,8 +1,11 @@
 use crate::{
     ast,
-    ir::{self, OpCode::StmtEnd},
+    ir::{self},
     position,
 };
+
+const STACK_IDENT: &str = "__stack__ident__";
+const STACK_LOCALS_AMOUNT: u32 = 16;
 
 pub struct CodeGenerator {
     stacks: Vec<usize>,
@@ -11,9 +14,17 @@ pub struct CodeGenerator {
 
 impl CodeGenerator {
     fn new() -> Self {
-        Self {
+        let mut generator = Self {
             stacks: vec![0],
             output: String::new(),
+        };
+        generator.bind_stack_locals(STACK_LOCALS_AMOUNT);
+        generator
+    }
+
+    fn bind_stack_locals(&mut self, amount: u32) {
+        for i in 0..amount {
+            self.line(&format!("local {STACK_IDENT}{i}"));
         }
     }
 
@@ -44,7 +55,7 @@ impl CodeGenerator {
     }
 
     fn ident(&self, num: usize) -> String {
-        format!("__stack_ident__{num}")
+        format!("{STACK_IDENT}{num}")
     }
 
     fn head_ident(&self) -> String {
@@ -67,67 +78,147 @@ impl CodeGenerator {
         self.output.push('\n');
     }
 
+    fn opcode(&mut self, opcode: &ir::OpCode) {
+        match opcode {
+            ir::OpCode::Push(value) => match value {
+                ir::Value::Int(i) => {
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = {i}"));
+                }
+                ir::Value::Float(f) => {
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = {f}"));
+                }
+                ir::Value::String(s) => {
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = \"{s}\""));
+                }
+                ir::Value::Bool(b) => {
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = {b}"));
+                }
+                ir::Value::Nil => {
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = nil"));
+                }
+                ir::Value::Identifier(i) => {
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = {i}"));
+                }
+                ir::Value::Table => {
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = {{}}"));
+                }
+                ir::Value::Fn(fn_args, opcodes) => {
+                    let ident = self.push_ident();
+                    let mut args_string = String::new();
+                    for arg in &fn_args[0..(fn_args.len() - 1)] {
+                        args_string.push_str(&format!("{arg},"));
+                    }
+                    if let Some(last) = fn_args.last() {
+                        args_string.push_str(&last.to_string());
+                    }
+
+                    self.line(&format!("{ident} = function({args_string})"));
+                    for opcode in opcodes {
+                        self.opcode(opcode);
+                    }
+                    self.line("end");
+                }
+                ir::Value::Call(args_amount) => {
+                    let func = self.pop_ident();
+                    let mut args = vec![];
+                    for _ in 0..*args_amount {
+                        args.push(self.pop_ident());
+                    }
+                    let mut args_string = String::new();
+                    for arg in &args[0..args.len() - 1] {
+                        args_string.push_str(&format!("{arg},"));
+                    }
+                    if let Some(last_arg) = args.last() {
+                        args_string.push_str(&last_arg.to_string());
+                    }
+                    let ident = self.push_ident();
+                    self.line(&format!("{ident} = {func}({args_string})"));
+                }
+                ir::Value::Get => {
+                    let table = self.pop_ident();
+                    let ident = self.ident(self.head() - 1);
+                    self.line(&format!("{ident} = {table}[{ident}]"));
+                }
+            },
+            ir::OpCode::Store(i) => {
+                let ident = self.pop_ident();
+                self.line(&format!("{i} = {ident}"));
+            }
+            ir::OpCode::Unary(unary_op) => {
+                let ident = self.ident(self.head() - 1);
+                self.line(&format!("{ident} = {unary_op}{ident}"));
+            }
+            ir::OpCode::Binary(binary_op) => {
+                let right = self.pop_ident();
+                let ident = self.ident(self.head() - 1);
+                self.line(&format!("{ident} = {ident} {binary_op} {right}"));
+            }
+            ir::OpCode::Binding(binding_type, binding) => {
+                self.line(&format!("{binding_type} {binding} = 0"));
+            }
+            ir::OpCode::Print => {
+                let ident = self.pop_ident();
+                self.line(&format!("print({ident})"));
+            }
+            ir::OpCode::StmtStart => {
+                self.push_stack();
+            }
+            ir::OpCode::StmtEnd => {
+                self.pop_stack();
+            }
+            ir::OpCode::BlockStart => {
+                self.line("do");
+                self.push_stack();
+            }
+            ir::OpCode::BlockEnd => {
+                self.pop_stack();
+                self.push();
+                self.line("end");
+            }
+            ir::OpCode::Label(label) => {
+                self.line(&format!("::{label}::"));
+            }
+            ir::OpCode::Jump(label) => {
+                self.line(&format!("goto ::{label}::"));
+            }
+            ir::OpCode::CondJump(label) => {
+                let ident = self.pop_ident();
+                self.line(&format!("if {ident} then"));
+                self.line(&format!("goto ::{label}::"));
+                self.line("end");
+            }
+            ir::OpCode::Set => {
+                let table = self.pop_ident();
+                let value = self.pop_ident();
+                let key = self.pop_ident();
+                self.line(&format!("{table}[{key}] = {value}"))
+            }
+            ir::OpCode::Return => {
+                let ident = self.pop_ident();
+                self.line(&format!("return {ident}"));
+            }
+            ir::OpCode::Assign(assign_ident) => {
+                let ident = self.pop_ident();
+                self.line(&format!("{assign_ident} = {ident}"))
+            }
+            ir::OpCode::Pop => self.pop(),
+        }
+    }
+
     fn program(&mut self, program: &[position::WithSpan<ast::Stmt>]) {
         let ir_opcodes = ir::convert(program);
-        // dbg!(&ir_opcodes);
+        dbg!(&ir_opcodes);
 
         for (_i, opcode) in ir_opcodes.iter().enumerate() {
+            self.opcode(opcode);
             // dbg!(i, opcode);
-            match opcode {
-                ir::OpCode::Push(value) => match value {
-                    ir::Value::Int(i) => {
-                        let ident = self.push_ident();
-                        self.line(&format!("local {ident} = {i}"));
-                    }
-                    ir::Value::Float(f) => {
-                        let ident = self.push_ident();
-                        self.line(&format!("local {ident} = {f}"));
-                    }
-                    ir::Value::String(s) => {
-                        let ident = self.push_ident();
-                        self.line(&format!("local {ident} = \"{s}\""));
-                    }
-                    ir::Value::Bool(b) => {
-                        let ident = self.push_ident();
-                        self.line(&format!("local {ident} = {b}"));
-                    }
-                    ir::Value::Nil => {
-                        let ident = self.push_ident();
-                        self.line(&format!("local {ident} = nil"));
-                    }
-                    ir::Value::Identifier(i) => {
-                        let ident = self.push_ident();
-                        self.line(&format!("local {ident} = {i}"));
-                    }
-                },
-                ir::OpCode::Store(i) => {
-                    let ident = self.pop_ident();
-                    self.line(&format!("{i} = {ident}"));
-                }
-                ir::OpCode::Unary(unary_op) => {
-                    let head = self.head_ident();
-                    self.line(&format!("{head} = {}{head}", unary_op.to_lua()));
-                }
-                ir::OpCode::Binary(binary_op) => {
-                    let right = self.pop_ident();
-                    let ident = self.ident(self.head() - 1);
-                    self.line(&format!("{ident} = {ident} {} {right}", binary_op.to_lua()));
-                }
-                ir::OpCode::Binding(binding) => {
-                    self.line(&format!("local {binding}"));
-                }
-                ir::OpCode::Print => {
-                    let ident = self.pop_ident();
-                    self.line(&format!("print({ident})"));
-                }
-                ir::OpCode::StmtStart => self.push_stack(),
-                ir::OpCode::StmtEnd => self.pop_stack(),
-                ir::OpCode::BlockStart => self.push_stack(),
-                ir::OpCode::BlockEnd => {
-                    self.pop_stack();
-                    self.push();
-                }
-            }
         }
     }
 }
@@ -137,103 +228,3 @@ pub fn generate(program: &[position::WithSpan<ast::Stmt>]) -> String {
     generator.program(program);
     generator.output
 }
-//
-// struct State<'a> {
-//     output: &'a mut String,
-//     block_offset: usize,
-//     block_result_local: Option<String>,
-// }
-//
-// fn generate_statement(stmt: &position::WithSpan<ast::Stmt>, state: &mut State) {
-//     match &stmt.value {
-//         ast::Stmt::Expr(expr) => {
-//             if let Some(local) = &state.block_result_local {
-//                 state.output.push_str(local);
-//                 state.output.push_str("= ");
-//             } else {
-//                 state.output.push_str("return ");
-//             }
-//             generate_expr(&position::WithSpan::new(*expr.clone(), stmt.span), state);
-//         }
-//         ast::Stmt::Item(item) => {}
-//         ast::Stmt::Binding(binding) => {
-//             state.output.push_str(match binding.binding_type {
-//                 ast::BindingType::Let => "local ",
-//                 ast::BindingType::Global => "",
-//             });
-//             state.output.push_str(&binding.identifiers[0].value);
-//             state.output.push('\n');
-//             if let Some(values) = &binding.values {
-//                 state.output.push_str(&binding.identifiers[0].value);
-//                 state.output.push_str(" = ");
-//
-//                 generate_expr(&values[0], state);
-//             }
-//         }
-//         ast::Stmt::Print(expr) => {
-//             state.output.push_str("print(");
-//             generate_expr(expr, state);
-//             state.output.push(')');
-//         }
-//     }
-// }
-//
-// fn generate_expr(expr: &position::WithSpan<ast::Expr>, state: &mut State) {
-//     match &expr.value {
-//         ast::Expr::Nil => state.output.push_str("nil"),
-//         ast::Expr::Number(number) => match number {
-//             ast::Number::Float(f) => state.output.push_str(&f.to_string()),
-//             ast::Number::Int(i) => state.output.push_str(&i.to_string()),
-//         },
-//         ast::Expr::Bool(b) => state.output.push_str(&b.to_string()),
-//         ast::Expr::String(str) => {
-//             state.output.push('"');
-//             state.output.push_str(str);
-//             state.output.push('"');
-//         }
-//         ast::Expr::Grouping(e) => {
-//             state.output.push('(');
-//             generate_expr(e, state);
-//             state.output.push(')');
-//         }
-//         ast::Expr::Unary(op, expr) => {
-//             match op.value {
-//                 ast::UnaryOp::Minus => state.output.push('-'),
-//                 ast::UnaryOp::Not => state.output.push_str("not "),
-//             };
-//             generate_expr(expr, state);
-//         }
-//         ast::Expr::Binary(binary_expr) => {
-//             generate_expr(&binary_expr.left, state);
-//             state.output.push_str(binary_expr.op.value.to_lua());
-//             generate_expr(&binary_expr.right, state);
-//         }
-//         ast::Expr::Identifier(identifier) => state.output.push_str(identifier),
-//         ast::Expr::Block(items) => {
-//             let block_local_name = format!("__local__{}", state.output.len());
-//             let offset = state.block_offset;
-//             let declaration_string = format!(" local {block_local_name} do");
-//             state.block_offset += declaration_string.len();
-//             state.output.insert_str(offset, &declaration_string);
-//             state.block_result_local = Some(declaration_string);
-//
-//             let block_code = generate_program(items);
-//             // for stmt in items {
-//             //     let mut output = String::new();
-//             //     let mut state = State {
-//             //         output: &mut output,
-//             //         block_offset: 0,
-//             //     };
-//             //     generate_statement();
-//             // }
-//
-//             // state.output.push_str(" end");
-//             // generate_expr();
-//             state.block_result_local = None;
-//         }
-//         ast::Expr::Assign(items, items1) => todo!(),
-//         ast::Expr::Call(_, items) => todo!(),
-//         ast::Expr::If(if_expr) => todo!(),
-//         ast::Expr::List(items) => todo!(),
-//     }
-// }

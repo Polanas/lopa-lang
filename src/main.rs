@@ -11,12 +11,7 @@ fn test(x: i32) -> i32 {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-        let program = "
-    let y =\"2\";
-    let z=15;
-    let w= 11;
-    let x = {print \"1\"; 2} + { print y; 2 }*2+z+w;
-    print x;";
+    let program = "let x,y,s = 1,2,3; print x; print y; print s;";
     println!("program: {program}");
     println!();
     let tokens = tokenizer::tokenize(program);
@@ -29,7 +24,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             lua.load(lua_code).exec().unwrap();
         }
         Err(errs) => {
-            dbg!(errs);
+            for error in errs {
+                dbg!(
+                    error.message,
+                    Some(&program[(error.span.start.0 - 2)..(error.span.end.0) + 2])
+                );
+            }
         }
     }
 

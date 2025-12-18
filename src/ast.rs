@@ -1,15 +1,18 @@
-use crate::{position::WithSpan, token};
+use crate::{
+    position::{self, WithSpan},
+    token,
+};
 
 pub type Identifier = String;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum UnaryOperator {
-    Bang,
+pub enum UnaryOp {
+    Not,
     Minus,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum BinaryOperator {
+pub enum BinaryOp {
     Div,
     Mult,
     Add,
@@ -25,22 +28,22 @@ pub enum BinaryOperator {
     Or,
 }
 
-impl BinaryOperator {
+impl BinaryOp {
     pub fn to_lua(&self) -> &str {
         match self {
-            BinaryOperator::Div => "/",
-            BinaryOperator::Mult => "*",
-            BinaryOperator::Add => "+",
-            BinaryOperator::Sub => "-",
-            BinaryOperator::Greater => ">",
-            BinaryOperator::GreaterEqual => ">=",
-            BinaryOperator::Less => "<",
-            BinaryOperator::LessEqual => "<=",
-            BinaryOperator::NotEqual => "~=",
-            BinaryOperator::Equal => "==",
-            BinaryOperator::Modulo => "%",
-            BinaryOperator::And => "and",
-            BinaryOperator::Or => "or",
+            BinaryOp::Div => "/",
+            BinaryOp::Mult => "*",
+            BinaryOp::Add => "+",
+            BinaryOp::Sub => "-",
+            BinaryOp::Greater => ">",
+            BinaryOp::GreaterEqual => ">=",
+            BinaryOp::Less => "<",
+            BinaryOp::LessEqual => "<=",
+            BinaryOp::NotEqual => "~=",
+            BinaryOp::Equal => "==",
+            BinaryOp::Modulo => "%",
+            BinaryOp::And => "and",
+            BinaryOp::Or => "||",
         }
     }
     pub fn from_token(token: &token::Token) -> Option<Self> {
@@ -65,23 +68,7 @@ impl BinaryOperator {
 pub struct BinaryExpr {
     pub left: Box<WithSpan<Expr>>,
     pub right: Box<WithSpan<Expr>>,
-    pub op: WithSpan<BinaryOperator>,
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum UnaryOp {
-    Minus,
-    Not,
-}
-
-impl UnaryOp {
-    pub fn from_token(token: &token::Token) -> Option<Self> {
-        match *token {
-            token::Token::Minus => Some(Self::Minus),
-            token::Token::Bang => Some(Self::Not),
-            _ => None,
-        }
-    }
+    pub op: WithSpan<BinaryOp>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -104,6 +91,11 @@ pub enum Number {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum Assign {
+    Binding(WithSpan<String>, Box<WithSpan<Expr>>),
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     Nil,
     Number(Number),
@@ -113,16 +105,16 @@ pub enum Expr {
     Unary(WithSpan<UnaryOp>, Box<WithSpan<Expr>>),
     Binary(BinaryExpr),
     Identifier(Identifier),
-    Assign(Vec<WithSpan<Identifier>>, Vec<WithSpan<Expr>>),
+    Assign(Vec<Assign>),
     Call(Box<WithSpan<Expr>>, Vec<WithSpan<Expr>>),
     If(IfExpr),
     Block(Vec<WithSpan<Stmt>>),
-    List(Vec<WithSpan<Expr>>),
+    Multivalue(Box<WithSpan<Expr>>, Box<WithSpan<Expr>>),
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub enum BindingType {
-    Let,
+    Local,
     Global,
 }
 
@@ -136,10 +128,38 @@ pub struct Binding {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Item {}
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StmtExpr {
+    pub expr: Box<Expr>,
+    pub semi: Option<position::Span>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Stmt {
-    Expr(Box<Expr>),
+    Expr(StmtExpr),
     Item(Item),
     Binding(Binding),
     Print(Box<WithSpan<Expr>>),
+}
+pub fn flatten_multivalue(expr: WithSpan<Expr>) -> (Vec<WithSpan<Expr>>, position::Span) {
+    let Expr::Multivalue(mut head, first) = expr.value else {
+        let span = expr.span;
+        return (vec![expr], span);
+    };
+    let mut span = first.span;
+    let mut values = vec![*first];
+
+    while let WithSpan {
+        value: Expr::Multivalue(next, current),
+        span: current_span,
+    } = *head
+    {
+        values.push(*current.clone());
+        span = span.union(current_span);
+        head = next.clone();
+    }
+    values.push(*head);
+    values.reverse();
+
+    (values, span)
 }
