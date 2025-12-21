@@ -75,7 +75,7 @@ pub struct BinaryExpr {
 pub struct IfExpr {
     pub condition: Box<WithSpan<Expr>>,
     pub then_branch: Vec<WithSpan<Stmt>>,
-    pub else_branch: Option<Vec<WithSpan<Stmt>>>,
+    pub else_branch: Option<Box<WithSpan<Expr>>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

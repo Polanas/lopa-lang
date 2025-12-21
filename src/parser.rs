@@ -376,7 +376,7 @@ impl<'t> Parser<'t> {
     fn parse_assign(&mut self, left: WithSpan<Expr>) -> Option<WithSpan<Expr>> {
         self.expect(TokenKind::Equal)?;
         let (left, left_span) = ast::flatten_multivalue(left);
-        let right = self.parse_expr(Precedence::Assign)?;
+        let right = self.parse_expr(Precedence::Lowest)?;
         let (right, right_span) = ast::flatten_multivalue(right);
         let span = left_span.union(right_span);
 
@@ -426,6 +426,7 @@ impl<'t> Parser<'t> {
             TokenKind::Bang | TokenKind::Minus => self.parse_unary(),
             TokenKind::LeftParen => self.parse_grouping(),
             TokenKind::LeftBrace => self.parse_block(),
+            TokenKind::If => self.parse_if(),
             _ => {
                 self.add_error(
                     &format!("Unexpected {}", self.peek()),
@@ -434,6 +435,33 @@ impl<'t> Parser<'t> {
                 None
             }
         }
+    }
+
+    fn parse_if(&mut self) -> Option<WithSpan<Expr>> {
+        let if_token = self.expect(TokenKind::If)?;
+        let condition = self.parse_expr(Precedence::Lowest)?;
+        let WithSpan {
+            value: Expr::Block(then_branch),
+            span,
+        } = self.parse_block()?
+        else {
+            unreachable!()
+        };
+
+        let else_branch = if self.match_token(TokenKind::Else).is_some() {
+            Some(self.parse_expr(Precedence::Lowest)?.into())
+        } else {
+            None
+        };
+
+        Some(WithSpan::new(
+            Expr::If(IfExpr {
+                condition: condition.into(),
+                then_branch,
+                else_branch,
+            }),
+            if_token.span.union(span),
+        ))
     }
 
     fn parse_binary_op(&mut self) -> Option<WithSpan<BinaryOp>> {
@@ -714,10 +742,5 @@ mod tests {
         for diag in diagnostics {
             assert!(errs.contains(&diag.message.as_str()), "{}", diag.message);
         }
-    }
-
-    #[test]
-    fn debug_test() {
-        dbg!(parse_str("1+(1+) abc a"));
     }
 }

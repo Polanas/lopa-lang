@@ -27,7 +27,7 @@ pub enum Value {
     Nil,
     Identifier(Identifier),
     Table,
-    Fn(Vec<FnArg>, Vec<OpCode>),
+    Fn(Vec<FnArg>, Vec<Instruction>),
     Call(usize),
     Get,
 }
@@ -100,7 +100,7 @@ impl std::fmt::Display for BindingType {
 }
 
 #[derive(Clone, Debug)]
-pub enum OpCode {
+pub enum Instruction {
     Push(Value),
     Pop,
     Store(Identifier),
@@ -110,7 +110,8 @@ pub enum OpCode {
     Assign(Identifier),
     Label(Label),
     Jump(Label),
-    CondJump(Label),
+    JumpIfEqual(Label),
+    JumpIfNotEqual(Label),
     Return,
     Set,
     Print,
@@ -120,60 +121,89 @@ pub enum OpCode {
     BlockEnd,
 }
 
+const LABEL_IDENT: &str = "__label__ident__";
+
 pub struct IRConverter {
-    opcodes: Vec<OpCode>,
+    instructions: Vec<Instruction>,
+    labels_amount: usize,
 }
 
 impl IRConverter {
     fn new() -> Self {
-        Self { opcodes: vec![] }
+        Self {
+            instructions: vec![],
+            labels_amount: 0,
+        }
     }
 
-    fn add_opcode(&mut self, opcode: OpCode) {
-        self.opcodes.push(opcode)
+    fn add_opcode(&mut self, opcode: Instruction) {
+        self.instructions.push(opcode)
     }
 
     fn pop(&mut self) {
-        self.add_opcode(OpCode::Pop);
+        self.add_opcode(Instruction::Pop);
     }
 
     fn push(&mut self, value: Value) {
-        self.add_opcode(OpCode::Push(value));
+        self.add_opcode(Instruction::Push(value));
     }
 
     fn store(&mut self, identifier: Identifier) {
-        self.add_opcode(OpCode::Store(identifier));
+        self.add_opcode(Instruction::Store(identifier));
     }
 
     fn unary(&mut self, op: UnaryOp) {
-        self.add_opcode(OpCode::Unary(op));
+        self.add_opcode(Instruction::Unary(op));
     }
 
     fn binary(&mut self, op: BinaryOp) {
-        self.add_opcode(OpCode::Binary(op));
+        self.add_opcode(Instruction::Binary(op));
     }
 
     fn binding(&mut self, binding_type: BindingType, identifier: Identifier) {
-        self.add_opcode(OpCode::Binding(binding_type, identifier));
+        self.add_opcode(Instruction::Binding(binding_type, identifier));
     }
 
     fn print(&mut self) {
-        self.add_opcode(OpCode::Print);
+        self.add_opcode(Instruction::Print);
     }
 
     fn stmt_end(&mut self) {
-        self.add_opcode(OpCode::StmtEnd);
+        self.add_opcode(Instruction::StmtEnd);
     }
 
     fn stmt_start(&mut self) {
-        self.add_opcode(OpCode::StmtStart);
+        self.add_opcode(Instruction::StmtStart);
     }
 
     fn block_start(&mut self) {
-        self.add_opcode(OpCode::BlockStart);
+        self.add_opcode(Instruction::BlockStart);
     }
+
     fn block_end(&mut self) {
-        self.add_opcode(OpCode::BlockEnd);
+        self.add_opcode(Instruction::BlockEnd);
+    }
+
+    fn label(&mut self, label: Label) {
+        self.add_opcode(Instruction::Label(label));
+    }
+
+    fn jump(&mut self, label: Label) {
+        self.add_opcode(Instruction::Jump(label));
+    }
+
+    fn jump_ine(&mut self, label: Label) {
+        self.add_opcode(Instruction::JumpIfNotEqual(label));
+    }
+
+    fn jump_ie(&mut self, label: Label) {
+        self.add_opcode(Instruction::JumpIfEqual(label));
+    }
+
+    fn label_ident(&mut self) -> Label {
+        let ident = format!("{LABEL_IDENT}{}", self.labels_amount);
+        self.labels_amount += 1;
+        ident
     }
 
     fn program(&mut self, program: &[position::WithSpan<ast::Stmt>]) {
@@ -185,8 +215,10 @@ impl IRConverter {
     }
 
     fn block(&mut self, program: &[position::WithSpan<ast::Stmt>]) {
+        self.block_start();
         if program.is_empty() {
             self.push(Value::Nil);
+            self.block_end();
             return;
         }
         for stmt in program {
@@ -194,6 +226,7 @@ impl IRConverter {
             self.stmt(stmt);
             self.stmt_end();
         }
+        self.block_end();
     }
 
     fn stmt(&mut self, stmt: &position::WithSpan<ast::Stmt>) {
@@ -265,9 +298,7 @@ impl IRConverter {
             }
             ast::Expr::Identifier(i) => self.push(Value::Identifier(i.clone())),
             ast::Expr::Block(stmts) => {
-                self.block_start();
                 self.block(stmts);
-                self.block_end();
             }
             ast::Expr::Assign(assigns) => {
                 for assign in assigns {
@@ -287,7 +318,25 @@ impl IRConverter {
                 self.push(Value::Nil);
             }
             ast::Expr::Call(_, items) => todo!(),
-            ast::Expr::If(if_expr) => todo!(),
+            ast::Expr::If(if_expr) => {
+                self.block_start();
+                let else_label = self.label_ident();
+                let end_label = self.label_ident();
+                self.expr(&if_expr.condition.value);
+                self.jump_ine(else_label.clone());
+                self.block(&if_expr.then_branch);
+                self.jump(end_label.clone());
+
+                self.label(else_label);
+
+                if let Some(else_branch) = if_expr.else_branch.as_deref() {
+                    self.pop();
+                    self.expr(&else_branch.value);
+                }
+
+                self.label(end_label);
+                self.block_end();
+            }
             multivalue @ ast::Expr::Multivalue(_, _) => {
                 let (values, _) =
                     ast::flatten_multivalue(position::WithSpan::empty(multivalue.clone()));
@@ -299,8 +348,8 @@ impl IRConverter {
     }
 }
 
-pub fn convert(program: &[position::WithSpan<ast::Stmt>]) -> Vec<OpCode> {
+pub fn convert(program: &[position::WithSpan<ast::Stmt>]) -> Vec<Instruction> {
     let mut ir_converter = IRConverter::new();
     ir_converter.program(program);
-    ir_converter.opcodes
+    ir_converter.instructions
 }

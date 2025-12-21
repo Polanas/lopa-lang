@@ -78,9 +78,9 @@ impl CodeGenerator {
         self.output.push('\n');
     }
 
-    fn opcode(&mut self, opcode: &ir::OpCode) {
+    fn opcode(&mut self, opcode: &ir::Instruction) {
         match opcode {
-            ir::OpCode::Push(value) => match value {
+            ir::Instruction::Push(value) => match value {
                 ir::Value::Int(i) => {
                     let ident = self.push_ident();
                     self.line(&format!("{ident} = {i}"));
@@ -147,68 +147,74 @@ impl CodeGenerator {
                     self.line(&format!("{ident} = {table}[{ident}]"));
                 }
             },
-            ir::OpCode::Store(i) => {
+            ir::Instruction::Store(i) => {
                 let ident = self.pop_ident();
                 self.line(&format!("{i} = {ident}"));
             }
-            ir::OpCode::Unary(unary_op) => {
+            ir::Instruction::Unary(unary_op) => {
                 let ident = self.ident(self.head() - 1);
                 self.line(&format!("{ident} = {unary_op}{ident}"));
             }
-            ir::OpCode::Binary(binary_op) => {
+            ir::Instruction::Binary(binary_op) => {
                 let right = self.pop_ident();
                 let ident = self.ident(self.head() - 1);
                 self.line(&format!("{ident} = {ident} {binary_op} {right}"));
             }
-            ir::OpCode::Binding(binding_type, binding) => {
+            ir::Instruction::Binding(binding_type, binding) => {
                 self.line(&format!("{binding_type} {binding} = 0"));
             }
-            ir::OpCode::Print => {
+            ir::Instruction::Print => {
                 let ident = self.pop_ident();
                 self.line(&format!("print({ident})"));
             }
-            ir::OpCode::StmtStart => {
+            ir::Instruction::StmtStart => {
                 self.push_stack();
             }
-            ir::OpCode::StmtEnd => {
+            ir::Instruction::StmtEnd => {
                 self.pop_stack();
             }
-            ir::OpCode::BlockStart => {
+            ir::Instruction::BlockStart => {
                 self.line("do");
                 self.push_stack();
             }
-            ir::OpCode::BlockEnd => {
+            ir::Instruction::BlockEnd => {
                 self.pop_stack();
                 self.push();
                 self.line("end");
             }
-            ir::OpCode::Label(label) => {
+            ir::Instruction::Label(label) => {
                 self.line(&format!("::{label}::"));
             }
-            ir::OpCode::Jump(label) => {
-                self.line(&format!("goto ::{label}::"));
+            ir::Instruction::Jump(label) => {
+                self.line(&format!("goto {label}"));
             }
-            ir::OpCode::CondJump(label) => {
+            ir::Instruction::JumpIfEqual(label) => {
                 let ident = self.pop_ident();
                 self.line(&format!("if {ident} then"));
-                self.line(&format!("goto ::{label}::"));
+                self.line(&format!("goto {label}"));
                 self.line("end");
             }
-            ir::OpCode::Set => {
+            ir::Instruction::JumpIfNotEqual(label) => {
+                let ident = self.pop_ident();
+                self.line(&format!("if not ({ident}) then"));
+                self.line(&format!("goto {label}"));
+                self.line("end");
+            }
+            ir::Instruction::Set => {
                 let table = self.pop_ident();
                 let value = self.pop_ident();
                 let key = self.pop_ident();
                 self.line(&format!("{table}[{key}] = {value}"))
             }
-            ir::OpCode::Return => {
+            ir::Instruction::Return => {
                 let ident = self.pop_ident();
                 self.line(&format!("return {ident}"));
             }
-            ir::OpCode::Assign(assign_ident) => {
+            ir::Instruction::Assign(assign_ident) => {
                 let ident = self.pop_ident();
                 self.line(&format!("{assign_ident} = {ident}"))
             }
-            ir::OpCode::Pop => self.pop(),
+            ir::Instruction::Pop => self.pop(),
         }
     }
 

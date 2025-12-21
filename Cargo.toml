@@ -5,7 +5,11 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
+bitflags = "2.10.0"
+byteorder = "1.5.0"
 itertools = "0.14.0"
 mlua = { version = "0.11.5", features = ["luajit52"] }
+num-complex = "0.4.6"
+residua-uleb128 = "0.2.0"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"

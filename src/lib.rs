@@ -1,4 +1,6 @@
 pub mod code_gen;
+pub mod uleb128_33;
+pub mod luajit;
 pub mod ir;
 pub mod tokenizer;
 pub mod parser;
