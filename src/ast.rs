@@ -60,7 +60,7 @@ pub enum Item {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StmtExpr {
-    pub expr: Box<Expr>,
+    pub exprs: Vec<WithSpan<Expr>>,
     pub semi: Option<position::Span>,
 }
 

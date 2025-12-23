@@ -1,8 +1,8 @@
 use crate::{
     ast::{self, *},
+    common::*,
     position::{self, WithSpan},
     token::{self, Token, TokenKind},
-    common::*,
 };
 
 static EOF_TOKEN: WithSpan<Token> = position::WithSpan::empty(Token::EOF);
@@ -142,7 +142,7 @@ impl From<TokenKind> for Precedence {
             TokenKind::Plus | TokenKind::Minus => Self::Term,
             TokenKind::Star | TokenKind::Slash => Self::Factor,
             TokenKind::Bang => Self::Unary,
-            TokenKind::Comma => Self::Comma,
+            // TokenKind::Comma => Self::Comma,
             _ => Self::Lowest,
         }
     }
@@ -322,6 +322,9 @@ impl<'t> Parser<'t> {
         let mut expr = self.parse_prefix()?;
         while !self.is_at_end() {
             let next_precedence = Precedence::from(self.peek());
+            if self.peek() == TokenKind::Comma {
+                break;
+            }
             if precedence >= next_precedence {
                 break;
             }
@@ -569,16 +572,27 @@ impl<'t> Parser<'t> {
     }
 
     fn parse_expr_stmt(&mut self) -> Option<WithSpan<Stmt>> {
-        let expr = self.parse_expr(Precedence::Lowest)?;
+        let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
+        let mut span = exprs[0].span;
+        while let TokenKind::Comma = self.peek() {
+            self.expect(TokenKind::Comma);
+            if let Some(semi) = self.parse_optional_semi() {
+                let span = span.union(semi);
+                return Some(WithSpan::new(
+                    Stmt::Expr(StmtExpr {
+                        exprs,
+                        semi: Some(semi),
+                    }),
+                    span,
+                ));
+            }
+            let expr = self.parse_expr(Precedence::Lowest)?;
+            span = span.union(expr.span);
+            exprs.push(expr);
+        }
         let semi = self.parse_optional_semi();
-        let span = semi.map(|s| expr.span.union(s)).unwrap_or(expr.span);
-        Some(WithSpan::new(
-            Stmt::Expr(StmtExpr {
-                expr: expr.value.into(),
-                semi,
-            }),
-            span,
-        ))
+        let span = semi.map(|s| span.union(s)).unwrap_or(span);
+        Some(WithSpan::new(Stmt::Expr(StmtExpr { exprs, semi }), span))
     }
 
     fn parse_optional_semi(&mut self) -> Option<position::Span> {
@@ -600,18 +614,51 @@ impl<'t> Parser<'t> {
         };
 
         let WithSpan {
-            value: Expr::Identifier(s),
-            span,
-        } = self.parse_expr(Precedence::Assign)?
+            value: Token::Identifier(ident),
+            span: ident_span,
+        } = self.advance()
         else {
             return None;
         };
-        let ident_span = span;
+        let mut identifiers = vec![WithSpan::new(ident.clone(), *ident_span)];
+        let mut span = binding_token.span.union(*ident_span);
+
+        while let TokenKind::Comma = self.peek() {
+            self.expect(TokenKind::Comma);
+            let WithSpan {
+                value: Token::Identifier(ident),
+                span: ident_span,
+            } = self.advance()
+            else {
+                unreachable!();
+            };
+
+            span = span.union(*ident_span);
+            identifiers.push(WithSpan::new(ident.clone(), *ident_span))
+        }
 
         if self.match_token(TokenKind::Equal).is_some() {
-            let expr = self.parse_expr(Precedence::Lowest)?;
+            let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
+            let mut span = span.union(exprs[0].span);
+            while let TokenKind::Comma = self.peek() {
+                self.expect(TokenKind::Comma);
+                if let Some(semi) = self.parse_optional_semi() {
+                    span = span.union(semi);
 
-            let span = span.union(expr.span);
+                    return Some(WithSpan::new(
+                        Stmt::Binding(Binding {
+                            binding_type,
+                            identifiers,
+                            values: Some(exprs),
+                        }),
+                        span,
+                    ));
+                }
+                let expr = self.parse_expr(Precedence::Lowest)?;
+                span = span.union(expr.span);
+                exprs.push(expr);
+            }
+
             let span = self
                 .parse_optional_semi()
                 .map(|s| span.union(s))
@@ -620,8 +667,8 @@ impl<'t> Parser<'t> {
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
                     binding_type,
-                    identifiers: vec![WithSpan::new(s, ident_span)],
-                    values: Some(vec![expr]),
+                    identifiers,
+                    values: Some(exprs),
                 }),
                 span,
             ))
@@ -634,7 +681,7 @@ impl<'t> Parser<'t> {
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
                     binding_type,
-                    identifiers: vec![WithSpan::new(s, ident_span)],
+                    identifiers,
                     values: None,
                 }),
                 span,

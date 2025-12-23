@@ -3,15 +3,7 @@ mod shared_mut;
 
 use std::{error::Error, io::Read};
 
-use lopa_lang::{
-    code_gen, code_gen_new, instruction, ir_new, luajit, parser, tokenizer,
-    uleb128_33::WriteULEB128_33Ext,
-};
-
-fn test(x: i32) -> i32 {
-    println!("x = {x}");
-    x
-}
+use lopa_lang::{code_gen, instruction, ir, luajit, parser, tokenizer};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // let mut context = luajit::Context::new();
@@ -29,15 +21,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // context.write_proto(proto);
     // let dump = context.finish();
     // mlua::Lua::new().load(&dump).exec().unwrap();
-    //
-    let program = "let x = 1; let y = 2; print x; print (y+x-10)/10";
+    let program = "let x,y,z = {1,2}; print x; print y; print z;";
     let tokens = tokenizer::tokenize(program);
     let ast = parser::parse_program(&tokens);
     match ast {
         Ok(ast) => {
-            let ir_context = ir_new::generate(&ast);
-            dbg!(&ir_context.instructions);
-            let bytecode = code_gen_new::generate(ir_context);
+            let ir_context = ir::generate(&ast);
+            let bytecode = code_gen::generate(ir_context);
             std::fs::write("binary", &bytecode).unwrap();
             mlua::Lua::new().load(&bytecode).exec().unwrap();
         }
@@ -45,7 +35,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             for error in errs {
                 dbg!(
                     error.message,
-                    Some(&program[(error.span.start.0 - 2)..(error.span.end.0) + 2])
+                    Some(
+                        &program[(((error.span.start.0 as i32) - 2).min(0) as usize)
+                            ..(error.span.end.0) + 2]
+                    )
                 );
             }
         }

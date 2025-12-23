@@ -1,236 +1,313 @@
-use crate::{
-    ast,
-    ir::{self},
-    position,
-};
+use crate::common::*;
+use crate::instruction as I;
+use crate::{ir, luajit};
+use std::collections::HashMap;
 
-// const STACK_IDENT: &str = "__stack__ident__";
-// const STACK_LOCALS_AMOUNT: u32 = 16;
-//
-// pub struct CodeGenerator {
-//     stacks: Vec<usize>,
-//     output: String,
-// }
-//
-// impl CodeGenerator {
-//     fn new() -> Self {
-//         let mut generator = Self {
-//             stacks: vec![0],
-//             output: String::new(),
-//         };
-//         generator.bind_stack_locals(STACK_LOCALS_AMOUNT);
-//         generator
-//     }
-//
-//     fn bind_stack_locals(&mut self, amount: u32) {
-//         for i in 0..amount {
-//             self.line(&format!("local {STACK_IDENT}{i}"));
-//         }
-//     }
-//
-//     fn head_mut(&mut self) -> &mut usize {
-//         let len = self.stacks.len();
-//         &mut self.stacks[len - 1]
-//     }
-//
-//     fn head(&self) -> usize {
-//         let len = self.stacks.len();
-//         self.stacks[len - 1]
-//     }
-//
-//     fn push(&mut self) {
-//         *self.head_mut() += 1
-//     }
-//
-//     fn pop(&mut self) {
-//         *self.head_mut() -= 1
-//     }
-//
-//     fn push_stack(&mut self) {
-//         self.stacks.push(self.head())
-//     }
-//
-//     fn pop_stack(&mut self) {
-//         self.stacks.pop();
-//     }
-//
-//     fn ident(&self, num: usize) -> String {
-//         format!("{STACK_IDENT}{num}")
-//     }
-//
-//     fn head_ident(&self) -> String {
-//         self.ident(self.head())
-//     }
-//
-//     fn push_ident(&mut self) -> String {
-//         let ident = self.head_ident();
-//         self.push();
-//         ident
-//     }
-//
-//     fn pop_ident(&mut self) -> String {
-//         self.pop();
-//         self.head_ident()
-//     }
-//
-//     fn line(&mut self, text: &str) {
-//         self.output.push_str(text);
-//         self.output.push('\n');
-//     }
-//
-//     fn opcode(&mut self, opcode: &ir::Instruction) {
-//         match opcode {
-//             ir::Instruction::Push(value) => match value {
-//                 ir::Value::Int(i) => {
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = {i}"));
-//                 }
-//                 ir::Value::Float(f) => {
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = {f}"));
-//                 }
-//                 ir::Value::String(s) => {
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = \"{s}\""));
-//                 }
-//                 ir::Value::Bool(b) => {
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = {b}"));
-//                 }
-//                 ir::Value::Nil => {
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = nil"));
-//                 }
-//                 ir::Value::Identifier(i) => {
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = {i}"));
-//                 }
-//                 ir::Value::Table => {
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = {{}}"));
-//                 }
-//                 ir::Value::Fn(fn_args, opcodes) => {
-//                     let ident = self.push_ident();
-//                     let mut args_string = String::new();
-//                     for arg in &fn_args[0..(fn_args.len() - 1)] {
-//                         args_string.push_str(&format!("{arg},"));
-//                     }
-//                     if let Some(last) = fn_args.last() {
-//                         args_string.push_str(&last.to_string());
-//                     }
-//
-//                     self.line(&format!("{ident} = function({args_string})"));
-//                     for opcode in opcodes {
-//                         self.opcode(opcode);
-//                     }
-//                     self.line("end");
-//                 }
-//                 ir::Value::Call(args_amount) => {
-//                     let func = self.pop_ident();
-//                     let mut args = vec![];
-//                     for _ in 0..*args_amount {
-//                         args.push(self.pop_ident());
-//                     }
-//                     let mut args_string = String::new();
-//                     for arg in &args[0..args.len() - 1] {
-//                         args_string.push_str(&format!("{arg},"));
-//                     }
-//                     if let Some(last_arg) = args.last() {
-//                         args_string.push_str(&last_arg.to_string());
-//                     }
-//                     let ident = self.push_ident();
-//                     self.line(&format!("{ident} = {func}({args_string})"));
-//                 }
-//                 ir::Value::Get => {
-//                     let table = self.pop_ident();
-//                     let ident = self.ident(self.head() - 1);
-//                     self.line(&format!("{ident} = {table}[{ident}]"));
-//                 }
-//             },
-//             ir::Instruction::Store(i) => {
-//                 let ident = self.pop_ident();
-//                 self.line(&format!("{i} = {ident}"));
-//             }
-//             ir::Instruction::Unary(unary_op) => {
-//                 let ident = self.ident(self.head() - 1);
-//                 self.line(&format!("{ident} = {unary_op}{ident}"));
-//             }
-//             ir::Instruction::Binary(binary_op) => {
-//                 let right = self.pop_ident();
-//                 let ident = self.ident(self.head() - 1);
-//                 self.line(&format!("{ident} = {ident} {binary_op} {right}"));
-//             }
-//             ir::Instruction::Binding(binding_type, binding) => {
-//                 self.line(&format!("{binding_type} {binding} = 0"));
-//             }
-//             ir::Instruction::Print => {
-//                 let ident = self.pop_ident();
-//                 self.line(&format!("print({ident})"));
-//             }
-//             ir::Instruction::StmtStart => {
-//                 self.push_stack();
-//             }
-//             ir::Instruction::StmtEnd => {
-//                 self.pop_stack();
-//             }
-//             ir::Instruction::BlockStart => {
-//                 self.line("do");
-//                 self.push_stack();
-//             }
-//             ir::Instruction::BlockEnd => {
-//                 self.pop_stack();
-//                 self.push();
-//                 self.line("end");
-//             }
-//             ir::Instruction::Label(label) => {
-//                 self.line(&format!("::{label}::"));
-//             }
-//             ir::Instruction::Jump(label) => {
-//                 self.line(&format!("goto {label}"));
-//             }
-//             ir::Instruction::JumpIfEqual(label) => {
-//                 let ident = self.pop_ident();
-//                 self.line(&format!("if {ident} then"));
-//                 self.line(&format!("goto {label}"));
-//                 self.line("end");
-//             }
-//             ir::Instruction::JumpIfNotEqual(label) => {
-//                 let ident = self.pop_ident();
-//                 self.line(&format!("if not ({ident}) then"));
-//                 self.line(&format!("goto {label}"));
-//                 self.line("end");
-//             }
-//             ir::Instruction::Set => {
-//                 let table = self.pop_ident();
-//                 let value = self.pop_ident();
-//                 let key = self.pop_ident();
-//                 self.line(&format!("{table}[{key}] = {value}"))
-//             }
-//             ir::Instruction::Return => {
-//                 let ident = self.pop_ident();
-//                 self.line(&format!("return {ident}"));
-//             }
-//             ir::Instruction::Assign(assign_ident) => {
-//                 let ident = self.pop_ident();
-//                 self.line(&format!("{assign_ident} = {ident}"))
-//             }
-//             ir::Instruction::Pop => self.pop(),
-//         }
-//     }
-//
-//     fn program(&mut self, program: &[position::WithSpan<ast::Stmt>]) {
-//         let ir_opcodes = ir::convert(program);
-//         dbg!(&ir_opcodes);
-//
-//         for (_i, opcode) in ir_opcodes.iter().enumerate() {
-//             self.opcode(opcode);
-//             // dbg!(i, opcode);
-//         }
-//     }
-// }
-//
-// pub fn generate(program: &[position::WithSpan<ast::Stmt>]) -> String {
-//     let mut generator = CodeGenerator::new();
-//     generator.program(program);
-//     generator.output
-// }
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct SlotId(pub usize);
+
+type Identifier = String;
+
+#[derive(Debug, Clone)]
+struct Scope {
+    locals: HashMap<Identifier, SlotId>,
+    stack: usize,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Self {
+            locals: Default::default(),
+            stack: 0,
+        }
+    }
+
+    fn local(&mut self, ident: &str) -> usize {
+        if let Some(slot) = self.locals.get(ident) {
+            slot.0
+        } else {
+            let stack = self.stack;
+            self.locals.insert(ident.to_owned(), SlotId(stack));
+            self.stack += 1;
+            stack
+        }
+    }
+
+    fn insert_local(&mut self, ident: &str) {
+        let stack = self.stack;
+        self.locals.insert(ident.to_owned(), SlotId(stack));
+        self.stack += 1;
+    }
+}
+
+pub struct Context {
+    luajit_context: luajit::Context,
+    scopes: Vec<Scope>,
+    temp_stack: usize,
+    persistent_stack: usize,
+    return_stack: Option<usize>,
+    clear_temp_at_stmt_end: bool,
+}
+
+impl Context {
+    fn new() -> Self {
+        Self {
+            luajit_context: luajit::Context::new(),
+            scopes: Default::default(),
+            temp_stack: 0,
+            persistent_stack: 0,
+            return_stack: None,
+            clear_temp_at_stmt_end: true,
+        }
+    }
+
+    fn push_persistent(&mut self) -> usize {
+        let stack = self.persistent_stack;
+        self.persistent_stack += 1;
+        stack
+    }
+
+    fn pop_persistent(&mut self) -> usize {
+        let stack = self.persistent_stack;
+        self.persistent_stack -= 1;
+        stack
+    }
+
+    fn push(&mut self) -> usize {
+        let stack = self.temp_stack;
+        self.temp_stack += 1;
+        stack + self.persistent_stack + self.current_scope_mut().stack
+    }
+
+    fn pop(&mut self) -> usize {
+        self.temp_stack -= 1;
+        self.temp_stack + self.persistent_stack + self.current_scope_mut().stack
+    }
+
+    fn clear_temp(&mut self) {
+        self.temp_stack = 0;
+    }
+
+    fn top_temp(&self) -> usize {
+        self.temp_stack + self.persistent_stack - 1 + self.current_scope().stack
+    }
+
+    fn top_temp_optional(&self) -> Option<usize> {
+        if self.temp_stack == 0 {
+            None
+        } else {
+            Some(self.temp_stack + self.persistent_stack - 1 + self.current_scope().stack)
+        }
+    }
+
+    fn current_scope_mut(&mut self) -> &mut Scope {
+        let len = self.scopes.len() - 1;
+        &mut self.scopes[len]
+    }
+
+    fn current_scope(&self) -> &Scope {
+        let len = self.scopes.len() - 1;
+        &self.scopes[len]
+    }
+
+    fn push_scope(&mut self) -> &mut Scope {
+        if self.scopes.is_empty() {
+            self.scopes.push(Scope::new());
+        }
+        let scope = self.current_scope_mut().clone();
+        self.scopes.push(scope);
+        self.current_scope_mut()
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn move_if_different(a: u8, d: u16, proto: &mut luajit::Proto) {
+        if a != (d as u8) {
+            proto.instructions.push(I!(MOV, a, d))
+        }
+    }
+
+    fn generate(&mut self, mut ir_context: ir::FunctionContext) {
+        self.push_scope();
+        ir_context
+            .gc_constants
+            .push(luajit::GCConstant::Str(String::from("print")));
+        let print_const = (ir_context.gc_constants.len() - 1) as u16;
+        let mut proto = luajit::Proto::default();
+
+        for gc_const in ir_context.gc_constants {
+            proto.gc_constants.push(gc_const);
+        }
+        for num_const in ir_context.num_constants {
+            proto.number_constants.push(num_const);
+        }
+
+        for (id, instruction) in ir_context.instructions.iter().enumerate() {
+            match instruction {
+                ir::Instruction::Push(value) => match value {
+                    ir::Value::Int16(id) => {
+                        proto
+                            .instructions
+                            .push(I!(KSHORT, self.push() as _, id.cast_unsigned()))
+                    }
+                    ir::Value::Number(id) => {
+                        proto.instructions.push(I!(KNUM, self.push() as _, id.0));
+                    }
+                    ir::Value::String(id) => {
+                        proto.instructions.push(I!(KSTR, self.push() as _, id.0));
+                    }
+                    ir::Value::Bool(b) => {
+                        proto
+                            .instructions
+                            .push(I!(KPRI, self.push() as _, if *b { 2 } else { 1 }))
+                    }
+                    ir::Value::Nil => proto.instructions.push(I!(KPRI, self.push() as _, 0)),
+                    ir::Value::Table(table) => todo!(),
+                    ir::Value::Identifier(i) => (),
+                },
+                ir::Instruction::Pop => {
+                    self.pop();
+                }
+                ir::Instruction::Local(idents) => {
+                    for ident in idents {
+                        self.current_scope_mut().insert_local(ident);
+                    }
+                    // let id = self.pop_temp();
+                    // Self::move_if_different(local as _, id as _, &mut proto);
+                }
+                ir::Instruction::Assign(ident) => {
+                    // let id = self.pop_temp();
+                    // let local = self.current_scope_mut().local(ident);
+                    // Self::move_if_different(local as _, id as _, &mut proto);
+                }
+                ir::Instruction::Unary(unary_op) => {
+                    let prev = &ir_context.instructions[id - 1];
+                    if let ir::Instruction::Push(ir::Value::Identifier(i)) = prev {
+                        let local = self.current_scope_mut().local(i);
+                        match unary_op {
+                            UnaryOp::Not => {
+                                proto
+                                    .instructions
+                                    .push(I!(NOT, self.push() as _, local as _));
+                            }
+                            UnaryOp::Negate => {
+                                proto
+                                    .instructions
+                                    .push(I!(UNM, self.push() as _, local as _));
+                            }
+                        }
+                    } else {
+                        match unary_op {
+                            UnaryOp::Not => {
+                                proto.instructions.push(I!(
+                                    NOT,
+                                    self.top_temp() as _,
+                                    self.top_temp() as _,
+                                ));
+                            }
+                            UnaryOp::Negate => {
+                                proto.instructions.push(I!(
+                                    UNM,
+                                    self.top_temp() as _,
+                                    self.top_temp() as _,
+                                ));
+                            }
+                        }
+                    }
+                }
+                ir::Instruction::Binary(binary_op) => {
+                    let right = if let ir::Instruction::Push(ir::Value::Identifier(i)) =
+                        &ir_context.instructions[id - 1]
+                    {
+                        self.current_scope_mut().local(i)
+                    } else {
+                        self.pop()
+                    };
+                    let left = if let ir::Instruction::Push(ir::Value::Identifier(i)) =
+                        &ir_context.instructions[id - 2]
+                    {
+                        self.current_scope_mut().local(i)
+                    } else {
+                        self.pop()
+                    };
+
+                    let opcode = match binary_op {
+                        BinaryOp::Div => luajit::OpCode::DIVVV,
+                        BinaryOp::Mult => luajit::OpCode::MULVV,
+                        BinaryOp::Add => luajit::OpCode::ADDVV,
+                        BinaryOp::Sub => luajit::OpCode::SUBVV,
+                        BinaryOp::Greater => luajit::OpCode::KSHORT,
+                        BinaryOp::GreaterEqual => todo!(),
+                        BinaryOp::Less => todo!(),
+                        BinaryOp::LessEqual => todo!(),
+                        BinaryOp::NotEqual => todo!(),
+                        BinaryOp::Equal => todo!(),
+                        BinaryOp::Modulo => luajit::OpCode::MODVV,
+                        BinaryOp::And => todo!(),
+                        BinaryOp::Or => todo!(),
+                    };
+
+                    //TODO: implement assign directly to locals
+                    proto.instructions.push(luajit::Instruction::ABC(
+                        opcode,
+                        luajit::ABC::new(self.push() as _, left as _, right as _),
+                    ));
+                }
+                ir::Instruction::Jump(conditional_jump, _) => todo!(),
+                ir::Instruction::StmtEnd => {
+                    if self.clear_temp_at_stmt_end {
+                        self.clear_temp();
+                    }
+                }
+                ir::Instruction::ScopeStart => {}
+                ir::Instruction::ScopeEnd => {}
+                ir::Instruction::Print => {
+                    let top = self.top_temp_optional();
+
+                    proto
+                        .instructions
+                        .push(I!(GGET, self.push() as _, print_const));
+                    let print = self.top_temp();
+
+                    self.push();
+                    let prev = &ir_context.instructions[id - 1];
+                    if let ir::Instruction::Push(ir::Value::Identifier(i)) = prev {
+                        let local = self.current_scope_mut().local(i);
+                        Self::move_if_different(self.push() as _, local as _, &mut proto);
+                        proto.instructions.push(I!(CALL, print as _, 1, 2));
+                    } else {
+                        Self::move_if_different(self.push() as _, top.unwrap() as _, &mut proto);
+                        proto.instructions.push(I!(CALL, print as _, 1, 2));
+                    }
+
+                    self.pop();
+                    self.pop();
+                    self.pop();
+                }
+                ir::Instruction::Global(global) => todo!(),
+                ir::Instruction::AssignStart => {
+                    self.clear_temp_at_stmt_end = false;
+                }
+                ir::Instruction::AssignEnd => {
+                    self.clear_temp_at_stmt_end = true;
+                    self.clear_temp();
+                }
+            }
+        }
+        self.pop_scope();
+        proto.instructions.push(I!(RET0, 0, 1));
+
+        proto.gc_constants.reverse();
+        proto.number_constants.reverse();
+
+        self.luajit_context.write_proto(proto);
+    }
+}
+
+pub fn generate(ir: ir::FunctionContext) -> Vec<u8> {
+    let mut context = Context::new();
+    context.generate(ir);
+    context.luajit_context.finish()
+}
