@@ -2,6 +2,7 @@ use crate::{
     ast::{self, *},
     position::{self, WithSpan},
     token::{self, Token, TokenKind},
+    common::*,
 };
 
 static EOF_TOKEN: WithSpan<Token> = position::WithSpan::empty(Token::EOF);
@@ -347,7 +348,6 @@ impl<'t> Parser<'t> {
             | Token::Star
             | Token::Slash
             | Token::Percent => self.parse_binary(left),
-            Token::Comma => self.parse_multivalue(left),
             Token::Equal => self.parse_assign(left),
             _ => {
                 self.add_error(
@@ -359,56 +359,25 @@ impl<'t> Parser<'t> {
         }
     }
 
-    fn parse_multivalue(&mut self, left: WithSpan<Expr>) -> Option<WithSpan<Expr>> {
-        self.expect(TokenKind::Comma)?;
-        let span = left.span;
-        let expr = self.parse_expr(Precedence::Comma)?;
-        Some(WithSpan::new(
-            Expr::Multivalue(left.into(), expr.into()),
-            span,
-        ))
-    }
-
     fn parse_index(&mut self) -> Option<WithSpan<Expr>> {
         None
     }
 
     fn parse_assign(&mut self, left: WithSpan<Expr>) -> Option<WithSpan<Expr>> {
         self.expect(TokenKind::Equal)?;
-        let (left, left_span) = ast::flatten_multivalue(left);
         let right = self.parse_expr(Precedence::Lowest)?;
-        let (right, right_span) = ast::flatten_multivalue(right);
-        let span = left_span.union(right_span);
+        let span = left.span.union(right.span);
 
-        if left.len() != right.len() {
-            self.add_error(
-                &format!(
-                    "Expected {} value{}",
-                    left.len(),
-                    if left.len() > 1 { "s" } else { "" }
-                ),
+        match &left.value {
+            Expr::Identifier(s) => Some(WithSpan::new(
+                Expr::Assign(WithSpan::new(s.clone(), left.span), right.into()),
                 span,
-            );
-            return None;
-        }
-
-        let mut assigns = vec![];
-        for (left, right) in left.into_iter().zip(right.into_iter()) {
-            match &left.value {
-                Expr::Identifier(i) => {
-                    assigns.push(Assign::Binding(
-                        WithSpan::new(i.clone(), left.span),
-                        right.into(),
-                    ));
-                }
-                _ => {
-                    self.add_error("Invalid left value", left.span);
-                    return None;
-                }
+            )),
+            _ => {
+                self.add_error("Invalid left value", left.span);
+                None
             }
         }
-
-        Some(WithSpan::new(Expr::Assign(assigns), span))
     }
 
     fn parse_call(&mut self) -> Option<WithSpan<Expr>> {
@@ -512,7 +481,7 @@ impl<'t> Parser<'t> {
         let token = self.advance();
         match &token.value {
             Token::Bang => Some(WithSpan::new(UnaryOp::Not, token.span)),
-            Token::Minus => Some(WithSpan::new(UnaryOp::Minus, token.span)),
+            Token::Minus => Some(WithSpan::new(UnaryOp::Negate, token.span)),
             _ => {
                 self.add_error(
                     &format!("Unexpected {}", TokenKind::from(&token.value)),
@@ -630,46 +599,29 @@ impl<'t> Parser<'t> {
             _ => unreachable!(),
         };
 
-        let ident = self.parse_expr(Precedence::Assign)?;
-        let (identifiers, span) = ast::flatten_multivalue(ident);
-        let identifiers = identifiers
-            .into_iter()
-            .map(|ident| {
-                if let Expr::Identifier(i) = &ident.value {
-                    Some(WithSpan::new(i.clone(), ident.span))
-                } else {
-                    self.add_error("Expected identifier", ident.span);
-                    None
-                }
-            })
-            .collect::<Option<Vec<_>>>()?;
+        let WithSpan {
+            value: Expr::Identifier(s),
+            span,
+        } = self.parse_expr(Precedence::Assign)?
+        else {
+            return None;
+        };
+        let ident_span = span;
 
         if self.match_token(TokenKind::Equal).is_some() {
             let expr = self.parse_expr(Precedence::Lowest)?;
-            let (values, values_span) = ast::flatten_multivalue(expr);
 
+            let span = span.union(expr.span);
             let span = self
                 .parse_optional_semi()
-                .map(|s| values_span.union(s))
+                .map(|s| span.union(s))
                 .unwrap_or(span);
-
-            if values.len() != identifiers.len() {
-                self.add_error(
-                    &format!(
-                        "Expected {} value{}",
-                        identifiers.len(),
-                        if identifiers.len() > 1 { "s" } else { "" }
-                    ),
-                    span,
-                );
-                return None;
-            }
 
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
                     binding_type,
-                    identifiers,
-                    values: Some(values),
+                    identifiers: vec![WithSpan::new(s, ident_span)],
+                    values: Some(vec![expr]),
                 }),
                 span,
             ))
@@ -682,7 +634,7 @@ impl<'t> Parser<'t> {
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
                     binding_type,
-                    identifiers: vec![],
+                    identifiers: vec![WithSpan::new(s, ident_span)],
                     values: None,
                 }),
                 span,

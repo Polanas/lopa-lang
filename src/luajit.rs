@@ -1,16 +1,21 @@
-use std::io::Write;
-
 use byteorder::{LittleEndian, WriteBytesExt};
 use uleb128::WriteULeb128Ext;
 
 use crate::uleb128_33::WriteULEB128_33Ext;
 
+#[macro_export]
 macro_rules! instruction {
-    ($opcode: ident,$a:expr, $d: expr) => {
-        Instruction::AD(OpCode::$opcode, AD::new($a, $d))
+    ($opcode: ident,$a:expr, $d: expr $(,)?) => {
+        $crate::luajit::Instruction::AD(
+            $crate::luajit::OpCode::$opcode,
+            $crate::luajit::AD::new($a, $d),
+        )
     };
-    ($opcode: ident,$a:expr, $b: expr, $c: expr) => {
-        Instruction::ABC(OpCode::$opcode, ABC::new($a, $b, $c))
+    ($opcode: ident,$a:expr, $b: expr, $c: expr $(,)?) => {
+        $crate::luajit::Instruction::ABC(
+            $crate::luajit::OpCode::$opcode,
+            $crate::luajit::ABC::new($a, $b, $c),
+        )
     };
 }
 
@@ -115,6 +120,8 @@ pub enum OpCode {
     JFUNCV, // unsupported
     FUNCC, // unsupported
     FUNCCW, // unsupported
+
+    MAX = u8::MAX,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -168,7 +175,7 @@ bitflags::bitflags! {
 }
 
 bitflags::bitflags! {
-    #[derive(Clone, Copy,Debug)]
+    #[derive(Clone, Copy, Debug, Default)]
     pub struct ProtoFlags: u8 {
         /// Has child prototypes.
         const HAS_CHILD = 0x01;
@@ -199,7 +206,7 @@ pub enum GCConstantKind {
 /// Type codes for the GC constants of a prototype.
 #[derive(Clone, Debug)]
 pub enum GCConstant {
-    Child(Proto),
+    Child,
     Table(ConstantTable),
     I64(i64),
     U64(u64),
@@ -210,7 +217,7 @@ pub enum GCConstant {
 impl GCConstant {
     pub fn size(&self) -> u32 {
         1 + match self {
-            GCConstant::Child(proto) => proto.size(),
+            GCConstant::Child => 0,
             GCConstant::Table(t) => t.size(),
             GCConstant::I64(i) => kgc_num_size(u64::from_ne_bytes(i.to_ne_bytes())),
             GCConstant::U64(u) => kgc_num_size(*u),
@@ -221,7 +228,7 @@ impl GCConstant {
 
     pub fn kind(&self) -> GCConstantKind {
         match self {
-            GCConstant::Child(_) => GCConstantKind::CHILD,
+            GCConstant::Child => GCConstantKind::CHILD,
             GCConstant::Table(_) => GCConstantKind::TAB,
             GCConstant::I64(_) => GCConstantKind::I64,
             GCConstant::U64(_) => GCConstantKind::U64,
@@ -232,7 +239,9 @@ impl GCConstant {
 
     pub fn write(&self, data: &mut Vec<u8>) {
         match self {
-            GCConstant::Child(proto) => proto.write(data),
+            GCConstant::Child => {
+                data.push(GCConstantKind::CHILD as u8);
+            }
             GCConstant::Table(constant_table) => constant_table.write(data),
             GCConstant::I64(i) => {
                 data.push(GCConstantKind::I64 as u8);
@@ -273,9 +282,17 @@ impl ConstantTable {
         size
     }
     pub fn write(&self, data: &mut Vec<u8>) {
+        data.push(GCConstantKind::TAB as u8);
         data.write_uleb128_u32(self.array_part.len() as u32)
             .unwrap();
         data.write_uleb128_u32(self.hash_part.len() as u32).unwrap();
+        for item in &self.array_part {
+            item.write(data);
+        }
+        for (key, value) in &self.hash_part {
+            key.write(data);
+            value.write(data);
+        }
     }
 }
 
@@ -351,8 +368,8 @@ impl TableValue {
 }
 
 fn write_kgc_num(value: u64, data: &mut Vec<u8>) {
-    data.write_uleb128_u32((value >> 32) as u32).unwrap();
     data.write_uleb128_u32((value & 0xFFFFFFFF) as u32).unwrap();
+    data.write_uleb128_u32((value >> 32) as u32).unwrap();
 }
 
 fn write_kgc_complex(value: num_complex::Complex64, data: &mut Vec<u8>) {
@@ -419,7 +436,7 @@ pub enum Upvalue {
     ClosedReadonly(u8),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Proto {
     pub flags: ProtoFlags,
     /// Amount of function parameters.
@@ -430,6 +447,7 @@ pub struct Proto {
     pub gc_constants: Vec<GCConstant>,
     pub number_constants: Vec<NumberConstant>,
     pub instructions: Vec<Instruction>,
+    pub children: Vec<Proto>,
 }
 
 impl Proto {
@@ -450,6 +468,9 @@ impl Proto {
     }
 
     pub fn write(&self, data: &mut Vec<u8>) {
+        for child in &self.children {
+            child.write(data);
+        }
         self.write_header(data);
         self.write_bytecode(data);
         self.write_upvalues(data);
@@ -535,11 +556,11 @@ pub fn uleb32_33_size(value: u32) -> u32 {
     }
 }
 
-pub struct BytecodeDump {
+pub struct Context {
     data: Vec<u8>,
 }
 
-impl BytecodeDump {
+impl Context {
     pub fn new() -> Self {
         let mut dump = Self {
             data: Vec::with_capacity(1024),
@@ -552,7 +573,7 @@ impl BytecodeDump {
         self.data.extend_from_slice(MAGIC);
         self.data.push(VERSION);
         self.data
-            .write_uleb128_u32((HeaderFlags::STRIP | HeaderFlags::FR2).bits())
+            .write_uleb128_u32((HeaderFlags::STRIP | HeaderFlags::FR2 | HeaderFlags::FFI).bits())
             .unwrap();
     }
 
@@ -561,7 +582,10 @@ impl BytecodeDump {
         self.data
     }
 
-    pub fn write_proto(&mut self, proto: Proto) {
+    pub fn write_proto(&mut self, mut proto: Proto) {
+        if !proto.children.is_empty() {
+            proto.flags |= ProtoFlags::HAS_CHILD;
+        }
         proto.write(&mut self.data);
     }
 
@@ -573,7 +597,7 @@ impl BytecodeDump {
 #[cfg(test)]
 mod test {
     use crate::luajit::{
-        ABC, AD, BytecodeDump, GCConstant, Instruction, NumberConstant, OpCode, Proto, ProtoFlags,
+        ABC, AD, Context, GCConstant, Instruction, NumberConstant, OpCode, Proto, ProtoFlags,
     };
     use instruction as I;
 
@@ -594,6 +618,7 @@ mod test {
                 I!(CALL, 2, 1, 2),
                 I!(RET0, 0, 1),
             ],
+            children: vec![],
         };
 
         assert_eq!(proto.size(), 43)
@@ -616,8 +641,9 @@ mod test {
                 I!(CALL, 2, 1, 2),
                 I!(RET0, 0, 1),
             ],
+            children: vec![],
         };
-        let mut dump = BytecodeDump::new();
+        let mut dump = Context::new();
         dump.write_proto(proto);
         let data = dump.finish();
         dbg!(data.len());
