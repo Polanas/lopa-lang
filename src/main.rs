@@ -41,32 +41,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     match ast {
         Ok(ast) => {
             let proto = Proto {
-                flags: ProtoFlags::empty(),
+                flags: ProtoFlags::VARIADIC,
                 num_pararms: 0,
                 frame_size: 5,
                 upvalues: vec![],
                 gc_constants: vec![
-                    // GCConstant::Str(String::from("print")),
+                    GCConstant::Str(String::from("print")),
                     // GCConstant::Table(ConstantTable {
                     //     array_part: vec![TableValue::Int(1)],
                     //     hash_part: vec![],
                     // }),
                 ],
-                number_constants: vec![NumberConstant::Num((i32::MAX as u32 + 1) as f64)],
+                number_constants: vec![NumberConstant::Int(u32::MAX)],
                 instructions: vec![
                     I!(KNUM, 0, 0),
                     I!(KSHORT, 1, 2),
-                    // I!(ADDVV, 0, 0, 1),
-                    // I!(GGET, 2, 0),
-                    // I!(MOV, 4, 0),
-                    // I!(CALL, 2, 1, 2),
+                    I!(GGET, 2, 0),
+                    I!(MOV, 4, 0),
+                    I!(CALL, 2, 1, 2),
                     I!(RET0, 0, 1),
                 ],
             };
             let mut dump = BytecodeDump::new();
             dump.write_proto(proto);
             let data = dump.finish();
+            dbg!(data.len()-7);
             println!("{:x?}", data);
+            println!("{:x?}", include_bytes!("../binary"));
             let lua = unsafe { mlua::Lua::unsafe_new() };
             lua.load(&data).exec().unwrap();
         }

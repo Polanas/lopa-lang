@@ -1,3 +1,3 @@
-local a = 2147483648
+local a = 1.5
 local b = 2
 print(a)

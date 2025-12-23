@@ -247,7 +247,8 @@ impl GCConstant {
                 write_kgc_complex(*complex, data);
             }
             GCConstant::Str(s) => {
-                data.write_uleb128_u32(GCConstantKind::Str as u32 + s.len() as u32);
+                data.write_uleb128_u32(GCConstantKind::Str as u32 + s.len() as u32)
+                    .unwrap();
                 write_kgc_str(s, data);
             }
         }
@@ -376,8 +377,7 @@ fn kgc_complex_size(value: num_complex::Complex64) -> u32 {
 }
 
 fn kgc_num_size(value: u64) -> u32 {
-    uleb32_size((value >> 32) as u32) + uleb32_size((value & 0xFFFFFFFF) as u32)
-
+    uleb32_33_size((value >> 32) as u32) + uleb32_size((value & 0xFFFFFFFF) as u32)
 }
 
 fn kgc_str_size(value: &str) -> u32 {
@@ -437,9 +437,7 @@ impl Proto {
         let mut size = 4;
 
         size += uleb32_size(self.gc_constants.len() as _);
-        dbg!(size);
         size += uleb32_size(self.number_constants.len() as _);
-        dbg!(size);
         size += uleb32_size(self.instructions.len() as _);
 
         size += (self.instructions.len()) as u32 * 4;
@@ -460,9 +458,7 @@ impl Proto {
     }
 
     pub fn write_header(&self, data: &mut Vec<u8>) {
-        let size = self.size();
-
-        data.write_uleb128_u32(size).unwrap();
+        data.write_uleb128_u32(self.size()).unwrap();
         data.push(self.flags.bits());
         data.push(self.num_pararms as _);
         data.push(self.frame_size as _);
@@ -530,7 +526,6 @@ pub fn uleb32_size(value: u32) -> u32 {
 }
 
 pub fn uleb32_33_size(value: u32) -> u32 {
-
     match value {
         _ if value <= 63 => 1,
         _ if value <= 8191 => 2,
