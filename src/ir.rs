@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{ast, common::*, luajit, position::WithSpan};
 
@@ -18,10 +18,11 @@ pub enum Value {
     Int16(i16),
     Number(ConstantId),
     String(ConstantId),
+    Global(ConstantId),
     Bool(bool),
     Nil,
     Table(Table),
-    Identifier(String),
+    Local(String),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -47,24 +48,16 @@ pub enum ConditionalJump {
     NotEqualPrimitive(Primitive),
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Global {
-    Get,
-    Set,
-}
-
 #[derive(Clone, Debug)]
 pub enum Instruction {
     Push(Value),
     Pop,
-    Local(Vec<Identifier>),
-    Global(Global),
+    Locals(Vec<Identifier>),
     Assign(Vec<Identifier>),
     Unary(UnaryOp),
+    Global(Identifier),
     Binary(BinaryOp),
     Jump(ConditionalJump, usize),
-    AssignStart,
-    AssignEnd,
     StmtEnd,
     ScopeStart,
     ScopeEnd,
@@ -81,30 +74,50 @@ pub enum NumberConstant {
 
 #[derive(Default, Debug)]
 pub struct FunctionContext {
-    string_constants: HashMap<String, ConstantId>,
     number_constants: HashMap<NumberConstant, ConstantId>,
-    pushes_amount: Option<usize>,
+    pushes_amount: Vec<usize>,
+    pub string_constants: HashMap<String, ConstantId>,
     pub gc_constants: Vec<luajit::GCConstant>,
     pub num_constants: Vec<luajit::NumberConstant>,
     pub num_params: usize,
     pub children: Vec<FunctionContext>,
     pub instructions: Vec<Instruction>,
+    locals: HashSet<String>,
 }
 
 impl FunctionContext {
     fn push(&mut self, value: Value) {
-        if let Some(amount) = &mut self.pushes_amount {
+        if let Some(amount) = self.pushes_amount_mut() {
             *amount += 1;
         }
         self.instructions.push(Instruction::Push(value));
+    }
+
+    fn pushes_amount(&self) -> Option<usize> {
+        self.pushes_amount.last().cloned()
+    }
+
+    fn pushes_amount_mut(&mut self) -> Option<&mut usize> {
+        self.pushes_amount.last_mut()
+    }
+
+    fn push_pushes_amount(&mut self) {
+        self.pushes_amount.push(0);
+    }
+
+    fn pop_pushes_amount(&mut self) -> Option<usize> {
+        self.pushes_amount.pop()
     }
 
     fn pop(&mut self) {
         self.instructions.push(Instruction::Pop);
     }
 
-    fn local(&mut self, idents: Vec<Identifier>) {
-        self.instructions.push(Instruction::Local(idents))
+    fn locals(&mut self, idents: Vec<Identifier>) {
+        for ident in idents.iter() {
+            self.locals.insert(ident.clone());
+        }
+        self.instructions.push(Instruction::Locals(idents));
     }
 
     fn assign(&mut self, idents: Vec<Identifier>) {
@@ -176,12 +189,12 @@ impl FunctionContext {
                 self.binary(binary_expr.op.value);
             }
             ast::Expr::Identifier(i) => {
-                self.push(Value::Identifier(i.clone()));
-            }
-            ast::Expr::Assign(ident, expr) => {
-                //TODO:
-                // self.expr(&expr.value);
-                // self.assign(vec![ident.value.clone()]);
+                if self.locals.contains(i) {
+                    self.push(Value::Local(i.clone()));
+                } else {
+                    let str = self.const_string(i);
+                    self.push(Value::Global(str));
+                }
             }
             ast::Expr::Call(_, items) => todo!(),
             ast::Expr::If(if_expr) => todo!(),
@@ -190,28 +203,49 @@ impl FunctionContext {
     }
 
     fn record_pushes(&mut self, func: impl FnOnce(&mut Self)) -> usize {
-        self.pushes_amount = Some(0);
+        self.push_pushes_amount();
         func(self);
-        self.pushes_amount.take().unwrap()
+        self.pushes_amount.pop().unwrap()
     }
 
     fn block(&mut self, stmts: &[WithSpan<ast::Stmt>]) {
         self.scope_start();
         match &stmts {
             [] => {
+                self.scope_end();
                 self.push(Value::Nil);
             }
             [stmts @ .., last] => {
                 for stmt in stmts {
+                    if matches!(
+                        stmt.value,
+                        ast::Stmt::Expr(ast::StmtExpr { semi: None, .. })
+                    ) {
+                        panic!("statement expression not allowed");
+                    }
                     self.stmt(&stmt.value);
                 }
-                self.stmt(&last.value);
-                if !matches!(&last.value, ast::Stmt::Expr(_)) {
+
+                if let ast::Stmt::Expr(ast::StmtExpr { semi, .. }) = &last.value {
+                    if semi.is_some() {
+                        self.stmt(&last.value);
+                        self.scope_end();
+                        self.push(Value::Nil);
+                    } else {
+                        self.scope_end();
+                        self.stmt(&last.value);
+                    }
+                } else {
+                    self.stmt(&last.value);
+                    self.scope_end();
                     self.push(Value::Nil);
                 }
+
+                // if !matches!(&last.value, ast::Stmt::Expr(_)) {
+                //     self.push(Value::Nil);
+                // }
             }
         }
-        self.scope_end();
     }
 
     fn const_number(&mut self, number: NumberConstant) -> ConstantId {
@@ -251,7 +285,6 @@ impl FunctionContext {
             }
             ast::Stmt::Item(item) => {}
             ast::Stmt::Binding(binding) => {
-                self.instructions.push(Instruction::AssignStart);
                 let pushes = self.record_pushes(|_self| {
                     if let Some(exprs) = &binding.values {
                         for expr in exprs {
@@ -267,18 +300,35 @@ impl FunctionContext {
                     self.push(Value::Nil);
                 }
 
-                self.local(
+                self.locals(
                     binding
                         .identifiers
                         .iter()
                         .map(|i| i.value.clone())
                         .collect(),
                 );
-                self.instructions.push(Instruction::AssignEnd);
             }
             ast::Stmt::Print(v) => {
                 self.expr(&v.value);
                 self.instructions.push(Instruction::Print);
+            }
+            ast::Stmt::Empty => (),
+            ast::Stmt::Assign(idents, values) => {
+                for ident in idents.iter() {
+                    if !self.locals.contains(&ident.value) {
+                        self.const_string(&ident.value);
+                    }
+                }
+                let pushes = self.record_pushes(|_self| {
+                    for value in values {
+                        _self.expr(&value.value);
+                    }
+                });
+                for _ in pushes..idents.len() {
+                    self.push(Value::Nil);
+                }
+
+                self.assign(idents.iter().map(|i| i.value.clone()).collect());
             }
         }
         self.stmt_end();

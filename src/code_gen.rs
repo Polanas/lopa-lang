@@ -1,7 +1,6 @@
 use crate::common::*;
 use crate::instruction as I;
 use crate::{ir, luajit};
-use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 struct SlotId(pub usize);
@@ -10,43 +9,63 @@ type Identifier = String;
 
 #[derive(Debug, Clone)]
 struct Scope {
-    locals: HashMap<Identifier, SlotId>,
-    stack: usize,
+    locals: Vec<Identifier>,
+    stack: Vec<Option<Value>>,
 }
 
 impl Scope {
     fn new() -> Self {
         Self {
             locals: Default::default(),
-            stack: 0,
+            stack: Default::default(),
         }
     }
 
     fn local(&mut self, ident: &str) -> usize {
-        if let Some(slot) = self.locals.get(ident) {
-            slot.0
+        if let Some(id) = self.locals.iter().position(|v| v == ident) {
+            id
         } else {
-            let stack = self.stack;
-            self.locals.insert(ident.to_owned(), SlotId(stack));
-            self.stack += 1;
-            stack
+            let id = self.locals.len();
+            self.locals.push(ident.to_owned());
+            self.stack.insert(id, Some(Value::Local));
+            id
         }
     }
 
-    fn insert_local(&mut self, ident: &str) {
-        let stack = self.stack;
-        self.locals.insert(ident.to_owned(), SlotId(stack));
-        self.stack += 1;
+    fn push(&mut self, value: Option<Value>) -> usize {
+        let id = self.stack.len();
+        self.stack.push(value);
+        id
     }
+
+    fn pop(&mut self) -> (usize, Option<Value>) {
+        let value = self.stack.pop().unwrap();
+        (self.stack.len(), value)
+    }
+
+    fn clear_temp(&mut self) {
+        self.stack.drain(self.locals.len()..self.stack.len());
+    }
+
+    fn top(&self) -> usize {
+        self.stack.len() - 1
+    }
+}
+#[derive(Clone, Debug, Copy)]
+pub enum Value {
+    Int16(i16),
+    Number(ir::ConstantId),
+    String(ir::ConstantId),
+    Global(ir::ConstantId),
+    Bool(bool),
+    Nil,
+    Local,
 }
 
 pub struct Context {
     luajit_context: luajit::Context,
     scopes: Vec<Scope>,
-    temp_stack: usize,
     persistent_stack: usize,
-    return_stack: Option<usize>,
-    clear_temp_at_stmt_end: bool,
 }
 
 impl Context {
@@ -54,10 +73,7 @@ impl Context {
         Self {
             luajit_context: luajit::Context::new(),
             scopes: Default::default(),
-            temp_stack: 0,
             persistent_stack: 0,
-            return_stack: None,
-            clear_temp_at_stmt_end: true,
         }
     }
 
@@ -71,33 +87,6 @@ impl Context {
         let stack = self.persistent_stack;
         self.persistent_stack -= 1;
         stack
-    }
-
-    fn push(&mut self) -> usize {
-        let stack = self.temp_stack;
-        self.temp_stack += 1;
-        stack + self.persistent_stack + self.current_scope_mut().stack
-    }
-
-    fn pop(&mut self) -> usize {
-        self.temp_stack -= 1;
-        self.temp_stack + self.persistent_stack + self.current_scope_mut().stack
-    }
-
-    fn clear_temp(&mut self) {
-        self.temp_stack = 0;
-    }
-
-    fn top_temp(&self) -> usize {
-        self.temp_stack + self.persistent_stack - 1 + self.current_scope().stack
-    }
-
-    fn top_temp_optional(&self) -> Option<usize> {
-        if self.temp_stack == 0 {
-            None
-        } else {
-            Some(self.temp_stack + self.persistent_stack - 1 + self.current_scope().stack)
-        }
     }
 
     fn current_scope_mut(&mut self) -> &mut Scope {
@@ -123,9 +112,9 @@ impl Context {
         self.scopes.pop();
     }
 
-    fn move_if_different(a: u8, d: u16, proto: &mut luajit::Proto) {
-        if a != (d as u8) {
-            proto.instructions.push(I!(MOV, a, d))
+    fn try_move(dst: u8, src: u16, proto: &mut luajit::Proto) {
+        if dst != (src as u8) {
+            proto.instructions.push(I!(MOV, dst, src))
         }
     }
 
@@ -145,93 +134,109 @@ impl Context {
         }
 
         for (id, instruction) in ir_context.instructions.iter().enumerate() {
+            let scope = self.current_scope_mut();
             match instruction {
                 ir::Instruction::Push(value) => match value {
-                    ir::Value::Int16(id) => {
+                    &ir::Value::Int16(id) => proto.instructions.push(I!(
+                        KSHORT,
+                        scope.push(Some(Value::Int16(id))) as _,
+                        id.cast_unsigned()
+                    )),
+                    &ir::Value::Number(id) => {
+                        proto.instructions.push(I!(
+                            KNUM,
+                            scope.push(Some(Value::Number(id))) as _,
+                            id.0
+                        ));
+                    }
+                    &ir::Value::String(id) => {
+                        proto.instructions.push(I!(
+                            KSTR,
+                            scope.push(Some(Value::String(id))) as _,
+                            id.0
+                        ));
+                    }
+                    &ir::Value::Bool(b) => proto.instructions.push(I!(
+                        KPRI,
+                        scope.push(Some(Value::Bool(b))) as _,
+                        if b { 2 } else { 1 }
+                    )),
+                    ir::Value::Nil => {
                         proto
                             .instructions
-                            .push(I!(KSHORT, self.push() as _, id.cast_unsigned()))
+                            .push(I!(KPRI, scope.push(Some(Value::Nil)) as _, 0))
                     }
-                    ir::Value::Number(id) => {
-                        proto.instructions.push(I!(KNUM, self.push() as _, id.0));
-                    }
-                    ir::Value::String(id) => {
-                        proto.instructions.push(I!(KSTR, self.push() as _, id.0));
-                    }
-                    ir::Value::Bool(b) => {
-                        proto
-                            .instructions
-                            .push(I!(KPRI, self.push() as _, if *b { 2 } else { 1 }))
-                    }
-                    ir::Value::Nil => proto.instructions.push(I!(KPRI, self.push() as _, 0)),
                     ir::Value::Table(table) => todo!(),
-                    ir::Value::Identifier(i) => (),
+                    ir::Value::Local(i) => {
+                        let id = scope.locals.iter().position(|l| l == i).unwrap();
+                        proto.instructions.push(I!(
+                            MOV,
+                            scope.push(Some(Value::Local)) as _,
+                            id as _
+                        ));
+                    }
+                    &ir::Value::Global(id) => {
+                        let id = if let luajit::GCConstant::Str(s) =
+                            &proto.gc_constants[id.0 as usize]
+                        {
+                            ir_context.string_constants.get(s).unwrap()
+                        } else {
+                            panic!("expected string");
+                        };
+                        proto.instructions.push(I!(
+                            GGET,
+                            scope.push(Some(Value::Global(*id))) as _,
+                            id.0 as _
+                        ))
+                    }
                 },
                 ir::Instruction::Pop => {
-                    self.pop();
+                    self.current_scope_mut().pop();
                 }
-                ir::Instruction::Local(idents) => {
-                    for ident in idents {
-                        self.current_scope_mut().insert_local(ident);
+                ir::Instruction::Locals(idents) => {
+                    let locals_amount = scope.locals.len();
+                    let scope = self.current_scope_mut();
+                    for (i, ident) in idents.iter().enumerate() {
+                        let local_id = scope.local(ident);
+                        let id = i + locals_amount;
+                        Self::try_move(local_id as _, id as _, &mut proto);
                     }
-                    // let id = self.pop_temp();
-                    // Self::move_if_different(local as _, id as _, &mut proto);
+                    scope.clear_temp();
                 }
-                ir::Instruction::Assign(ident) => {
-                    // let id = self.pop_temp();
-                    // let local = self.current_scope_mut().local(ident);
-                    // Self::move_if_different(local as _, id as _, &mut proto);
+                ir::Instruction::Assign(idents) => {
+                    let scope = self.current_scope_mut();
+                    for (i, ident) in idents.iter().enumerate() {
+                        let id = i + scope.locals.len();
+
+                        if scope.locals.contains(ident) {
+                            let local_id = scope.local(ident);
+                            Self::try_move(local_id as _, id as _, &mut proto);
+                        } else {
+                            let const_id = ir_context.string_constants.get(ident).unwrap().0;
+                            proto.instructions.push(I!(GSET, id as _, const_id))
+                        }
+                    }
+                    scope.clear_temp();
                 }
                 ir::Instruction::Unary(unary_op) => {
-                    let prev = &ir_context.instructions[id - 1];
-                    if let ir::Instruction::Push(ir::Value::Identifier(i)) = prev {
-                        let local = self.current_scope_mut().local(i);
-                        match unary_op {
-                            UnaryOp::Not => {
-                                proto
-                                    .instructions
-                                    .push(I!(NOT, self.push() as _, local as _));
-                            }
-                            UnaryOp::Negate => {
-                                proto
-                                    .instructions
-                                    .push(I!(UNM, self.push() as _, local as _));
-                            }
+                    let id = scope.pop().0;
+                    match unary_op {
+                        UnaryOp::Not => {
+                            proto
+                                .instructions
+                                .push(I!(NOT, scope.push(None) as _, id as _));
                         }
-                    } else {
-                        match unary_op {
-                            UnaryOp::Not => {
-                                proto.instructions.push(I!(
-                                    NOT,
-                                    self.top_temp() as _,
-                                    self.top_temp() as _,
-                                ));
-                            }
-                            UnaryOp::Negate => {
-                                proto.instructions.push(I!(
-                                    UNM,
-                                    self.top_temp() as _,
-                                    self.top_temp() as _,
-                                ));
-                            }
+                        UnaryOp::Negate => {
+                            proto
+                                .instructions
+                                .push(I!(UNM, scope.push(None) as _, id as _));
                         }
                     }
                 }
                 ir::Instruction::Binary(binary_op) => {
-                    let right = if let ir::Instruction::Push(ir::Value::Identifier(i)) =
-                        &ir_context.instructions[id - 1]
-                    {
-                        self.current_scope_mut().local(i)
-                    } else {
-                        self.pop()
-                    };
-                    let left = if let ir::Instruction::Push(ir::Value::Identifier(i)) =
-                        &ir_context.instructions[id - 2]
-                    {
-                        self.current_scope_mut().local(i)
-                    } else {
-                        self.pop()
-                    };
+                    let scope = self.current_scope_mut();
+                    let right_id = scope.pop().0;
+                    let left_id = scope.pop().0;
 
                     let opcode = match binary_op {
                         BinaryOp::Div => luajit::OpCode::DIVVV,
@@ -249,51 +254,40 @@ impl Context {
                         BinaryOp::Or => todo!(),
                     };
 
-                    //TODO: implement assign directly to locals
                     proto.instructions.push(luajit::Instruction::ABC(
                         opcode,
-                        luajit::ABC::new(self.push() as _, left as _, right as _),
+                        luajit::ABC::new(scope.push(None) as _, left_id as _, right_id as _),
                     ));
                 }
                 ir::Instruction::Jump(conditional_jump, _) => todo!(),
                 ir::Instruction::StmtEnd => {
-                    if self.clear_temp_at_stmt_end {
-                        self.clear_temp();
-                    }
+                    // self.clear_temp();
                 }
-                ir::Instruction::ScopeStart => {}
-                ir::Instruction::ScopeEnd => {}
+                ir::Instruction::ScopeStart => {
+                    self.push_scope();
+                }
+                ir::Instruction::ScopeEnd => {
+                    self.pop_scope();
+                }
                 ir::Instruction::Print => {
-                    let top = self.top_temp_optional();
+                    let scope = self.current_scope_mut();
+                    let id = scope.top();
 
                     proto
                         .instructions
-                        .push(I!(GGET, self.push() as _, print_const));
-                    let print = self.top_temp();
+                        .push(I!(GGET, scope.push(None) as _, print_const));
+                    let print = scope.top();
 
-                    self.push();
-                    let prev = &ir_context.instructions[id - 1];
-                    if let ir::Instruction::Push(ir::Value::Identifier(i)) = prev {
-                        let local = self.current_scope_mut().local(i);
-                        Self::move_if_different(self.push() as _, local as _, &mut proto);
-                        proto.instructions.push(I!(CALL, print as _, 1, 2));
-                    } else {
-                        Self::move_if_different(self.push() as _, top.unwrap() as _, &mut proto);
-                        proto.instructions.push(I!(CALL, print as _, 1, 2));
-                    }
+                    scope.push(None);
+                    Self::try_move(scope.push(None) as _, id as _, &mut proto);
+                    proto.instructions.push(I!(CALL, print as _, 1, 2));
 
-                    self.pop();
-                    self.pop();
-                    self.pop();
+                    scope.pop();
+                    scope.pop();
+                    scope.pop();
+                    scope.pop();
                 }
                 ir::Instruction::Global(global) => todo!(),
-                ir::Instruction::AssignStart => {
-                    self.clear_temp_at_stmt_end = false;
-                }
-                ir::Instruction::AssignEnd => {
-                    self.clear_temp_at_stmt_end = true;
-                    self.clear_temp();
-                }
             }
         }
         self.pop_scope();
@@ -303,6 +297,12 @@ impl Context {
         proto.number_constants.reverse();
 
         self.luajit_context.write_proto(proto);
+    }
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -42,7 +42,6 @@ pub enum Expr {
     Unary(WithSpan<UnaryOp>, Box<WithSpan<Expr>>),
     Binary(BinaryExpr),
     Identifier(Identifier),
-    Assign(WithSpan<String>, Box<WithSpan<Expr>>),
     Call(Box<WithSpan<Expr>>, Vec<WithSpan<Expr>>),
     If(IfExpr),
     Block(Vec<WithSpan<Stmt>>),
@@ -68,6 +67,8 @@ pub struct StmtExpr {
 pub enum Stmt {
     Expr(StmtExpr),
     Item(Item),
+    Assign(Vec<WithSpan<String>>, Vec<WithSpan<Expr>>),
     Binding(Binding),
     Print(Box<WithSpan<Expr>>),
+    Empty,
 }

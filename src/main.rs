@@ -21,12 +21,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // context.write_proto(proto);
     // let dump = context.finish();
     // mlua::Lua::new().load(&dump).exec().unwrap();
-    let program = "let x,y,z = {1,2}; print x; print y; print z;";
+    let program = "x,y,z = 1,2,{1+2}; x,y,z=z,{y*2},x; print x; print y; print z";
+
     let tokens = tokenizer::tokenize(program);
     let ast = parser::parse_program(&tokens);
     match ast {
         Ok(ast) => {
             let ir_context = ir::generate(&ast);
+            dbg!(&ir_context.instructions);
             let bytecode = code_gen::generate(ir_context);
             std::fs::write("binary", &bytecode).unwrap();
             mlua::Lua::new().load(&bytecode).exec().unwrap();

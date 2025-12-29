@@ -40,6 +40,10 @@ impl<'t> Parser<'t> {
         }
     }
 
+    fn last_parsed(&self) -> TokenKind {
+        self.tokens[self.cursor].value.kind()
+    }
+
     fn peek(&self) -> TokenKind {
         (&self.peek_token().value).into()
     }
@@ -111,8 +115,6 @@ impl<'t> Parser<'t> {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 pub enum Precedence {
     Lowest,
-    Assign,
-    Comma,
     NillCoaescing,
     Or,
     And,
@@ -130,7 +132,6 @@ pub enum Precedence {
 impl From<TokenKind> for Precedence {
     fn from(value: TokenKind) -> Self {
         match value {
-            TokenKind::Equal => Self::Assign,
             TokenKind::Bar2 => Self::Or,
             TokenKind::Ampersand2 => Self::And,
             TokenKind::Less
@@ -142,7 +143,6 @@ impl From<TokenKind> for Precedence {
             TokenKind::Plus | TokenKind::Minus => Self::Term,
             TokenKind::Star | TokenKind::Slash => Self::Factor,
             TokenKind::Bang => Self::Unary,
-            // TokenKind::Comma => Self::Comma,
             _ => Self::Lowest,
         }
     }
@@ -322,9 +322,6 @@ impl<'t> Parser<'t> {
         let mut expr = self.parse_prefix()?;
         while !self.is_at_end() {
             let next_precedence = Precedence::from(self.peek());
-            if self.peek() == TokenKind::Comma {
-                break;
-            }
             if precedence >= next_precedence {
                 break;
             }
@@ -351,7 +348,6 @@ impl<'t> Parser<'t> {
             | Token::Star
             | Token::Slash
             | Token::Percent => self.parse_binary(left),
-            Token::Equal => self.parse_assign(left),
             _ => {
                 self.add_error(
                     &format!("Unexpected {}", TokenKind::from(&token.value)),
@@ -364,23 +360,6 @@ impl<'t> Parser<'t> {
 
     fn parse_index(&mut self) -> Option<WithSpan<Expr>> {
         None
-    }
-
-    fn parse_assign(&mut self, left: WithSpan<Expr>) -> Option<WithSpan<Expr>> {
-        self.expect(TokenKind::Equal)?;
-        let right = self.parse_expr(Precedence::Lowest)?;
-        let span = left.span.union(right.span);
-
-        match &left.value {
-            Expr::Identifier(s) => Some(WithSpan::new(
-                Expr::Assign(WithSpan::new(s.clone(), left.span), right.into()),
-                span,
-            )),
-            _ => {
-                self.add_error("Invalid left value", left.span);
-                None
-            }
-        }
     }
 
     fn parse_call(&mut self) -> Option<WithSpan<Expr>> {
@@ -557,6 +536,10 @@ impl<'t> Parser<'t> {
         match self.peek() {
             TokenKind::Let | TokenKind::Global => self.parse_binding(),
             TokenKind::Print => self.parse_print(),
+            TokenKind::Semicolon => {
+                let semi = self.expect(TokenKind::Semicolon)?;
+                Some(WithSpan::new(Stmt::Empty, semi.span))
+            }
             _ => self.parse_expr_stmt(),
         }
     }
@@ -586,10 +569,47 @@ impl<'t> Parser<'t> {
                     span,
                 ));
             }
+
             let expr = self.parse_expr(Precedence::Lowest)?;
             span = span.union(expr.span);
             exprs.push(expr);
         }
+
+        if TokenKind::Equal == self.peek() {
+            self.expect(TokenKind::Equal);
+            let identifiers = exprs
+                .into_iter()
+                .map(|e| {
+                    if let WithSpan {
+                        value: Expr::Identifier(i),
+                        span,
+                    } = e
+                    {
+                        WithSpan::new(i, span)
+                    } else {
+                        panic!("expected identifier");
+                    }
+                })
+                .collect::<Vec<_>>();
+            let mut values = vec![self.parse_expr(Precedence::Lowest)?];
+            span = span.union(values[0].span);
+            while let TokenKind::Comma = self.peek() {
+                self.expect(TokenKind::Comma);
+                if let Some(semi) = self.parse_optional_semi() {
+                    let span = span.union(semi);
+                    return Some(WithSpan::new(Stmt::Assign(identifiers, values), span));
+                }
+
+                let value = self.parse_expr(Precedence::Lowest)?;
+                span = span.union(value.span);
+                values.push(value);
+            }
+
+            let semi = self.parse_optional_semi();
+            let span = semi.map(|s| span.union(s)).unwrap_or(span);
+            return Some(WithSpan::new(Stmt::Assign(identifiers, values), span));
+        }
+
         let semi = self.parse_optional_semi();
         let span = semi.map(|s| span.union(s)).unwrap_or(span);
         Some(WithSpan::new(Stmt::Expr(StmtExpr { exprs, semi }), span))
@@ -630,7 +650,7 @@ impl<'t> Parser<'t> {
                 span: ident_span,
             } = self.advance()
             else {
-                unreachable!();
+                panic!("expected identifier");
             };
 
             span = span.union(*ident_span);

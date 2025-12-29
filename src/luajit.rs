@@ -402,6 +402,12 @@ fn kgc_str_size(value: &str) -> u32 {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub enum NumberConstantKind {
+    Int,
+    Num,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub enum NumberConstant {
     Int(u32),
     Num(f64),

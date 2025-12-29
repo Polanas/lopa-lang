@@ -205,6 +205,12 @@ pub enum Token {
     EOF,
 }
 
+impl Token {
+    pub fn kind(&self) -> TokenKind {
+        self.into()
+    }
+}
+
 impl From<&Token> for TokenKind {
     fn from(value: &Token) -> Self {
         match value {
