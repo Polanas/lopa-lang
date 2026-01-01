@@ -152,7 +152,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 '!' => Some(self.matches_or('=', Token::BangEqual, Token::Bang)),
-                '<' => Some(self.matches_or('=', Token::LessEqual, Token::Equal)),
+                '<' => Some(self.matches_or('=', Token::LessEqual, Token::Less)),
                 '>' => Some(self.matches_or('=', Token::GreaterEqual, Token::Greater)),
                 '&' => Some(self.matches_or('&', Token::Ampersand2, Token::Ampersand)),
                 '|' => Some(self.matches_or('|', Token::Bar2, Token::Bar)),

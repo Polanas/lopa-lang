@@ -3,51 +3,32 @@ mod shared_mut;
 
 use std::{error::Error, io::Read};
 
-use lopa_lang::{code_gen, code_gen_new, instruction, ir, luajit, parser, tokenizer};
-
+use lopa_lang::{code_gen, parser, tokenizer};
 fn main() -> Result<(), Box<dyn Error>> {
-    // let mut context = luajit::Context::new();
-    // let proto = luajit::Proto {
-    //     gc_constants: vec![luajit::GCConstant::Str(String::from("print"))],
-    //     instructions: vec![
-    //         instruction!(GGET, 0, 0),
-    //         instruction!(KSHORT, 2, 1),
-    //         instruction!(UNM, 2, 2),
-    //         instruction!(CALL, 0, 1, 2),
-    //         instruction!(RET0, 0, 1),
-    //     ],
-    //     ..Default::default()
-    // };
-    // context.write_proto(proto);
-    // let dump = context.finish();
-    // mlua::Lua::new().load(&dump).exec().unwrap();
-    let program = "
-let x,y,z = 1, {2+3}, 4;
-print x;
-print y;
-print z;
-";
+    let source = "x = 3;
+        if x == 1 {
+            print 1;
+        } else if x == 2 {
+            print 2;
+        } else {
+            print 3;
+        }";
 
-    let tokens = tokenizer::tokenize(program);
+    let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
     match ast {
         Ok(ast) => {
-            let code = code_gen_new::generate(&ast);
-            println!("{program}");
-            println!("------------------------------");
+            let code = code_gen::generate(&ast);
             println!("{code}");
+            println!("------------------------------");
             mlua::Lua::new().load(&code).exec().unwrap();
-            // let ir_context = ir::generate(&ast);
-            // dbg!(&ir_context.instructions);
-            // let bytecode = code_gen::generate(ir_context);
-            // std::fs::write("binary", &bytecode).unwrap();
         }
         Err(errs) => {
             for error in errs {
                 dbg!(
                     error.message,
                     Some(
-                        &program[(((error.span.start.0 as i32) - 2).min(0) as usize)
+                        &source[(((error.span.start.0 as i32) - 2).min(0) as usize)
                             ..(error.span.end.0) + 2]
                     )
                 );

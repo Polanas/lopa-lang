@@ -1,329 +1,312 @@
-use crate::common::*;
-use crate::instruction as I;
-use crate::{ir, luajit};
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-struct SlotId(pub usize);
-
-type Identifier = String;
-
-#[derive(Debug, Clone)]
-struct Scope {
-    locals: Vec<Identifier>,
-    stack: Vec<Option<Value>>,
-}
-
-impl Scope {
-    fn new() -> Self {
-        Self {
-            locals: Default::default(),
-            stack: Default::default(),
-        }
-    }
-
-    fn local(&mut self, ident: &str) -> usize {
-        if let Some(id) = self.locals.iter().position(|v| v == ident) {
-            id
-        } else {
-            let id = self.locals.len();
-            self.locals.push(ident.to_owned());
-            self.stack.insert(id, Some(Value::Local));
-            id
-        }
-    }
-
-    fn push(&mut self, value: Option<Value>) -> usize {
-        let id = self.stack.len();
-        self.stack.push(value);
-        id
-    }
-
-    fn pop(&mut self) -> (usize, Option<Value>) {
-        let value = self.stack.pop().unwrap();
-        (self.stack.len(), value)
-    }
-
-    fn clear_temp(&mut self) {
-        self.stack.drain(self.locals.len()..self.stack.len());
-    }
-
-    fn top(&self) -> usize {
-        self.stack.len() - 1
-    }
-}
-#[derive(Clone, Debug, Copy)]
-pub enum Value {
-    Int16(i16),
-    Number(ir::ConstantId),
-    String(ir::ConstantId),
-    Global(ir::ConstantId),
-    Bool(bool),
-    Nil,
-    Local,
-}
+use crate::{ast, common, position::WithSpan};
 
 pub struct Context {
-    luajit_context: luajit::Context,
-    scopes: Vec<Scope>,
-    persistent_stack: usize,
+    result: String,
+    stack: Vec<usize>,
 }
 
 impl Context {
     fn new() -> Self {
         Self {
-            luajit_context: luajit::Context::new(),
-            scopes: Default::default(),
-            persistent_stack: 0,
+            result: Default::default(),
+            stack: vec![0],
         }
     }
 
-    fn push_persistent(&mut self) -> usize {
-        let stack = self.persistent_stack;
-        self.persistent_stack += 1;
+    fn stack_mut(&mut self) -> &mut usize {
+        let len = self.stack.len();
+        &mut self.stack[len - 1]
+    }
+
+    fn stack(&self) -> usize {
+        self.stack[self.stack.len() - 1]
+    }
+
+    fn push(&mut self) -> usize {
+        let stack = self.stack();
+        *self.stack_mut() += 1;
         stack
     }
 
-    fn pop_persistent(&mut self) -> usize {
-        let stack = self.persistent_stack;
-        self.persistent_stack -= 1;
-        stack
+    fn push_stack(&mut self) {
+        let stack = self.stack();
+        self.stack.push(stack);
     }
 
-    fn current_scope_mut(&mut self) -> &mut Scope {
-        let len = self.scopes.len() - 1;
-        &mut self.scopes[len]
+    fn pop_stack(&mut self) {
+        self.stack.pop();
     }
 
-    fn current_scope(&self) -> &Scope {
-        let len = self.scopes.len() - 1;
-        &self.scopes[len]
+    fn ident(&self, id: usize) -> String {
+        format!("stack_{id}")
     }
 
-    fn push_scope(&mut self) -> &mut Scope {
-        if self.scopes.is_empty() {
-            self.scopes.push(Scope::new());
-        }
-        let scope = self.current_scope_mut().clone();
-        self.scopes.push(scope);
-        self.current_scope_mut()
+    fn clear_stack(&mut self) {
+        self.stack = vec![0];
     }
 
-    fn pop_scope(&mut self) {
-        self.scopes.pop();
+    fn push_ident(&mut self) -> String {
+        let push = self.push();
+        self.ident(push)
     }
 
-    fn try_move(dst: u8, src: u16, proto: &mut luajit::Proto) {
-        if dst != (src as u8) {
-            proto.instructions.push(I!(MOV, dst, src))
-        }
+    fn pop(&mut self) -> usize {
+        *self.stack_mut() -= 1;
+        self.stack()
     }
 
-    fn generate(&mut self, mut ir_context: ir::FunctionContext) {
-        self.push_scope();
-        ir_context
-            .gc_constants
-            .push(luajit::GCConstant::Str(String::from("print")));
-        let print_const = (ir_context.gc_constants.len() - 1) as u16;
-        let mut proto = luajit::Proto::default();
+    fn pop_ident(&mut self) -> String {
+        let pop = self.pop();
+        self.ident(pop)
+    }
 
-        for gc_const in ir_context.gc_constants {
-            proto.gc_constants.push(gc_const);
-        }
-        for num_const in ir_context.num_constants {
-            proto.number_constants.push(num_const);
-        }
-
-        for (id, instruction) in ir_context.instructions.iter().enumerate() {
-            let scope = self.current_scope_mut();
-            match instruction {
-                ir::Instruction::Push(value) => match value {
-                    &ir::Value::Int16(id) => proto.instructions.push(I!(
-                        KSHORT,
-                        scope.push(Some(Value::Int16(id))) as _,
-                        id.cast_unsigned()
-                    )),
-                    &ir::Value::Number(id) => {
-                        proto.instructions.push(I!(
-                            KNUM,
-                            scope.push(Some(Value::Number(id))) as _,
-                            id.0
-                        ));
-                    }
-                    &ir::Value::String(id) => {
-                        proto.instructions.push(I!(
-                            KSTR,
-                            scope.push(Some(Value::String(id))) as _,
-                            id.0
-                        ));
-                    }
-                    &ir::Value::Bool(b) => proto.instructions.push(I!(
-                        KPRI,
-                        scope.push(Some(Value::Bool(b))) as _,
-                        if b { 2 } else { 1 }
-                    )),
-                    ir::Value::Nil => {
-                        proto
-                            .instructions
-                            .push(I!(KPRI, scope.push(Some(Value::Nil)) as _, 0))
-                    }
-                    ir::Value::Table(table) => todo!(),
-                    ir::Value::Local(i) => {
-                        let id = scope.locals.iter().position(|l| l == i).unwrap();
-                        proto.instructions.push(I!(
-                            MOV,
-                            scope.push(Some(Value::Local)) as _,
-                            id as _
-                        ));
-                    }
-                    &ir::Value::Global(id) => {
-                        let id = if let luajit::GCConstant::Str(s) =
-                            &proto.gc_constants[id.0 as usize]
-                        {
-                            ir_context.string_constants.get(s).unwrap()
-                        } else {
-                            panic!("expected string");
-                        };
-                        proto.instructions.push(I!(
-                            GGET,
-                            scope.push(Some(Value::Global(*id))) as _,
-                            id.0 as _
-                        ))
-                    }
-                },
-                ir::Instruction::Pop => {
-                    self.current_scope_mut().pop();
-                }
-                ir::Instruction::Binding(kind, idents) => {
-                    let locals_amount = scope.locals.len();
-                    let scope = self.current_scope_mut();
-                    for (i, ident) in idents.iter().enumerate() {
-                        let id = i + locals_amount;
-                        match kind {
-                            BindingKind::Local => {
-                                let local_id = scope.local(ident);
-                                Self::try_move(local_id as _, id as _, &mut proto);
-                            }
-                            BindingKind::Global => {
-                                let const_id = ir_context.string_constants.get(ident).unwrap().0;
-                                proto.instructions.push(I!(GSET, id as _, const_id));
-                            }
-                        }
-                    }
-                    scope.clear_temp();
-                }
-                ir::Instruction::Assign(idents) => {
-                    let scope = self.current_scope_mut();
-                    for (i, ident) in idents.iter().enumerate() {
-                        let id = i + scope.locals.len();
-
-                        if scope.locals.contains(ident) {
-                            let local_id = scope.local(ident);
-                            Self::try_move(local_id as _, id as _, &mut proto);
-                        } else {
-                            let const_id = ir_context.string_constants.get(ident).unwrap().0;
-                            proto.instructions.push(I!(GSET, id as _, const_id))
-                        }
-                    }
-                    scope.clear_temp();
-                }
-                ir::Instruction::Unary(unary_op) => {
-                    let id = scope.pop().0;
-                    match unary_op {
-                        UnaryOp::Not => {
-                            proto
-                                .instructions
-                                .push(I!(NOT, scope.push(None) as _, id as _));
-                        }
-                        UnaryOp::Negate => {
-                            proto
-                                .instructions
-                                .push(I!(UNM, scope.push(None) as _, id as _));
-                        }
-                    }
-                }
-                ir::Instruction::Binary(binary_op) => {
-                    let scope = self.current_scope_mut();
-                    match binary_op {
-                        BinaryOp::Div
-                        | BinaryOp::Mult
-                        | BinaryOp::Add
-                        | BinaryOp::Sub
-                        | BinaryOp::Modulo => {
-                            let right_id = scope.pop().0;
-                            let left_id = scope.pop().0;
-                            let opcode = match binary_op {
-                                BinaryOp::Div => luajit::OpCode::DIVVV,
-                                BinaryOp::Mult => luajit::OpCode::MULVV,
-                                BinaryOp::Add => luajit::OpCode::ADDVV,
-                                BinaryOp::Sub => luajit::OpCode::SUBVV,
-                                BinaryOp::Modulo => luajit::OpCode::MODVV,
-                                _ => unreachable!(),
-                            };
-                            proto.instructions.push(luajit::Instruction::ABC(
-                                opcode,
-                                luajit::ABC::new(
-                                    scope.push(None) as _,
-                                    left_id as _,
-                                    right_id as _,
-                                ),
-                            ));
-                        }
-                        BinaryOp::And => {
-                            let right_id = scope.pop().0;
-                            // proto.instructions.push(I!(ISFC, ));
-                        }
-                        _ => {}
-                    }
-                }
-                ir::Instruction::Jump(conditional_jump, _) => todo!(),
-                ir::Instruction::ScopeStart => {
-                    self.push_scope();
-                }
-                ir::Instruction::StmtEnd => {
-                    self.current_scope_mut().clear_temp();
-                }
-                ir::Instruction::ScopeEnd => {
-                    self.pop_scope();
-                }
-                ir::Instruction::Print => {
-                    let scope = self.current_scope_mut();
-                    let id = scope.top();
-
-                    proto
-                        .instructions
-                        .push(I!(GGET, scope.push(None) as _, print_const));
-                    let print = scope.top();
-
-                    scope.push(None);
-                    Self::try_move(scope.push(None) as _, id as _, &mut proto);
-                    proto.instructions.push(I!(CALL, print as _, 1, 2));
-
-                    scope.pop();
-                    scope.pop();
-                    scope.pop();
-                    scope.pop();
-                }
-                ir::Instruction::Global(global) => todo!(),
+    fn generate(&mut self, program: &[WithSpan<ast::Stmt>]) {
+        match program {
+            [item] => {
+                let stmt = self.stmt(&item.value);
+                self.clear_stack();
+                self.result.push_str(&stmt);
             }
+            [items @ .., last] => {
+                for item in items {
+                    let stmt = self.stmt(&item.value);
+                    self.clear_stack();
+                    self.result.push_str(&format!("{stmt}\n"));
+                }
+                let stmt = self.stmt(&last.value);
+                self.result.push_str(&stmt);
+            }
+            [] => {}
         }
-        self.pop_scope();
-        proto.instructions.push(I!(RET0, 0, 1));
+    }
 
-        proto.gc_constants.reverse();
-        proto.number_constants.reverse();
+    fn stmt(&mut self, stmt: &ast::Stmt) -> String {
+        let mut result = String::new();
+        match &stmt {
+            ast::Stmt::Expr(stmt_expr) => {
+                for expr in &stmt_expr.exprs {
+                    if let Some(expr) = self.expr(&expr.value) {
+                        result.push_str(&format!("{expr}\n"));
+                    }
+                }
+            }
+            ast::Stmt::Item(item) => todo!(),
+            ast::Stmt::Assign(idents, values) => {
+                result.push_str(&self.binding(ast::BindingRef {
+                    kind: common::BindingKind::Global,
+                    identifiers: idents.as_slice(),
+                    values: Some(values.as_slice()),
+                }));
+            }
+            ast::Stmt::Binding(binding) => {
+                result.push_str(&self.binding(binding.as_ref()));
+            }
+            ast::Stmt::Print(e) => {
+                if let Some(expr) = self.expr(&e.value) {
+                    self.result.push_str(&format!("print({expr})"));
+                }
+            }
+            ast::Stmt::Empty => todo!(),
+        };
+        result
+    }
 
-        self.luajit_context.write_proto(proto);
+    fn binding(&mut self, binding: ast::BindingRef) -> String {
+        let mut result = String::new();
+        if let Some(values) = binding.values {
+            if binding.identifiers.len() == values.len()
+                && values
+                    .iter()
+                    .all(|v| !(matches!(&v.value, ast::Expr::If(_) | ast::Expr::Block(_))))
+            {
+                if binding.kind == common::BindingKind::Local {
+                    result.push_str("local ");
+                }
+                match &binding.identifiers {
+                    [item] => {
+                        result.push_str(&item.value);
+                    }
+                    [items @ .., last] => {
+                        for item in items {
+                            result.push_str(&format!("{},", &item.value));
+                        }
+                        result.push_str(&last.value);
+                    }
+                    [] => unreachable!(),
+                };
+                result.push_str(" = ");
+                match &values {
+                    [item] => {
+                        if let Some(expr) = &self.expr(&item.value) {
+                            result.push_str(expr);
+                        }
+                    }
+                    [items @ .., last] => {
+                        for item in items {
+                            if let Some(expr) = &self.expr(&item.value) {
+                                result.push_str(&format!("{expr},"));
+                            }
+                        }
+                        if let Some(expr) = &self.expr(&last.value) {
+                            result.push_str(expr);
+                        }
+                    }
+                    [] => unreachable!(),
+                };
+            } else {
+                let mut stack = self.stack();
+                for item in values {
+                    match &item.value {
+                        item @ ast::Expr::Block(_) => {
+                            self.expr(item);
+                        }
+                        _ => {
+                            if let Some(expr) = self.expr(&item.value) {
+                                result.push_str(&format!("{} = {}\n", self.push_ident(), expr));
+                            }
+                        }
+                    }
+                    // result.push_str(&format!(
+                    //     "{} = {}\n",
+                    //     self.push_ident(),
+                    //     self.expr(&item.value)
+                    // ));
+                }
+                for ident in binding.identifiers.iter() {
+                    result.push_str(&format!("local {} = {}\n", &ident.value, self.ident(stack)));
+                    stack += 1;
+                }
+            }
+        } else {
+            result.push_str("local ");
+            match &binding.identifiers {
+                [item] => {
+                    result.push_str(&item.value);
+                }
+                [items @ .., last] => {
+                    for item in items {
+                        result.push_str(&format!("{},", &item.value));
+                    }
+                    result.push_str(&last.value);
+                }
+                [] => unreachable!(),
+            };
+        }
+        result
+    }
+
+    fn expr(&mut self, expr: &ast::Expr) -> Option<String> {
+        match &expr {
+            ast::Expr::Nil => Some(String::from("nil")),
+            ast::Expr::Number(number) => match number {
+                ast::Number::Float(f) => Some(f.to_string()),
+                ast::Number::Int(i) => Some(i.to_string()),
+            },
+            ast::Expr::Bool(b) => Some(b.to_string()),
+            ast::Expr::String(s) => Some(format!("\"{s}\"")),
+            ast::Expr::Grouping(e) => self.expr(&e.value),
+            ast::Expr::Unary(op, e) => match op.value {
+                common::UnaryOp::Not => self.expr(&e.value).map(|e| format!("not ({})", e)),
+                common::UnaryOp::Negate => self.expr(&e.value).map(|e| format!("-{}", e)),
+            },
+            ast::Expr::Binary(binary_expr) => {
+                let op = match binary_expr.op.value {
+                    common::BinaryOp::Div => "/",
+                    common::BinaryOp::Mult => "*",
+                    common::BinaryOp::Add => "+",
+                    common::BinaryOp::Sub => "-",
+                    common::BinaryOp::Greater => ">",
+                    common::BinaryOp::GreaterEqual => ">=",
+                    common::BinaryOp::Less => "<",
+                    common::BinaryOp::LessEqual => "<=",
+                    common::BinaryOp::NotEqual => "~=",
+                    common::BinaryOp::Equal => "==",
+                    common::BinaryOp::Modulo => "%",
+                    common::BinaryOp::And => " and ",
+                    common::BinaryOp::Or => " or ",
+                };
+                if let (Some(l), Some(r)) = (
+                    self.expr(&binary_expr.left.value),
+                    self.expr(&binary_expr.right.value),
+                ) {
+                    Some(format!("{}{}{}", l, op, r))
+                } else {
+                    None
+                }
+            }
+            ast::Expr::Identifier(i) => Some(i.to_string()),
+            ast::Expr::Call(_, items) => todo!(),
+            ast::Expr::If(if_expr) => {
+                let condition = self.expr(&if_expr.condition.value).unwrap();
+                self.result.push_str(&format!("if {} then\n", &condition));
+                self.block(&if_expr.then_branch);
+                self.pop_stack();
+                if let Some(else_branch) = &if_expr.else_branch {
+                    if matches!(&else_branch.value, ast::Expr::If(_)) {
+                        self.result.push_str("else\n");
+                    } else {
+                        self.result.push_str("else\n");
+                    }
+                    self.expr(&else_branch.value);
+                    self.pop_stack();
+                }
+                self.result.push_str("end\n");
+                None
+            }
+            ast::Expr::Block(items) => self.block(items),
+        }
+    }
+
+    fn block_last(&mut self, item: &ast::Stmt) -> Option<String> {
+        if let ast::Stmt::Expr(expr) = &item
+            && expr.semi.is_none()
+        {
+            match expr.exprs.as_slice() {
+                [item] => {
+                    let ident = self.push_ident();
+                    let expr = self.expr(&item.value);
+                    if let Some(expr) = expr {
+                        self.result.push_str(&format!("{} = {}\n", ident, expr));
+                    }
+                    Some(ident)
+                }
+                [_item, ..] => {
+                    for item in &expr.exprs {
+                        let ident = self.push_ident();
+                        let expr = self.expr(&item.value);
+                        if let Some(expr) = expr {
+                            self.result.push_str(&format!("{} = {}\n", ident, expr));
+                        }
+                    }
+                    None
+                }
+                [] => unreachable!(),
+            }
+        } else {
+            let stmt = self.stmt(item);
+            self.result.push_str(&format!("{stmt}\n"));
+            None
+        }
+    }
+
+    fn block(&mut self, stmts: &[WithSpan<ast::Stmt>]) -> Option<String> {
+        self.push_stack();
+        match stmts {
+            [item] => self.block_last(&item.value),
+            [items @ .., last] => {
+                for item in items {
+                    let stmt = self.stmt(&item.value);
+                    self.result.push_str(&format!("{stmt}\n"));
+                }
+                self.block_last(&last.value)
+            }
+            [] => None,
+        }
     }
 }
 
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub fn generate(ir: ir::FunctionContext) -> Vec<u8> {
+pub fn generate(program: &[WithSpan<ast::Stmt>]) -> String {
     let mut context = Context::new();
-    context.generate(ir);
-    context.luajit_context.finish()
+    context.generate(program);
+    context.result
 }
