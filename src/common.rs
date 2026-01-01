@@ -24,23 +24,6 @@ pub enum BinaryOp {
 }
 
 impl BinaryOp {
-    pub fn to_lua(&self) -> &str {
-        match self {
-            BinaryOp::Div => "/",
-            BinaryOp::Mult => "*",
-            BinaryOp::Add => "+",
-            BinaryOp::Sub => "-",
-            BinaryOp::Greater => ">",
-            BinaryOp::GreaterEqual => ">=",
-            BinaryOp::Less => "<",
-            BinaryOp::LessEqual => "<=",
-            BinaryOp::NotEqual => "~=",
-            BinaryOp::Equal => "==",
-            BinaryOp::Modulo => "%",
-            BinaryOp::And => "and",
-            BinaryOp::Or => "||",
-        }
-    }
     pub fn from_token(token: &token::Token) -> Option<Self> {
         match *token {
             token::Token::Slash => Some(Self::Div),
@@ -60,7 +43,7 @@ impl BinaryOp {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BindingType {
+pub enum BindingKind {
     Local,
     Global,
 }

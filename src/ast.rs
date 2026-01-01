@@ -49,7 +49,7 @@ pub enum Expr {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Binding {
-    pub binding_type: BindingType,
+    pub kind: BindingKind,
     pub identifiers: Vec<WithSpan<Identifier>>,
     pub values: Option<Vec<WithSpan<Expr>>>,
 }

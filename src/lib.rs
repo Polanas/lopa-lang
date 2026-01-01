@@ -1,4 +1,5 @@
 pub mod code_gen;
+pub mod code_gen_new;
 pub mod ir;
 pub mod common;
 pub mod uleb128_33;

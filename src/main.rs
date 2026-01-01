@@ -3,7 +3,7 @@ mod shared_mut;
 
 use std::{error::Error, io::Read};
 
-use lopa_lang::{code_gen, instruction, ir, luajit, parser, tokenizer};
+use lopa_lang::{code_gen, code_gen_new, instruction, ir, luajit, parser, tokenizer};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // let mut context = luajit::Context::new();
@@ -21,17 +21,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     // context.write_proto(proto);
     // let dump = context.finish();
     // mlua::Lua::new().load(&dump).exec().unwrap();
-    let program = "x,y,z = 1,2,{1+2}; x,y,z=z,{y*2},x; print x; print y; print z";
+    let program = "
+let x,y,z = 1, {2+3}, 4;
+print x;
+print y;
+print z;
+";
 
     let tokens = tokenizer::tokenize(program);
     let ast = parser::parse_program(&tokens);
     match ast {
         Ok(ast) => {
-            let ir_context = ir::generate(&ast);
-            dbg!(&ir_context.instructions);
-            let bytecode = code_gen::generate(ir_context);
-            std::fs::write("binary", &bytecode).unwrap();
-            mlua::Lua::new().load(&bytecode).exec().unwrap();
+            let code = code_gen_new::generate(&ast);
+            println!("{program}");
+            println!("------------------------------");
+            println!("{code}");
+            mlua::Lua::new().load(&code).exec().unwrap();
+            // let ir_context = ir::generate(&ast);
+            // dbg!(&ir_context.instructions);
+            // let bytecode = code_gen::generate(ir_context);
+            // std::fs::write("binary", &bytecode).unwrap();
         }
         Err(errs) => {
             for error in errs {

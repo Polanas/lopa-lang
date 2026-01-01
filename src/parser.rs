@@ -628,8 +628,8 @@ impl<'t> Parser<'t> {
     fn parse_binding(&mut self) -> Option<WithSpan<Stmt>> {
         let binding_token = self.advance();
         let binding_type = match binding_token.value {
-            Token::Let => BindingType::Local,
-            Token::Global => BindingType::Global,
+            Token::Let => BindingKind::Local,
+            Token::Global => BindingKind::Global,
             _ => unreachable!(),
         };
 
@@ -667,7 +667,7 @@ impl<'t> Parser<'t> {
 
                     return Some(WithSpan::new(
                         Stmt::Binding(Binding {
-                            binding_type,
+                            kind: binding_type,
                             identifiers,
                             values: Some(exprs),
                         }),
@@ -686,7 +686,7 @@ impl<'t> Parser<'t> {
 
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
-                    binding_type,
+                    kind: binding_type,
                     identifiers,
                     values: Some(exprs),
                 }),
@@ -700,7 +700,7 @@ impl<'t> Parser<'t> {
 
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
-                    binding_type,
+                    kind: binding_type,
                     identifiers,
                     values: None,
                 }),

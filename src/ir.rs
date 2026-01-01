@@ -52,15 +52,15 @@ pub enum ConditionalJump {
 pub enum Instruction {
     Push(Value),
     Pop,
-    Locals(Vec<Identifier>),
+    Binding(BindingKind, Vec<Identifier>),
     Assign(Vec<Identifier>),
     Unary(UnaryOp),
     Global(Identifier),
     Binary(BinaryOp),
     Jump(ConditionalJump, usize),
-    StmtEnd,
     ScopeStart,
     ScopeEnd,
+    StmtEnd,
     Print,
 }
 
@@ -113,11 +113,22 @@ impl FunctionContext {
         self.instructions.push(Instruction::Pop);
     }
 
-    fn locals(&mut self, idents: Vec<Identifier>) {
+    fn stmt_end(&mut self) {
+        self.instructions.push(Instruction::StmtEnd);
+    }
+
+    fn binding(&mut self, idents: Vec<Identifier>, kind: BindingKind) {
         for ident in idents.iter() {
-            self.locals.insert(ident.clone());
+            match kind {
+                BindingKind::Local => {
+                    self.locals.insert(ident.clone());
+                }
+                BindingKind::Global => {
+                    self.const_string(ident);
+                }
+            };
         }
-        self.instructions.push(Instruction::Locals(idents));
+        self.instructions.push(Instruction::Binding(kind, idents));
     }
 
     fn assign(&mut self, idents: Vec<Identifier>) {
@@ -142,10 +153,6 @@ impl FunctionContext {
 
     fn scope_end(&mut self) {
         self.instructions.push(Instruction::ScopeEnd);
-    }
-
-    fn stmt_end(&mut self) {
-        self.instructions.push(Instruction::StmtEnd);
     }
 
     fn expr(&mut self, expr: &ast::Expr) {
@@ -300,12 +307,13 @@ impl FunctionContext {
                     self.push(Value::Nil);
                 }
 
-                self.locals(
+                self.binding(
                     binding
                         .identifiers
                         .iter()
                         .map(|i| i.value.clone())
                         .collect(),
+                    binding.kind,
                 );
             }
             ast::Stmt::Print(v) => {

@@ -193,13 +193,21 @@ impl Context {
                 ir::Instruction::Pop => {
                     self.current_scope_mut().pop();
                 }
-                ir::Instruction::Locals(idents) => {
+                ir::Instruction::Binding(kind, idents) => {
                     let locals_amount = scope.locals.len();
                     let scope = self.current_scope_mut();
                     for (i, ident) in idents.iter().enumerate() {
-                        let local_id = scope.local(ident);
                         let id = i + locals_amount;
-                        Self::try_move(local_id as _, id as _, &mut proto);
+                        match kind {
+                            BindingKind::Local => {
+                                let local_id = scope.local(ident);
+                                Self::try_move(local_id as _, id as _, &mut proto);
+                            }
+                            BindingKind::Global => {
+                                let const_id = ir_context.string_constants.get(ident).unwrap().0;
+                                proto.instructions.push(I!(GSET, id as _, const_id));
+                            }
+                        }
                     }
                     scope.clear_temp();
                 }
@@ -235,36 +243,44 @@ impl Context {
                 }
                 ir::Instruction::Binary(binary_op) => {
                     let scope = self.current_scope_mut();
-                    let right_id = scope.pop().0;
-                    let left_id = scope.pop().0;
-
-                    let opcode = match binary_op {
-                        BinaryOp::Div => luajit::OpCode::DIVVV,
-                        BinaryOp::Mult => luajit::OpCode::MULVV,
-                        BinaryOp::Add => luajit::OpCode::ADDVV,
-                        BinaryOp::Sub => luajit::OpCode::SUBVV,
-                        BinaryOp::Greater => luajit::OpCode::KSHORT,
-                        BinaryOp::GreaterEqual => todo!(),
-                        BinaryOp::Less => todo!(),
-                        BinaryOp::LessEqual => todo!(),
-                        BinaryOp::NotEqual => todo!(),
-                        BinaryOp::Equal => todo!(),
-                        BinaryOp::Modulo => luajit::OpCode::MODVV,
-                        BinaryOp::And => todo!(),
-                        BinaryOp::Or => todo!(),
-                    };
-
-                    proto.instructions.push(luajit::Instruction::ABC(
-                        opcode,
-                        luajit::ABC::new(scope.push(None) as _, left_id as _, right_id as _),
-                    ));
+                    match binary_op {
+                        BinaryOp::Div
+                        | BinaryOp::Mult
+                        | BinaryOp::Add
+                        | BinaryOp::Sub
+                        | BinaryOp::Modulo => {
+                            let right_id = scope.pop().0;
+                            let left_id = scope.pop().0;
+                            let opcode = match binary_op {
+                                BinaryOp::Div => luajit::OpCode::DIVVV,
+                                BinaryOp::Mult => luajit::OpCode::MULVV,
+                                BinaryOp::Add => luajit::OpCode::ADDVV,
+                                BinaryOp::Sub => luajit::OpCode::SUBVV,
+                                BinaryOp::Modulo => luajit::OpCode::MODVV,
+                                _ => unreachable!(),
+                            };
+                            proto.instructions.push(luajit::Instruction::ABC(
+                                opcode,
+                                luajit::ABC::new(
+                                    scope.push(None) as _,
+                                    left_id as _,
+                                    right_id as _,
+                                ),
+                            ));
+                        }
+                        BinaryOp::And => {
+                            let right_id = scope.pop().0;
+                            // proto.instructions.push(I!(ISFC, ));
+                        }
+                        _ => {}
+                    }
                 }
                 ir::Instruction::Jump(conditional_jump, _) => todo!(),
-                ir::Instruction::StmtEnd => {
-                    // self.clear_temp();
-                }
                 ir::Instruction::ScopeStart => {
                     self.push_scope();
+                }
+                ir::Instruction::StmtEnd => {
+                    self.current_scope_mut().clear_temp();
                 }
                 ir::Instruction::ScopeEnd => {
                     self.pop_scope();
