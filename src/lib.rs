@@ -1,5 +1,6 @@
 pub mod code_gen;
 pub mod common;
+pub mod types;
 pub mod uleb128_33;
 pub mod tokenizer;
 pub mod parser;

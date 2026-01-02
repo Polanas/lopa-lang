@@ -392,7 +392,7 @@ impl<'t> Parser<'t> {
         let if_token = self.expect(TokenKind::If)?;
         let condition = self.parse_expr(Precedence::Lowest)?;
         let WithSpan {
-            value: Expr::Block(then_branch),
+            value: Expr::Block(then_branch, ..),
             span,
         } = self.parse_block()?
         else {
@@ -410,6 +410,7 @@ impl<'t> Parser<'t> {
                 condition: condition.into(),
                 then_branch,
                 else_branch,
+                ty: None,
             }),
             if_token.span.union(span),
         ))
@@ -456,7 +457,14 @@ impl<'t> Parser<'t> {
         let op = self.parse_unary_op()?;
         let right = self.parse_expr(Precedence::Unary)?;
         let span = op.span.union(right.span);
-        Some(WithSpan::new(Expr::Unary(op, right.into()), span))
+        Some(WithSpan::new(
+            Expr::Unary(UnaryExpr {
+                expr: right.into(),
+                op,
+                ty: None,
+            }),
+            span,
+        ))
     }
 
     fn parse_unary_op(&mut self) -> Option<WithSpan<UnaryOp>> {
@@ -484,6 +492,7 @@ impl<'t> Parser<'t> {
                 left: left.into(),
                 right: right.into(),
                 op,
+                ty: None,
             }),
             span,
         ))
@@ -502,7 +511,9 @@ impl<'t> Parser<'t> {
             &Token::True => Some(WithSpan::new(Expr::Bool(true), token.span)),
             &Token::False => Some(WithSpan::new(Expr::Bool(false), token.span)),
             Token::String(s) => Some(WithSpan::new(Expr::String(s.clone()), token.span)),
-            Token::Identifier(s) => Some(WithSpan::new(Expr::Identifier(s.clone()), token.span)),
+            Token::Identifier(s) => {
+                Some(WithSpan::new(Expr::Identifier(s.clone(), None), token.span))
+            }
             _ => {
                 self.add_error(
                     &format!("Unexpected {}", TokenKind::from(&token.value)),
@@ -527,7 +538,7 @@ impl<'t> Parser<'t> {
         };
 
         Some(WithSpan::new(
-            Expr::Block(stmts),
+            Expr::Block(stmts, None),
             left_brace.span.union(right_brace.span),
         ))
     }
@@ -577,11 +588,11 @@ impl<'t> Parser<'t> {
 
         if TokenKind::Equal == self.peek() {
             self.expect(TokenKind::Equal);
-            let identifiers = exprs
+            let idents = exprs
                 .into_iter()
                 .map(|e| {
                     if let WithSpan {
-                        value: Expr::Identifier(i),
+                        value: Expr::Identifier(i, None),
                         span,
                     } = e
                     {
@@ -597,7 +608,14 @@ impl<'t> Parser<'t> {
                 self.expect(TokenKind::Comma);
                 if let Some(semi) = self.parse_optional_semi() {
                     let span = span.union(semi);
-                    return Some(WithSpan::new(Stmt::Assign(identifiers, values), span));
+                    return Some(WithSpan::new(
+                        Stmt::Assign(Assign {
+                            idents,
+                            values: Some(values),
+                            types: None,
+                        }),
+                        span,
+                    ));
                 }
 
                 let value = self.parse_expr(Precedence::Lowest)?;
@@ -607,7 +625,14 @@ impl<'t> Parser<'t> {
 
             let semi = self.parse_optional_semi();
             let span = semi.map(|s| span.union(s)).unwrap_or(span);
-            return Some(WithSpan::new(Stmt::Assign(identifiers, values), span));
+            return Some(WithSpan::new(
+                Stmt::Assign(Assign {
+                    idents,
+                    values: Some(values),
+                    types: None,
+                }),
+                span,
+            ));
         }
 
         let semi = self.parse_optional_semi();
@@ -668,8 +693,9 @@ impl<'t> Parser<'t> {
                     return Some(WithSpan::new(
                         Stmt::Binding(Binding {
                             kind: binding_type,
-                            identifiers,
+                            idents: identifiers,
                             values: Some(exprs),
+                            types: None,
                         }),
                         span,
                     ));
@@ -687,8 +713,9 @@ impl<'t> Parser<'t> {
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
                     kind: binding_type,
-                    identifiers,
+                    idents: identifiers,
                     values: Some(exprs),
+                    types: None,
                 }),
                 span,
             ))
@@ -701,8 +728,9 @@ impl<'t> Parser<'t> {
             Some(WithSpan::new(
                 Stmt::Binding(Binding {
                     kind: binding_type,
-                    identifiers,
+                    idents: identifiers,
                     values: None,
+                    types: None,
                 }),
                 span,
             ))

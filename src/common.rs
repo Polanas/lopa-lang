@@ -23,6 +23,26 @@ pub enum BinaryOp {
     Or,
 }
 
+impl std::fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BinaryOp::Div => write!(f, "/"),
+            BinaryOp::Mult => write!(f, "*"),
+            BinaryOp::Add => write!(f, "+"),
+            BinaryOp::Sub => write!(f, "-"),
+            BinaryOp::Greater => write!(f, ">"),
+            BinaryOp::GreaterEqual => write!(f, ">="),
+            BinaryOp::Less => write!(f, "<"),
+            BinaryOp::LessEqual => write!(f, "<="),
+            BinaryOp::NotEqual => write!(f, "!="),
+            BinaryOp::Equal => write!(f, "=="),
+            BinaryOp::Modulo => write!(f, "%"),
+            BinaryOp::And => write!(f, "&&"),
+            BinaryOp::Or => write!(f, "||"),
+        }
+    }
+}
+
 impl BinaryOp {
     pub fn from_token(token: &token::Token) -> Option<Self> {
         match *token {

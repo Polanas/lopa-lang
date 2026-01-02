@@ -91,11 +91,11 @@ impl Context {
                 }
             }
             ast::Stmt::Item(item) => todo!(),
-            ast::Stmt::Assign(idents, values) => {
+            ast::Stmt::Assign(ast::Assign { idents, values, .. }) => {
                 result.push_str(&self.binding(ast::BindingRef {
                     kind: common::BindingKind::Global,
-                    identifiers: idents.as_slice(),
-                    values: Some(values.as_slice()),
+                    idents: idents.as_slice(),
+                    values: values.as_ref().map(|v| v.as_slice()),
                 }));
             }
             ast::Stmt::Binding(binding) => {
@@ -114,15 +114,15 @@ impl Context {
     fn binding(&mut self, binding: ast::BindingRef) -> String {
         let mut result = String::new();
         if let Some(values) = binding.values {
-            if binding.identifiers.len() == values.len()
+            if binding.idents.len() == values.len()
                 && values
                     .iter()
-                    .all(|v| !(matches!(&v.value, ast::Expr::If(_) | ast::Expr::Block(_))))
+                    .all(|v| !(matches!(&v.value, ast::Expr::If(_) | ast::Expr::Block(_, _))))
             {
                 if binding.kind == common::BindingKind::Local {
                     result.push_str("local ");
                 }
-                match &binding.identifiers {
+                match &binding.idents {
                     [item] => {
                         result.push_str(&item.value);
                     }
@@ -157,7 +157,7 @@ impl Context {
                 let mut stack = self.stack();
                 for item in values {
                     match &item.value {
-                        item @ ast::Expr::Block(_) => {
+                        item @ ast::Expr::Block(_, _) => {
                             self.expr(item);
                         }
                         _ => {
@@ -172,14 +172,14 @@ impl Context {
                     //     self.expr(&item.value)
                     // ));
                 }
-                for ident in binding.identifiers.iter() {
+                for ident in binding.idents.iter() {
                     result.push_str(&format!("local {} = {}\n", &ident.value, self.ident(stack)));
                     stack += 1;
                 }
             }
         } else {
             result.push_str("local ");
-            match &binding.identifiers {
+            match &binding.idents {
                 [item] => {
                     result.push_str(&item.value);
                 }
@@ -205,9 +205,9 @@ impl Context {
             ast::Expr::Bool(b) => Some(b.to_string()),
             ast::Expr::String(s) => Some(format!("\"{s}\"")),
             ast::Expr::Grouping(e) => self.expr(&e.value),
-            ast::Expr::Unary(op, e) => match op.value {
-                common::UnaryOp::Not => self.expr(&e.value).map(|e| format!("not ({})", e)),
-                common::UnaryOp::Negate => self.expr(&e.value).map(|e| format!("-{}", e)),
+            ast::Expr::Unary(ast::UnaryExpr { expr, op, .. }) => match op.value {
+                common::UnaryOp::Not => self.expr(&expr.value).map(|e| format!("not ({})", e)),
+                common::UnaryOp::Negate => self.expr(&expr.value).map(|e| format!("-{}", e)),
             },
             ast::Expr::Binary(binary_expr) => {
                 let op = match binary_expr.op.value {
@@ -234,7 +234,7 @@ impl Context {
                     None
                 }
             }
-            ast::Expr::Identifier(i) => Some(i.to_string()),
+            ast::Expr::Identifier(i, _) => Some(i.to_string()),
             ast::Expr::Call(_, items) => todo!(),
             ast::Expr::If(if_expr) => {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
@@ -242,18 +242,14 @@ impl Context {
                 self.block(&if_expr.then_branch);
                 self.pop_stack();
                 if let Some(else_branch) = &if_expr.else_branch {
-                    if matches!(&else_branch.value, ast::Expr::If(_)) {
-                        self.result.push_str("else\n");
-                    } else {
-                        self.result.push_str("else\n");
-                    }
+                    self.result.push_str("else\n");
                     self.expr(&else_branch.value);
                     self.pop_stack();
                 }
                 self.result.push_str("end\n");
                 None
             }
-            ast::Expr::Block(items) => self.block(items),
+            ast::Expr::Block(items, _) => self.block(items),
         }
     }
 

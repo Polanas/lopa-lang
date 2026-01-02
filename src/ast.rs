@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::{
     common::*,
     position::{self, WithSpan},
+    types,
 };
 
 pub type Identifier = String;
@@ -12,6 +13,7 @@ pub struct BinaryExpr {
     pub left: Box<WithSpan<Expr>>,
     pub right: Box<WithSpan<Expr>>,
     pub op: WithSpan<BinaryOp>,
+    pub ty: Option<types::Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -19,6 +21,7 @@ pub struct IfExpr {
     pub condition: Box<WithSpan<Expr>>,
     pub then_branch: Vec<WithSpan<Stmt>>,
     pub else_branch: Option<Box<WithSpan<Expr>>>,
+    pub ty: Option<types::Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -43,24 +46,32 @@ impl Display for Number {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct UnaryExpr {
+    pub expr: Box<WithSpan<Expr>>,
+    pub op: WithSpan<UnaryOp>,
+    pub ty: Option<types::Type>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     Nil,
     Number(Number),
     Bool(bool),
     String(String),
     Grouping(Box<WithSpan<Expr>>),
-    Unary(WithSpan<UnaryOp>, Box<WithSpan<Expr>>),
+    Unary(UnaryExpr),
     Binary(BinaryExpr),
-    Identifier(Identifier),
+    Identifier(Identifier, Option<types::Type>),
     Call(Box<WithSpan<Expr>>, Vec<WithSpan<Expr>>),
     If(IfExpr),
-    Block(Vec<WithSpan<Stmt>>),
+    Block(Vec<WithSpan<Stmt>>, Option<types::Type>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Binding {
     pub kind: BindingKind,
-    pub identifiers: Vec<WithSpan<Identifier>>,
+    pub idents: Vec<WithSpan<Identifier>>,
+    pub types: Option<Vec<types::Type>>,
     pub values: Option<Vec<WithSpan<Expr>>>,
 }
 
@@ -68,7 +79,7 @@ impl Binding {
     pub fn as_ref(&'_ self) -> BindingRef<'_> {
         BindingRef {
             kind: self.kind,
-            identifiers: &self.identifiers,
+            idents: &self.idents,
             values: self.values.as_deref(),
         }
     }
@@ -77,7 +88,7 @@ impl Binding {
 #[derive(Debug, PartialEq, Clone)]
 pub struct BindingRef<'a> {
     pub kind: BindingKind,
-    pub identifiers: &'a [WithSpan<Identifier>],
+    pub idents: &'a [WithSpan<Identifier>],
     pub values: Option<&'a [WithSpan<Expr>]>,
 }
 
@@ -91,10 +102,17 @@ pub struct StmtExpr {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct Assign {
+    pub idents: Vec<WithSpan<Identifier>>,
+    pub types: Option<Vec<types::Type>>,
+    pub values: Option<Vec<WithSpan<Expr>>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Stmt {
     Expr(StmtExpr),
     Item(Item),
-    Assign(Vec<WithSpan<String>>, Vec<WithSpan<Expr>>),
+    Assign(Assign),
     Binding(Binding),
     Print(Box<WithSpan<Expr>>),
     Empty,
