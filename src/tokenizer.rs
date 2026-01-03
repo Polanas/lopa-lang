@@ -131,7 +131,7 @@ impl<'a> Tokenizer<'a> {
                 '*' => Some(Token::Star),
                 '%' => Some(Token::Percent),
                 '#' => Some(Token::Hash),
-                '?' => Some(self.matches_or('.', Token::MarkDot, Token::Unknown('?'))),
+                '?' => Some(self.matches_or('.', Token::MarkDot, Token::QuestionMark)),
                 ':' => Some(Token::Colon),
 
                 '=' => {

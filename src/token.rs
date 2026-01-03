@@ -22,6 +22,7 @@ pub enum TokenKind {
     Star,
     Percent,
     Hash,
+    QuestionMark,
     MarkDot,
     Colon,
 
@@ -134,6 +135,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::UnterminatedString => write!(f, "unterminated string"),
             TokenKind::Unknown => write!(f, "unknown"),
             TokenKind::EOF => write!(f, "EOF"),
+            TokenKind::QuestionMark => write!(f, "?"),
         }
     }
 }
@@ -156,6 +158,7 @@ pub enum Token {
     Percent,
     Hash,
     MarkDot,
+    QuestionMark,
     Colon,
 
     Bang,
@@ -273,6 +276,7 @@ impl From<&Token> for TokenKind {
             Token::UnterminatedString(_) => Self::UnterminatedString,
             Token::Unknown(_) => Self::Unknown,
             Token::EOF => Self::EOF,
+            Token::QuestionMark => Self::QuestionMark,
         }
     }
 }

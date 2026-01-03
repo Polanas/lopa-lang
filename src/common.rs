@@ -1,5 +1,7 @@
 use crate::token;
 
+pub type Identifier = String;
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum UnaryOp {
     Not,

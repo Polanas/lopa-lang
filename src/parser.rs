@@ -3,6 +3,7 @@ use crate::{
     common::*,
     position::{self, WithSpan},
     token::{self, Token, TokenKind},
+    types,
 };
 
 static EOF_TOKEN: WithSpan<Token> = position::WithSpan::empty(Token::EOF);
@@ -141,7 +142,7 @@ impl From<TokenKind> for Precedence {
             | TokenKind::BangEqual
             | TokenKind::Equal2 => Self::Comparison,
             TokenKind::Plus | TokenKind::Minus => Self::Term,
-            TokenKind::Star | TokenKind::Slash => Self::Factor,
+            TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Self::Factor,
             TokenKind::Bang => Self::Unary,
             _ => Self::Lowest,
         }
@@ -496,7 +497,7 @@ impl<'t> Parser<'t> {
                 left: left.into(),
                 right: right.into(),
                 op,
-                ty: None,
+                types: None,
             }),
             span,
         ))
@@ -616,7 +617,6 @@ impl<'t> Parser<'t> {
                         Stmt::Assign(Assign {
                             idents,
                             values: Some(values),
-                            types: None,
                         }),
                         span,
                     ));
@@ -633,7 +633,6 @@ impl<'t> Parser<'t> {
                 Stmt::Assign(Assign {
                     idents,
                     values: Some(values),
-                    types: None,
                 }),
                 span,
             ));
@@ -654,6 +653,41 @@ impl<'t> Parser<'t> {
         }
     }
 
+    fn parse_optional_mark(&mut self) -> Option<position::Span> {
+        match self.peek() {
+            TokenKind::QuestionMark => {
+                let mark = self.advance();
+                Some(mark.span)
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_type(&mut self) -> Option<WithSpan<types::Type>> {
+        let WithSpan {
+            value: value @ (Token::Identifier(_) | Token::Nil),
+            span,
+        } = self.advance()
+        else {
+            unreachable!();
+        };
+        let ident = match value {
+            Token::Identifier(ident) => ident,
+            Token::Nil => "nil",
+            _ => unreachable!(),
+        };
+
+        let mark = self.parse_optional_mark();
+        let span = mark.map(|s| span.union(s)).unwrap_or(*span);
+        Some(WithSpan::new(
+            types::Type {
+                kind: types::TypeKind::from_ident(ident),
+                nilable: mark.is_some(),
+            },
+            span,
+        ))
+    }
+
     fn parse_binding(&mut self) -> Option<WithSpan<Stmt>> {
         let binding_token = self.advance();
         let binding_type = match binding_token.value {
@@ -662,18 +696,11 @@ impl<'t> Parser<'t> {
             _ => unreachable!(),
         };
 
-        let WithSpan {
-            value: Token::Identifier(ident),
-            span: ident_span,
-        } = self.advance()
-        else {
-            return None;
-        };
-        let mut identifiers = vec![WithSpan::new(ident.clone(), *ident_span)];
-        let mut span = binding_token.span.union(*ident_span);
+        let mut identifiers = vec![];
+        let mut types = vec![];
+        let mut span = binding_token.span;
 
-        while let TokenKind::Comma = self.peek() {
-            self.expect(TokenKind::Comma);
+        loop {
             let WithSpan {
                 value: Token::Identifier(ident),
                 span: ident_span,
@@ -683,7 +710,21 @@ impl<'t> Parser<'t> {
             };
 
             span = span.union(*ident_span);
-            identifiers.push(WithSpan::new(ident.clone(), *ident_span))
+            identifiers.push(WithSpan::new(ident.clone(), *ident_span));
+
+            if self.peek() == TokenKind::Colon {
+                self.expect(TokenKind::Colon);
+                let ty = self.parse_type()?;
+                types.push(Some(ty));
+            } else {
+                types.push(None);
+            }
+
+            if self.peek() == TokenKind::Comma {
+                self.expect(TokenKind::Comma);
+            } else {
+                break;
+            }
         }
 
         if self.match_token(TokenKind::Equal).is_some() {
@@ -699,7 +740,7 @@ impl<'t> Parser<'t> {
                             kind: binding_type,
                             idents: identifiers,
                             values: Some(exprs),
-                            types: None,
+                            types,
                         }),
                         span,
                     ));
@@ -719,7 +760,7 @@ impl<'t> Parser<'t> {
                     kind: binding_type,
                     idents: identifiers,
                     values: Some(exprs),
-                    types: None,
+                    types,
                 }),
                 span,
             ))
@@ -734,7 +775,7 @@ impl<'t> Parser<'t> {
                     kind: binding_type,
                     idents: identifiers,
                     values: None,
-                    types: None,
+                    types,
                 }),
                 span,
             ))

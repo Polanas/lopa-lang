@@ -330,7 +330,12 @@ impl Context {
     fn block(&mut self, stmts: &[WithSpan<ast::Stmt>]) -> Option<String> {
         self.push_scope();
         match stmts {
-            [item] => self.block_last(&item.value),
+            [item] => {
+                self.result.push_str("do\n");
+                let last = self.block_last(&item.value);
+                self.result.push_str("end\n");
+                last
+            }
             [items @ .., last] => {
                 self.result.push_str("do\n");
                 for item in items {
@@ -383,15 +388,15 @@ end"#,
             run("let x,y = 1,{2}-1; print x; print y").as_deref(),
             Ok("1,1")
         );
-        // assert_eq!(
-        //     run("let x,y,z = 1, if true {2,3} else {4,5}; print x; print y; print z").as_deref(),
-        //     Ok("1,2,3")
-        // );
-        // assert_eq!(
-        //     run("let x = 2+{if true {1} else {2}}; print x;").as_deref(),
-        //     Ok("3")
-        // );
-        // assert_eq!(run("let x = {0}+{1}; print x;").as_deref(), Ok("1"));
+        assert_eq!(
+            run("let x,y,z = 1, if true {2,3} else {4,5}; print x; print y; print z").as_deref(),
+            Ok("1,2,3")
+        );
+        assert_eq!(
+            run("let x = 2+{if true {1} else {2}}; print x;").as_deref(),
+            Ok("3")
+        );
+        assert_eq!(run("let x = {0}+{1}; print x;").as_deref(), Ok("1"));
     }
 
     #[test]
