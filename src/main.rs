@@ -5,14 +5,9 @@ use std::{error::Error, io::Read};
 
 use lopa_lang::{code_gen, parser, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
-    let source = "x = 3;
-        if x == 1 {
-            print 1;
-        } else if x == 2 {
-            print 2;
-        } else {
-            print 3;
-        }";
+    let source = "
+let x,y = 1,{2}-1; print x; print y
+        ";
 
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);

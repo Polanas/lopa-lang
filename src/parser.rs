@@ -400,7 +400,11 @@ impl<'t> Parser<'t> {
         };
 
         let else_branch = if self.match_token(TokenKind::Else).is_some() {
-            Some(self.parse_expr(Precedence::Lowest)?.into())
+            if self.peek() == TokenKind::If {
+                Some(self.parse_if()?.into())
+            } else {
+                Some(self.parse_block()?.into())
+            }
         } else {
             None
         };

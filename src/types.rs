@@ -199,7 +199,7 @@ impl Context {
 
     pub fn type_check(&mut self, program: &mut [WithSpan<ast::Stmt>], source: &str) -> Option<()> {
         for stmt in program {
-            self.stmt(stmt, source);
+            self.stmt(stmt, source)?;
         }
         Some(())
     }

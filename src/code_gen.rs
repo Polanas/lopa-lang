@@ -1,76 +1,115 @@
+use std::collections::HashMap;
+
+use itertools::{Itertools, Position};
+
 use crate::{ast, common, position::WithSpan};
+
+const STACK_IDENT: &str = "__stack_var__";
+const SCOPE_IDENT: &str = "__scope__local__";
+
+type ScopeId = usize;
+
+#[derive(Debug, Default)]
+struct Scope {
+    stack: usize,
+    locals: HashMap<String, String>,
+    id: ScopeId,
+}
+
+impl Clone for Scope {
+    fn clone(&self) -> Self {
+        let mut scope = Self {
+            stack: self.stack,
+            id: self.id + 1,
+            locals: Default::default(),
+        };
+        for local in self.locals.keys() {
+            scope.insert_local(local.as_str());
+        }
+        scope
+    }
+}
+
+impl Scope {
+    fn new(id: ScopeId) -> Self {
+        Self {
+            id,
+            ..Default::default()
+        }
+    }
+
+    fn push(&mut self) -> usize {
+        let stack = self.stack;
+        self.stack += 1;
+        stack
+    }
+
+    fn stack_ident(&self, id: usize) -> String {
+        format!("stack_{id}")
+    }
+
+    fn push_ident(&mut self) -> String {
+        let push = self.push();
+        self.stack_ident(push)
+    }
+
+    fn insert_local(&mut self, name: &str) -> &str {
+        self.locals
+            .insert(name.to_owned(), format!("{}{}", SCOPE_IDENT, name));
+        self.locals[name].as_str()
+    }
+
+    fn ident<'a>(&'a self, name: &'a str) -> &'a str {
+        self.locals.get(name).map(|n| n.as_str()).unwrap_or(name)
+    }
+
+    fn clear(&mut self) {
+        self.stack = 0;
+    }
+}
 
 pub struct Context {
     result: String,
-    stack: Vec<usize>,
+    scopes: Vec<Scope>,
 }
 
 impl Context {
     fn new() -> Self {
         Self {
             result: Default::default(),
-            stack: vec![0],
+            scopes: vec![Scope::new(0)],
         }
     }
 
-    fn stack_mut(&mut self) -> &mut usize {
-        let len = self.stack.len();
-        &mut self.stack[len - 1]
+    fn scope(&self) -> &Scope {
+        &self.scopes[self.scopes.len() - 1]
     }
 
-    fn stack(&self) -> usize {
-        self.stack[self.stack.len() - 1]
+    fn scope_mut(&mut self) -> &mut Scope {
+        let len = self.scopes.len() - 1;
+        &mut self.scopes[len]
     }
 
-    fn push(&mut self) -> usize {
-        let stack = self.stack();
-        *self.stack_mut() += 1;
-        stack
+    fn push_scope(&mut self) {
+        let scope = self.scope().clone();
+        self.scopes.push(scope)
     }
 
-    fn push_stack(&mut self) {
-        let stack = self.stack();
-        self.stack.push(stack);
-    }
-
-    fn pop_stack(&mut self) {
-        self.stack.pop();
-    }
-
-    fn ident(&self, id: usize) -> String {
-        format!("stack_{id}")
-    }
-
-    fn clear_stack(&mut self) {
-        self.stack = vec![0];
-    }
-
-    fn push_ident(&mut self) -> String {
-        let push = self.push();
-        self.ident(push)
-    }
-
-    fn pop(&mut self) -> usize {
-        *self.stack_mut() -= 1;
-        self.stack()
-    }
-
-    fn pop_ident(&mut self) -> String {
-        let pop = self.pop();
-        self.ident(pop)
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
     }
 
     fn generate(&mut self, program: &[WithSpan<ast::Stmt>]) {
         match program {
             [item] => {
                 let stmt = self.stmt(&item.value);
-                self.clear_stack();
+                self.scope_mut().clear();
                 self.result.push_str(&stmt);
             }
             [items @ .., last] => {
                 for item in items {
                     let stmt = self.stmt(&item.value);
-                    self.clear_stack();
+                    self.scope_mut().clear();
                     self.result.push_str(&format!("{stmt}\n"));
                 }
                 let stmt = self.stmt(&last.value);
@@ -113,6 +152,11 @@ impl Context {
 
     fn binding(&mut self, binding: ast::BindingRef) -> String {
         let mut result = String::new();
+        for ident in binding.idents {
+            if binding.kind == common::BindingKind::Local {
+                self.scope_mut().insert_local(&ident.value);
+            }
+        }
         if let Some(values) = binding.values {
             if binding.idents.len() == values.len()
                 && values
@@ -122,77 +166,74 @@ impl Context {
                 if binding.kind == common::BindingKind::Local {
                     result.push_str("local ");
                 }
-                match &binding.idents {
-                    [item] => {
-                        result.push_str(&item.value);
-                    }
-                    [items @ .., last] => {
-                        for item in items {
-                            result.push_str(&format!("{},", &item.value));
-                        }
-                        result.push_str(&last.value);
-                    }
-                    [] => unreachable!(),
-                };
+
+                self.push_binding_idents(&binding, &mut result);
                 result.push_str(" = ");
-                match &values {
-                    [item] => {
-                        if let Some(expr) = &self.expr(&item.value) {
-                            result.push_str(expr);
-                        }
-                    }
-                    [items @ .., last] => {
-                        for item in items {
-                            if let Some(expr) = &self.expr(&item.value) {
+                for (pos, value) in values.iter().with_position() {
+                    match pos {
+                        Position::First | Position::Middle => {
+                            if let Some(expr) = &self.expr(&value.value) {
                                 result.push_str(&format!("{expr},"));
                             }
                         }
-                        if let Some(expr) = &self.expr(&last.value) {
-                            result.push_str(expr);
+                        Position::Last | Position::Only => {
+                            if let Some(expr) = &self.expr(&value.value) {
+                                result.push_str(expr);
+                            }
                         }
                     }
-                    [] => unreachable!(),
-                };
+                }
             } else {
-                let mut stack = self.stack();
                 for item in values {
                     match &item.value {
-                        item @ ast::Expr::Block(_, _) => {
+                        item @ (ast::Expr::Block(_, _) | ast::Expr::If(_)) => {
                             self.expr(item);
                         }
                         _ => {
                             if let Some(expr) = self.expr(&item.value) {
-                                result.push_str(&format!("{} = {}\n", self.push_ident(), expr));
+                                result.push_str(&format!(
+                                    "{} = {}\n",
+                                    self.scope_mut().push_ident(),
+                                    expr
+                                ));
                             }
                         }
                     }
-                    // result.push_str(&format!(
-                    //     "{} = {}\n",
-                    //     self.push_ident(),
-                    //     self.expr(&item.value)
-                    // ));
                 }
-                for ident in binding.idents.iter() {
-                    result.push_str(&format!("local {} = {}\n", &ident.value, self.ident(stack)));
-                    stack += 1;
+                let mut stack = self.scope().stack;
+                for ident in binding.idents.iter().rev() {
+                    stack -= 1;
+                    if binding.kind == common::BindingKind::Local {
+                        result.push_str("local ");
+                    }
+                    let stack_ident = self.scope().stack_ident(stack);
+                    result.push_str(&format!(
+                        "{} = {}\n",
+                        self.scope_mut().ident(&ident.value),
+                        stack_ident
+                    ));
                 }
             }
         } else {
-            result.push_str("local ");
-            match &binding.idents {
-                [item] => {
-                    result.push_str(&item.value);
-                }
-                [items @ .., last] => {
-                    for item in items {
-                        result.push_str(&format!("{},", &item.value));
-                    }
-                    result.push_str(&last.value);
-                }
-                [] => unreachable!(),
-            };
+            if binding.kind == common::BindingKind::Local {
+                result.push_str("local ");
+            }
+            self.push_binding_idents(&binding, &mut result);
         }
         result
+    }
+
+    fn push_binding_idents(&mut self, binding: &ast::BindingRef<'_>, result: &mut String) {
+        for (pos, ident) in binding.idents.iter().with_position() {
+            match pos {
+                Position::First | Position::Middle => {
+                    result.push_str(&format!("{},", self.scope_mut().ident(&ident.value)));
+                }
+                Position::Last | Position::Only => {
+                    result.push_str(self.scope_mut().ident(&ident.value));
+                }
+            }
+        }
     }
 
     fn expr(&mut self, expr: &ast::Expr) -> Option<String> {
@@ -234,20 +275,19 @@ impl Context {
                     None
                 }
             }
-            ast::Expr::Identifier(i, _) => Some(i.to_string()),
+            ast::Expr::Identifier(ident, _) => Some(self.scope_mut().ident(ident).to_owned()),
             ast::Expr::Call(_, items) => todo!(),
             ast::Expr::If(if_expr) => {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
                 self.result.push_str(&format!("if {} then\n", &condition));
-                self.block(&if_expr.then_branch);
-                self.pop_stack();
+                let ident = self.block(&if_expr.then_branch);
                 if let Some(else_branch) = &if_expr.else_branch {
+                    self.pop_scope();
                     self.result.push_str("else\n");
                     self.expr(&else_branch.value);
-                    self.pop_stack();
                 }
                 self.result.push_str("end\n");
-                None
+                ident
             }
             ast::Expr::Block(items, _) => self.block(items),
         }
@@ -259,18 +299,20 @@ impl Context {
         {
             match expr.exprs.as_slice() {
                 [item] => {
-                    let ident = self.push_ident();
                     let expr = self.expr(&item.value);
                     if let Some(expr) = expr {
+                        let ident = self.scope_mut().push_ident();
                         self.result.push_str(&format!("{} = {}\n", ident, expr));
+                        Some(ident)
+                    } else {
+                        None
                     }
-                    Some(ident)
                 }
                 [_item, ..] => {
                     for item in &expr.exprs {
-                        let ident = self.push_ident();
                         let expr = self.expr(&item.value);
                         if let Some(expr) = expr {
+                            let ident = self.scope_mut().push_ident();
                             self.result.push_str(&format!("{} = {}\n", ident, expr));
                         }
                     }
@@ -286,15 +328,18 @@ impl Context {
     }
 
     fn block(&mut self, stmts: &[WithSpan<ast::Stmt>]) -> Option<String> {
-        self.push_stack();
+        self.push_scope();
         match stmts {
             [item] => self.block_last(&item.value),
             [items @ .., last] => {
+                self.result.push_str("do\n");
                 for item in items {
                     let stmt = self.stmt(&item.value);
                     self.result.push_str(&format!("{stmt}\n"));
                 }
-                self.block_last(&last.value)
+                let result = self.block_last(&last.value);
+                self.result.push_str("end\n");
+                result
             }
             [] => None,
         }
@@ -305,4 +350,65 @@ pub fn generate(program: &[WithSpan<ast::Stmt>]) -> String {
     let mut context = Context::new();
     context.generate(program);
     context.result
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{code_gen, parser, position::Diagnostic, tokenizer};
+
+    fn run(source: &str) -> Result<String, Vec<Diagnostic>> {
+        let code = code_gen::generate(&parser::parse_program(&tokenizer::tokenize(source))?);
+        let lua = mlua::Lua::new();
+        lua.load(
+            r#"
+print = function(item)
+    result = result and result .. ',' .. item or item
+end"#,
+        )
+        .exec()
+        .unwrap();
+
+        lua.load(&code).exec().unwrap();
+        Ok(lua.globals().get("result").unwrap())
+    }
+
+    #[test]
+    fn blocks_multivalues() {
+        assert_eq!(run("let x,y = 1,2; print x; print y").as_deref(), Ok("1,2"));
+        assert_eq!(
+            run("let x,y = 1,{2}; print x; print y").as_deref(),
+            Ok("1,2")
+        );
+        assert_eq!(
+            run("let x,y = 1,{2}-1; print x; print y").as_deref(),
+            Ok("1,1")
+        );
+        // assert_eq!(
+        //     run("let x,y,z = 1, if true {2,3} else {4,5}; print x; print y; print z").as_deref(),
+        //     Ok("1,2,3")
+        // );
+        // assert_eq!(
+        //     run("let x = 2+{if true {1} else {2}}; print x;").as_deref(),
+        //     Ok("3")
+        // );
+        // assert_eq!(run("let x = {0}+{1}; print x;").as_deref(), Ok("1"));
+    }
+
+    #[test]
+    fn shadowing() {
+        assert_eq!(
+            run("
+let y = 1;
+let x = {
+    let x = 20;
+    let y = 2;
+    x + y
+};
+print x;
+print y;
+ ")
+            .as_deref(),
+            Ok("22,1")
+        );
+    }
 }
