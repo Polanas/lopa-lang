@@ -146,6 +146,9 @@ impl Context {
                 }
             }
             ast::Stmt::Empty => todo!(),
+            ast::Stmt::Return(exprs) => {
+
+            },
         };
         result
     }
@@ -161,7 +164,7 @@ impl Context {
             if binding.idents.len() == values.len()
                 && values
                     .iter()
-                    .all(|v| !(matches!(&v.value, ast::Expr::If(_) | ast::Expr::Block(_, _))))
+                    .all(|v| !(matches!(&v.value, ast::Expr::If(_) | ast::Expr::Block(_))))
             {
                 if binding.kind == common::BindingKind::Local {
                     result.push_str("local ");
@@ -186,7 +189,7 @@ impl Context {
             } else {
                 for item in values {
                     match &item.value {
-                        item @ (ast::Expr::Block(_, _) | ast::Expr::If(_)) => {
+                        item @ (ast::Expr::Block(_) | ast::Expr::If(_)) => {
                             self.expr(item);
                         }
                         _ => {
@@ -280,7 +283,7 @@ impl Context {
             ast::Expr::If(if_expr) => {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
                 self.result.push_str(&format!("if {} then\n", &condition));
-                let ident = self.block(&if_expr.then_branch);
+                let ident = self.block(&if_expr.then_branch.value);
                 if let Some(else_branch) = &if_expr.else_branch {
                     self.pop_scope();
                     self.result.push_str("else\n");
@@ -289,7 +292,7 @@ impl Context {
                 self.result.push_str("end\n");
                 ident
             }
-            ast::Expr::Block(items, _) => self.block(items),
+            ast::Expr::Block(block) => self.block(block),
         }
     }
 
@@ -327,9 +330,9 @@ impl Context {
         }
     }
 
-    fn block(&mut self, stmts: &[WithSpan<ast::Stmt>]) -> Option<String> {
+    fn block(&mut self, block: &ast::Block) -> Option<String> {
         self.push_scope();
-        match stmts {
+        match block.body.as_slice() {
             [item] => {
                 self.result.push_str("do\n");
                 let last = self.block_last(&item.value);

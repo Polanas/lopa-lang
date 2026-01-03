@@ -4,5 +4,6 @@
 ---@return boolean, R1|string, R...
 function pcall(f, ...) end
 
---fn pcall<...T, ...R>(f: fn(...T) -> ...R, ...T) -> ...R
-
+--  fn pcall<...T, ...R, F>(f: F, ...T) -> ...R {} where F: fn(...T) -> ...R
+--
+--  fn test(a: "hi" | "hey" | "hello")

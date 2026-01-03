@@ -1,13 +1,9 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-};
+use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     ast::{self},
     common::{self, Identifier},
     position::{self, WithSpan},
-    types,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -311,7 +307,7 @@ impl Context {
             }
             ast::Expr::If(if_expr) => {
                 let _cond_type = self.expr(&mut if_expr.condition, source)?;
-                let then_type = self.block(&mut if_expr.then_branch, source)?;
+                let then_type = self.block(&mut if_expr.then_branch.value.body, source)?;
                 let else_type = if_expr
                     .else_branch
                     .as_mut()
@@ -332,8 +328,8 @@ impl Context {
                     None => then_type,
                 }
             }
-            ast::Expr::Block(items, ty) => {
-                let block_ty = self.block(items, source)?;
+            ast::Expr::Block(ast::Block { body, ty }) => {
+                let block_ty = self.block(body, source)?;
                 *ty = Some(block_ty.clone());
                 block_ty
             }
@@ -454,6 +450,7 @@ impl Context {
             }
             ast::Stmt::Print(_) => {}
             ast::Stmt::Empty => todo!(),
+            ast::Stmt::Return(items) => todo!(),
         };
         Some(())
     }
