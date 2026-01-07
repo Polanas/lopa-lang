@@ -279,7 +279,7 @@ impl Context {
                 }
             }
             ast::Expr::Identifier(ident, _) => Some(self.scope_mut().ident(ident).to_owned()),
-            ast::Expr::Call(_, items) => todo!(),
+            ast::Expr::Call(_) => todo!(),
             ast::Expr::If(if_expr) => {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
                 self.result.push_str(&format!("if {} then\n", &condition));

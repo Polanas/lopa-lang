@@ -89,7 +89,7 @@ impl<'t> Parser<'t> {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 pub enum Precedence {
     Lowest,
-    NillCoaescing,
+    NilCoalescing,
     Or,
     And,
     Comparison, // <, <=, >, >=, ==, !=
@@ -100,6 +100,7 @@ pub enum Precedence {
     Term,   // + -
     Factor, // * / %
     Unary,  // ! -
+    Call,
     Path,
 }
 
@@ -117,12 +118,13 @@ impl From<TokenKind> for Precedence {
             TokenKind::Plus | TokenKind::Minus => Self::Term,
             TokenKind::Star | TokenKind::Slash | TokenKind::Percent => Self::Factor,
             TokenKind::Bang => Self::Unary,
+            TokenKind::LeftParen => Self::Call,
             _ => Self::Lowest,
         }
     }
 }
 
-impl<'t> Parser<'t> {
+impl Parser<'_> {
     fn sync(&mut self) {
         let mut token = self.advance();
 
@@ -180,6 +182,7 @@ impl<'t> Parser<'t> {
             | Token::Star
             | Token::Slash
             | Token::Percent => self.parse_binary(left),
+            Token::LeftParen => self.parse_call(left),
             _ => {
                 self.add_error(
                     &format!("Unexpected {}", TokenKind::from(&token.value)),
@@ -194,8 +197,43 @@ impl<'t> Parser<'t> {
         None
     }
 
-    fn parse_call(&mut self) -> Option<WithSpan<Expr>> {
-        None
+    fn parse_call(&mut self, left: WithSpan<Expr>) -> Option<WithSpan<Expr>> {
+        let mut span = self.expect(TokenKind::LeftParen)?.span;
+        let mut args = vec![];
+        loop {
+            if self.check(TokenKind::RightParen) {
+                break;
+            }
+            let arg = self.parse_expr(Precedence::Lowest)?;
+            if self.check(TokenKind::Colon) {
+                self.expect(TokenKind::Colon)?;
+                let WithSpan {
+                    value: Expr::Identifier(ident, _),
+                    ..
+                } = arg
+                else {
+                    self.add_error("expected identifier", arg.span);
+                    return None;
+                };
+
+                let arg = self.parse_expr(Precedence::Lowest)?;
+                args.push(Arg::Named(ident.clone(), arg.into()));
+            } else {
+                args.push(Arg::Ordered(arg.into()));
+            }
+
+            if self.check(TokenKind::Comma) {
+                self.expect(TokenKind::Comma)?;
+            }
+        }
+        span = span.union(self.expect(TokenKind::RightParen)?.span);
+        Some(WithSpan::new(
+            Expr::Call(Call {
+                callee: left.into(),
+                args,
+            }),
+            span,
+        ))
     }
 
     fn parse_prefix(&mut self) -> Option<WithSpan<Expr>> {
@@ -402,7 +440,7 @@ impl<'t> Parser<'t> {
         let fn_token = self.expect(TokenKind::Fn)?;
         let WithSpan {
             value: Token::Identifier(name),
-            span: name_span,
+            ..
         } = self.expect(TokenKind::Identifier)?
         else {
             unreachable!()
@@ -431,7 +469,7 @@ impl<'t> Parser<'t> {
                 name: WithSpan::new(ident.clone(), *name_span),
             });
         }
-        let right_paren = self.expect(TokenKind::RightParen)?;
+        self.expect(TokenKind::RightParen)?;
 
         let returns = if self.peek() == TokenKind::Arrow {
             self.expect(TokenKind::Arrow);

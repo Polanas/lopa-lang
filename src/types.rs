@@ -44,6 +44,31 @@ impl Type {
     pub fn is_number(&self) -> bool {
         matches!(self.kind, TypeKind::Int | TypeKind::Float) && !self.nilable
     }
+
+    pub fn non_nilable(kind: TypeKind) -> Self {
+        Self {
+            kind,
+            nilable: false,
+        }
+    }
+    pub fn niable(kind: TypeKind) -> Self {
+        Self {
+            kind,
+            nilable: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FnParam {
+    pub kind: common::FnParamKind,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fn {
+    pub params: Vec<FnParam>,
+    pub returns: Vec<Type>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +80,7 @@ pub enum TypeKind {
     String,
     Custom,
     Block(Vec<Type>),
+    Fn(Fn),
 }
 
 impl TypeKind {
@@ -95,6 +121,7 @@ impl Display for TypeKind {
             TypeKind::String => write!(f, "string"),
             TypeKind::Custom => write!(f, "custom"),
             TypeKind::Block(_) => write!(f, "block"),
+            TypeKind::Fn(_) => write!(f, "func"),
         }
     }
 }
@@ -120,9 +147,18 @@ impl Scope {
     }
 }
 
+//TODO: implements paths
+
+#[derive(Debug, Default, Clone)]
+pub struct Definitions {
+    //TODO: globals should know their type immediately
+    globals: HashMap<Identifier, Type>,
+    fns: HashMap<Identifier, Type>,
+}
+
 #[derive(Default)]
 pub struct Context {
-    globals: HashMap<Identifier, Type>,
+    defs: Definitions,
     scopes: Vec<Scope>,
     pub diagnostics: Vec<position::Diagnostic>,
 }
@@ -154,7 +190,7 @@ impl Context {
     }
 
     fn insert_global(&mut self, name: &str, ty: Type) {
-        self.globals.insert(name.to_owned(), ty);
+        // self.globals.insert(name.to_owned(), ty);
     }
 
     fn insert_ident(&mut self, name: &str, ty: Type, kind: common::BindingKind) {
@@ -165,11 +201,7 @@ impl Context {
     }
 
     fn ident_type(&mut self, ident: &Identifier, span: position::Span) -> Option<Type> {
-        let ty = self
-            .scope()
-            .local(ident)
-            .or_else(|| self.globals.get(ident))
-            .cloned();
+        let ty = self.scope().local(ident).cloned();
         if ty.is_none() {
             self.add_error(&format!("{} not found", ident), span);
         }
@@ -333,7 +365,7 @@ impl Context {
                 *ty = Some(block_ty.clone());
                 block_ty
             }
-            ast::Expr::Call(_, items) => todo!(),
+            ast::Expr::Call(_) => todo!(),
         })
     }
 
@@ -373,36 +405,7 @@ impl Context {
             }
             ast::Stmt::Item(item) => {}
             ast::Stmt::Assign(assign) => {
-                for (i, ident) in assign.idents.iter().enumerate() {
-                    let ident_ty = self.ident_type(&ident.value, ident.span)?;
-                    match assign.values.as_mut().and_then(|v| v.get_mut(i)) {
-                        Some(value) => {
-                            let value_type = self.expr(value, source)?;
-                            if !ident_ty.assignable_from(&value_type) {
-                                self.add_error(
-                                    &format!(
-                                        "mismatched types: expected {}, got {}",
-                                        ident_ty, value_type
-                                    ),
-                                    stmt.span,
-                                );
-                                return None;
-                            }
-                        }
-                        None => {
-                            if !ident_ty.nilable {
-                                self.add_error(
-                                    &format!(
-                                        "attempt to assign nil to a non-nilable type {}",
-                                        ident_ty
-                                    ),
-                                    stmt.span,
-                                );
-                                return None;
-                            }
-                        }
-                    }
-                }
+                self.assign(assign, stmt.span, source)?;
             }
             ast::Stmt::Binding(binding) => {
                 let mut value_types = vec![];
@@ -455,6 +458,41 @@ impl Context {
         Some(())
     }
 
+    fn assign(
+        &mut self,
+        assign: &mut ast::Assign,
+        span: position::Span,
+        source: &str,
+    ) -> Option<()> {
+        Some(for (i, ident) in assign.idents.iter().enumerate() {
+            let ident_ty = self.ident_type(&ident.value, ident.span)?;
+            match assign.values.as_mut().and_then(|v| v.get_mut(i)) {
+                Some(value) => {
+                    let value_type = self.expr(value, source)?;
+                    if !ident_ty.assignable_from(&value_type) {
+                        self.add_error(
+                            &format!(
+                                "mismatched types: expected {}, got {}",
+                                ident_ty, value_type
+                            ),
+                            span,
+                        );
+                        return None;
+                    }
+                }
+                None => {
+                    if !ident_ty.nilable {
+                        self.add_error(
+                            &format!("attempt to assign nil to a non-nilable type {}", ident_ty),
+                            span,
+                        );
+                        return None;
+                    }
+                }
+            }
+        })
+    }
+
     fn source<'a>(&self, range: position::Span, source: &'a str) -> &'a str {
         let (start, end) = (range.start.0, range.end.0);
         if start == end {
@@ -468,25 +506,40 @@ impl Context {
         }
     }
 
-    fn init_globals(&mut self, program: &[WithSpan<ast::Stmt>]) {
+    fn add_func_definition(&mut self, func: &ast::Fn) {
+        self.defs.fns.insert(
+            func.name.clone(),
+            Type::non_nilable(TypeKind::Fn(Fn {
+                params: func
+                    .params
+                    .iter()
+                    .map(|p| FnParam {
+                        kind: p.kind.clone(),
+                        ty: p.ty.value.clone(),
+                    })
+                    .collect(),
+                returns: func.returns.iter().map(|r| r.value.clone()).collect(),
+            })),
+        );
+    }
+
+    fn collect_definitions(&mut self, program: &[WithSpan<ast::Stmt>]) {
         for stmt in program {
-            match &stmt.value {
-                ast::Stmt::Binding(binding) if binding.kind == common::BindingKind::Global => {
-                    for ident in &binding.idents {
-                        self.insert_global(&ident.value, TypeKind::Nil.into());
-                    }
-                }
-                ast::Stmt::Item(_) => todo!(),
-                _ => {}
+            if let ast::Stmt::Item(ast::Item::Fn(func)) = &stmt.value {
+                self.add_func_definition(func);
             }
         }
     }
 
     pub fn type_check(&mut self, program: &mut [WithSpan<ast::Stmt>], source: &str) -> Option<()> {
-        self.init_globals(program);
+        self.collect_definitions(program);
         for stmt in program {
             self.stmt(stmt, source);
         }
         Some(())
+    }
+
+    pub fn defs(&self) -> &Definitions {
+        &self.defs
     }
 }

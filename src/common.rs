@@ -2,6 +2,12 @@ use crate::token;
 
 pub type Identifier = String;
 
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum FnParamKind {
+    Vararg,
+    Regular,
+}
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum UnaryOp {
     Not,
