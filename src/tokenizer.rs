@@ -264,8 +264,11 @@ impl<'a> Tokenizer<'a> {
 pub fn tokenize(input: &str) -> Vec<position::WithSpan<Token>> {
     let mut tokenizer = Tokenizer::new(input);
     let mut tokens = vec![];
-    while let Some(token) = tokenizer.next_token() {
+    loop {
         let initial_pos = tokenizer.current_pos;
+        let Some(token) = tokenizer.next_token() else {
+            break;
+        };
         tokens.push(position::WithSpan::new(
             token,
             position::Span::new(initial_pos, tokenizer.current_pos),

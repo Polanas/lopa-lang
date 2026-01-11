@@ -432,8 +432,37 @@ impl Parser<'_> {
                 Some(WithSpan::new(Stmt::Empty, semi.span))
             }
             TokenKind::Fn => self.parse_fn(),
+            TokenKind::Return => self.parse_return(),
             _ => self.parse_expr_stmt(),
         }
+    }
+
+    fn parse_return(&mut self) -> Option<WithSpan<Stmt>> {
+        let span = self.expect(TokenKind::Return)?.span;
+        if self.check(TokenKind::Semicolon) {
+            let semi = self.expect(TokenKind::Semicolon)?;
+            Some(WithSpan::new(Stmt::Return(vec![]), span.union(semi.span)));
+        }
+        let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
+        let mut span = span.union(exprs[0].span);
+        while let TokenKind::Comma = self.peek() {
+            self.expect(TokenKind::Comma);
+            if let Some(semi) = self.parse_optional_semi() {
+                span = span.union(semi);
+
+                return Some(WithSpan::new(Stmt::Return(exprs), span));
+            }
+            let expr = self.parse_expr(Precedence::Lowest)?;
+            span = span.union(expr.span);
+            exprs.push(expr);
+        }
+
+        let span = self
+            .parse_optional_semi()
+            .map(|s| span.union(s))
+            .unwrap_or(span);
+
+        Some(WithSpan::new(Stmt::Return(exprs), span))
     }
 
     fn parse_fn(&mut self) -> Option<WithSpan<Stmt>> {

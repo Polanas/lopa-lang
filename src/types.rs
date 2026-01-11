@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
+use itertools::{Itertools, Position};
+
 use crate::{
     ast::{self},
     common::{self, Identifier},
@@ -20,9 +22,23 @@ impl std::fmt::Display for Type {
 
 impl Type {
     pub fn assignable_from(&self, other: &Type) -> bool {
-        (other.kind == self.kind || (self.is_number() && other.is_number()))
+        (other.kind == self.kind || (self.kind.is_number() && other.kind.is_number()))
             && ((self.nilable, other.nilable) != (false, true))
             || (self.nilable && other.kind == TypeKind::Nil)
+    }
+
+    pub fn try_unwrap_block(self) -> Self {
+        if matches!(self.kind, TypeKind::Block(_)) {
+            if let TypeKind::Block(types) = self.kind
+                && let Ok([item]) = TryInto::<[_; 1]>::try_into(types)
+            {
+                item
+            } else {
+                unreachable!()
+            }
+        } else {
+            self
+        }
     }
 
     pub fn flatten_block(&self) -> Vec<Type> {
@@ -260,7 +276,7 @@ impl Context {
                 let right = self.expr(&mut binary_expr.right, source)?;
 
                 if !(left == right || (left.is_number() && right.is_number())) {
-                    //TODO: this will change with the introduction of vectors / operator
+                    //FIXME: this will change with the introduction of vectors / operator
                     //overloading
                     self.add_error(
                         &format!(
@@ -372,7 +388,7 @@ impl Context {
     fn block(&mut self, stmts: &mut [WithSpan<ast::Stmt>], source: &str) -> Option<Type> {
         self.push_scope();
         for stmt in stmts.iter_mut() {
-            self.stmt(stmt, source);
+            self.stmt(stmt, source, None);
         }
 
         let result = Some(match stmts.last_mut() {
@@ -391,19 +407,57 @@ impl Context {
                 }
             }
             None => TypeKind::Block(vec![TypeKind::Nil.into()]).into(),
-        });
+        })
+        .map(|r: Type| r.try_unwrap_block());
         self.pop_scope();
         result
     }
 
-    fn stmt(&mut self, stmt: &mut WithSpan<ast::Stmt>, source: &str) -> Option<()> {
+    fn func(&mut self, func: WithSpan<&mut ast::Fn>, source: &str) -> Option<()> {
+        let func_clone = func.value.clone();
+        self.push_scope();
+        for param in &func_clone.params {
+            self.scope_mut()
+                .insert_local(&param.name.value, param.ty.value.clone());
+        }
+
+        for (pos, stmt) in func.value.body.value.body.iter_mut().with_position() {
+            match pos {
+                Position::First | Position::Middle => {
+                    self.stmt(stmt, source, Some(&func_clone))?;
+                }
+                Position::Last | Position::Only => {
+                    if let ast::Stmt::Expr(ast::StmtExpr { exprs, semi }) = &mut stmt.value
+                        && semi.is_none()
+                    {
+                        self.rtrn(&func_clone, exprs, stmt.span, source)?;
+                    } else {
+                        self.stmt(stmt, source, Some(&func_clone))?;
+                    }
+                }
+            }
+        }
+
+        //TODO: ensure some return value is always present
+        self.pop_scope();
+        Some(())
+    }
+
+    fn stmt(
+        &mut self,
+        stmt: &mut WithSpan<ast::Stmt>,
+        source: &str,
+        outer: Option<&ast::Fn>,
+    ) -> Option<()> {
         match &mut stmt.value {
             ast::Stmt::Expr(stmt_expr) => {
                 for expr in &mut stmt_expr.exprs {
                     self.expr(expr, source)?;
                 }
             }
-            ast::Stmt::Item(item) => {}
+            ast::Stmt::Item(item) => match item {
+                ast::Item::Fn(func) => self.func(WithSpan::new(func, stmt.span), source)?,
+            },
             ast::Stmt::Assign(assign) => {
                 self.assign(assign, stmt.span, source)?;
             }
@@ -452,9 +506,51 @@ impl Context {
                 }
             }
             ast::Stmt::Print(_) => {}
-            ast::Stmt::Empty => todo!(),
-            ast::Stmt::Return(items) => todo!(),
+            ast::Stmt::Empty => {}
+            ast::Stmt::Return(exprs) => {
+                self.rtrn(outer.unwrap(), exprs, stmt.span, source)?;
+            }
         };
+        Some(())
+    }
+
+    fn rtrn(
+        &mut self,
+        func: &ast::Fn,
+        exprs: &mut [WithSpan<ast::Expr>],
+        span: position::Span,
+        source: &str,
+    ) -> Option<()> {
+        let mut values = vec![];
+        for expr in exprs.iter_mut() {
+            values.append(&mut self.expr(expr, source)?.flatten_block());
+        }
+        match values.len().cmp(&func.returns.len()) {
+            std::cmp::Ordering::Less => {
+                self.add_error("not enough return values provided", span);
+                return None;
+            }
+            std::cmp::Ordering::Greater => {
+                self.add_error("too much return values provided", span);
+                return None;
+            }
+            _ => {}
+        }
+        for (value_ty, param_ty) in values
+            .into_iter()
+            .zip(func.returns.iter().map(|r| &r.value))
+        {
+            if !param_ty.assignable_from(&value_ty) {
+                self.add_error(
+                    &format!(
+                        "mismatched types: could not assign {} from {}",
+                        param_ty, value_ty
+                    ),
+                    span,
+                );
+                return None;
+            }
+        }
         Some(())
     }
 
@@ -464,13 +560,15 @@ impl Context {
         span: position::Span,
         source: &str,
     ) -> Option<()> {
-        Some(for (i, ident) in assign.idents.iter().enumerate() {
+        for (i, ident) in assign.idents.iter().enumerate() {
             let ident_ty = self.ident_type(&ident.value, ident.span)?;
             match assign.values.as_mut().and_then(|v| v.get_mut(i)) {
                 Some(value) => {
                     let value_type = self.expr(value, source)?;
                     if !ident_ty.assignable_from(&value_type) {
                         self.add_error(
+                            //TODO: improve errors messages. This should be something like "could
+                            //not assign X from Y"
                             &format!(
                                 "mismatched types: expected {}, got {}",
                                 ident_ty, value_type
@@ -490,7 +588,8 @@ impl Context {
                     }
                 }
             }
-        })
+        }
+        Some(())
     }
 
     fn source<'a>(&self, range: position::Span, source: &'a str) -> &'a str {
@@ -534,7 +633,7 @@ impl Context {
     pub fn type_check(&mut self, program: &mut [WithSpan<ast::Stmt>], source: &str) -> Option<()> {
         self.collect_definitions(program);
         for stmt in program {
-            self.stmt(stmt, source);
+            self.stmt(stmt, source, None);
         }
         Some(())
     }
