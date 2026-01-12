@@ -22,8 +22,7 @@ impl std::fmt::Display for Type {
 
 impl Type {
     pub fn assignable_from(&self, other: &Type) -> bool {
-        (other.kind == self.kind || (self.kind.is_number() && other.kind.is_number()))
-            && ((self.nilable, other.nilable) != (false, true))
+        (self.kind.eq(&other.kind)) && ((self.nilable, other.nilable) != (false, true))
             || (self.nilable && other.kind == TypeKind::Nil)
     }
 
@@ -67,11 +66,20 @@ impl Type {
             nilable: false,
         }
     }
-    pub fn niable(kind: TypeKind) -> Self {
+
+    pub fn nilable(kind: TypeKind) -> Self {
         Self {
             kind,
             nilable: true,
         }
+    }
+
+    pub fn make_nilable(self) -> Self {
+        Self::nilable(self.kind)
+    }
+
+    pub fn make_non_nilable(self) -> Self {
+        Self::non_nilable(self.kind)
     }
 }
 
@@ -100,6 +108,9 @@ pub enum TypeKind {
 }
 
 impl TypeKind {
+    pub fn eq(&self, other: &Self) -> bool {
+        (self == other) || (self.is_number() && other.is_number())
+    }
     pub fn from_ident(ident: &str) -> Self {
         match ident {
             "int" => TypeKind::Int,
@@ -366,14 +377,44 @@ impl Context {
 
                 match else_type {
                     Some(else_type) => {
-                        if else_type != then_type {
-                            self.add_error("if and else have incompatible types", expr.span);
+                        if !(else_type.kind.eq(&then_type.kind)
+                            || (else_type.kind == TypeKind::Nil || then_type.kind == TypeKind::Nil))
+                        {
+                            self.add_error(
+                                &format!(
+                                    "if and else have incompatible types: {} and {}",
+                                    else_type.kind, then_type.kind
+                                ),
+                                expr.span,
+                            );
                             return None;
                         }
 
-                        else_type
+                        let ty_kind = match (&then_type.kind, &else_type.kind) {
+                            (then_ty, else_ty)
+                                if then_type.is_number() && else_type.is_number() =>
+                            {
+                                if then_type.kind == TypeKind::Float
+                                    || else_type.kind == TypeKind::Float
+                                {
+                                    TypeKind::Float
+                                } else {
+                                    TypeKind::Int
+                                }
+                            }
+                            (then_ty, TypeKind::Nil) => then_ty.clone(),
+                            (TypeKind::Nil, else_ty) => else_ty.clone(),
+                            (_, _) => else_type.kind.clone(),
+                        };
+                        Type {
+                            kind: ty_kind,
+                            nilable: then_type.nilable
+                                || else_type.nilable
+                                || then_type.kind == TypeKind::Nil
+                                || else_type.kind == TypeKind::Nil,
+                        }
                     }
-                    None => then_type,
+                    None => then_type.make_nilable(),
                 }
             }
             ast::Expr::Block(ast::Block { body, ty }) => {
