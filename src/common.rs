@@ -2,7 +2,7 @@ use crate::token;
 
 pub type Identifier = String;
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub enum FnParamKind {
     Vararg,
     Regular,

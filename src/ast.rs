@@ -51,14 +51,15 @@ pub struct Block {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Arg {
-    Named(Identifier, Box<WithSpan<Expr>>),
-    Ordered(Box<WithSpan<Expr>>),
+pub struct Arg {
+    pub name: Option<Identifier>,
+    pub expr: Box<WithSpan<Expr>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Call {
     pub callee: Box<WithSpan<Expr>>,
+    pub callee_type: Option<types::Type>,
     pub args: Vec<Arg>,
 }
 
@@ -102,7 +103,6 @@ pub struct BindingRef<'a> {
     pub values: Option<&'a [WithSpan<Expr>]>,
 }
 
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct FnParam {
     pub kind: FnParamKind,
@@ -138,7 +138,6 @@ pub struct Assign {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Stmt {
     Expr(StmtExpr),
-    Item(Item),
     Assign(Assign),
     Binding(Binding),
     Print(Box<WithSpan<Expr>>),

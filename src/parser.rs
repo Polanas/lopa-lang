@@ -217,9 +217,15 @@ impl Parser<'_> {
                 };
 
                 let arg = self.parse_expr(Precedence::Lowest)?;
-                args.push(Arg::Named(ident.clone(), arg.into()));
+                args.push(Arg {
+                    name: Some(ident.clone()),
+                    expr: arg.into(),
+                });
             } else {
-                args.push(Arg::Ordered(arg.into()));
+                args.push(Arg {
+                    expr: arg.into(),
+                    name: None,
+                });
             }
 
             if self.check(TokenKind::Comma) {
@@ -231,6 +237,7 @@ impl Parser<'_> {
             Expr::Call(Call {
                 callee: left.into(),
                 args,
+                callee_type: None,
             }),
             span,
         ))
@@ -423,6 +430,15 @@ impl Parser<'_> {
         ))
     }
 
+    fn parse_item(&mut self) -> Option<WithSpan<Item>> {
+        match self.peek() {
+            TokenKind::Fn => self.parse_fn(),
+            other => {
+                panic!("{other}");
+            }
+        }
+    }
+
     fn parse_stmt(&mut self) -> Option<WithSpan<Stmt>> {
         match self.peek() {
             TokenKind::Let | TokenKind::Global => self.parse_binding(),
@@ -431,7 +447,6 @@ impl Parser<'_> {
                 let semi = self.expect(TokenKind::Semicolon)?;
                 Some(WithSpan::new(Stmt::Empty, semi.span))
             }
-            TokenKind::Fn => self.parse_fn(),
             TokenKind::Return => self.parse_return(),
             _ => self.parse_expr_stmt(),
         }
@@ -441,7 +456,7 @@ impl Parser<'_> {
         let span = self.expect(TokenKind::Return)?.span;
         if self.check(TokenKind::Semicolon) {
             let semi = self.expect(TokenKind::Semicolon)?;
-            Some(WithSpan::new(Stmt::Return(vec![]), span.union(semi.span)));
+            WithSpan::new(Stmt::Return(vec![]), span.union(semi.span));
         }
         let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
         let mut span = span.union(exprs[0].span);
@@ -465,7 +480,7 @@ impl Parser<'_> {
         Some(WithSpan::new(Stmt::Return(exprs), span))
     }
 
-    fn parse_fn(&mut self) -> Option<WithSpan<Stmt>> {
+    fn parse_fn(&mut self) -> Option<WithSpan<Item>> {
         let fn_token = self.expect(TokenKind::Fn)?;
         let WithSpan {
             value: Token::Identifier(name),
@@ -519,7 +534,7 @@ impl Parser<'_> {
 
         let body = self.parse_block()?;
         Some(WithSpan::new(
-            Stmt::Item(Item::Fn(Fn {
+            Item::Fn(Fn {
                 name: name.clone(),
                 params,
                 body: match body.value {
@@ -527,7 +542,7 @@ impl Parser<'_> {
                     _ => unreachable!(),
                 },
                 returns,
-            })),
+            }),
             fn_token.span.union(body.span),
         ))
     }
@@ -761,19 +776,19 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_program(&mut self) -> Option<Vec<WithSpan<Stmt>>> {
-        let mut statements = vec![];
+    fn parse_program(&mut self) -> Option<Vec<WithSpan<Item>>> {
+        let mut items = vec![];
 
         while !self.is_at_end() {
-            if let Some(stmt) = self.parse_stmt() {
-                statements.push(stmt);
+            if let Some(item) = self.parse_item() {
+                items.push(item);
             } else {
                 self.sync();
             }
         }
 
         if self.diagnostics.is_empty() {
-            Some(statements)
+            Some(items)
         } else {
             None
         }
@@ -782,7 +797,7 @@ impl Parser<'_> {
 
 pub fn parse_program(
     tokens: &[WithSpan<Token>],
-) -> Result<Vec<WithSpan<Stmt>>, Vec<position::Diagnostic>> {
+) -> Result<Vec<WithSpan<Item>>, Vec<position::Diagnostic>> {
     let mut parser = Parser::new(tokens);
     match parser.parse_program() {
         Some(output) => Ok(output),

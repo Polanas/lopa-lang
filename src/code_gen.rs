@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use itertools::{Itertools, Position};
 
-use crate::{ast, common, position::WithSpan};
+use crate::{ast, common, position::WithSpan, types};
 
 const STACK_IDENT: &str = "__stack_var__";
 const SCOPE_IDENT: &str = "__scope__local__";
@@ -68,16 +68,24 @@ impl Scope {
     }
 }
 
+#[derive(Debug)]
+pub struct FnContext {
+    func: ast::Fn,
+    output: String,
+}
+
 pub struct Context {
-    result: String,
     scopes: Vec<Scope>,
+    call_stack: Vec<FnContext>,
+    output: String,
 }
 
 impl Context {
     fn new() -> Self {
         Self {
-            result: Default::default(),
             scopes: vec![Scope::new(0)],
+            call_stack: vec![],
+            output: Default::default(),
         }
     }
 
@@ -90,6 +98,23 @@ impl Context {
         &mut self.scopes[len]
     }
 
+    fn call_stack(&self) -> &FnContext {
+        &self.call_stack[self.call_stack.len() - 1]
+    }
+
+    fn call_stack_mut(&mut self) -> &mut FnContext {
+        let len = self.call_stack.len() - 1;
+        &mut self.call_stack[len]
+    }
+
+    fn push_call_stack(&mut self, context: FnContext) {
+        self.call_stack.push(context);
+    }
+
+    fn pop_call_stack(&mut self) {
+        self.call_stack.pop();
+    }
+
     fn push_scope(&mut self) {
         let scope = self.scope().clone();
         self.scopes.push(scope)
@@ -99,24 +124,31 @@ impl Context {
         self.scopes.pop();
     }
 
-    fn generate(&mut self, program: &[WithSpan<ast::Stmt>]) {
-        match program {
-            [item] => {
-                let stmt = self.stmt(&item.value);
-                self.scope_mut().clear();
-                self.result.push_str(&stmt);
-            }
-            [items @ .., last] => {
-                for item in items {
-                    let stmt = self.stmt(&item.value);
-                    self.scope_mut().clear();
-                    self.result.push_str(&format!("{stmt}\n"));
-                }
-                let stmt = self.stmt(&last.value);
-                self.result.push_str(&stmt);
-            }
-            [] => {}
+    fn generate(&mut self, program: &[WithSpan<ast::Item>]) {
+        for item in program {
+            self.item(&item.value);
         }
+    }
+
+    fn item(&mut self, item: &ast::Item) {
+        match item {
+            ast::Item::Fn(func) => self.func(func),
+        }
+    }
+
+    fn func(&mut self, func: &ast::Fn) {
+        let args = func.params.iter().map(|p| &p.name.value).join(", ");
+        self.output
+            .push_str(&format!("{} = function({args})\n", &func.name));
+        self.push_call_stack(FnContext {
+            func: func.clone(),
+            output: String::new(),
+        });
+        self.block(&func.body.value);
+        self.output
+            .push_str(&self.call_stack.last().unwrap().output);
+        self.pop_call_stack();
+        self.output.push_str("end\n");
     }
 
     fn stmt(&mut self, stmt: &ast::Stmt) -> String {
@@ -129,7 +161,6 @@ impl Context {
                     }
                 }
             }
-            ast::Stmt::Item(item) => todo!(),
             ast::Stmt::Assign(ast::Assign { idents, values, .. }) => {
                 result.push_str(&self.binding(ast::BindingRef {
                     kind: common::BindingKind::Global,
@@ -142,13 +173,35 @@ impl Context {
             }
             ast::Stmt::Print(e) => {
                 if let Some(expr) = self.expr(&e.value) {
-                    self.result.push_str(&format!("print({expr})"));
+                    self.call_stack_mut()
+                        .output
+                        .push_str(&format!("print({expr})"));
                 }
             }
-            ast::Stmt::Empty => todo!(),
+            ast::Stmt::Empty => {}
             ast::Stmt::Return(exprs) => {
-
-            },
+                for expr in exprs {
+                    match &expr.value {
+                        item @ (ast::Expr::Block(_) | ast::Expr::If(_)) => {
+                            self.expr(item);
+                        }
+                        _ => {
+                            if let Some(expr) = self.expr(&expr.value) {
+                                result.push_str(&format!(
+                                    "{} = {}\n",
+                                    self.scope_mut().push_ident(),
+                                    expr
+                                ));
+                            }
+                        }
+                    }
+                }
+                let args = ((self.scope().stack - self.call_stack().func.returns.len())
+                    ..self.scope().stack)
+                    .map(|s| self.scope().stack_ident(s))
+                    .join(", ");
+                result.push_str(&format!("return {args}\n"));
+            }
         };
         result
     }
@@ -279,21 +332,59 @@ impl Context {
                 }
             }
             ast::Expr::Identifier(ident, _) => Some(self.scope_mut().ident(ident).to_owned()),
-            ast::Expr::Call(_) => todo!(),
+            ast::Expr::Call(call) => self.call(call),
+
             ast::Expr::If(if_expr) => {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
-                self.result.push_str(&format!("if {} then\n", &condition));
+                self.call_stack_mut()
+                    .output
+                    .push_str(&format!("if {} then\n", &condition));
                 let ident = self.block(&if_expr.then_branch.value);
                 if let Some(else_branch) = &if_expr.else_branch {
                     self.pop_scope();
-                    self.result.push_str("else\n");
+                    self.call_stack_mut().output.push_str("else\n");
                     self.expr(&else_branch.value);
                 }
-                self.result.push_str("end\n");
+                self.call_stack_mut().output.push_str("end\n");
                 ident
             }
             ast::Expr::Block(block) => self.block(block),
         }
+    }
+
+    fn call(&mut self, call: &ast::Call) -> Option<String> {
+        let callee = self.expr(&call.callee.value)?;
+        let types::TypeKind::Fn(func) = &call.callee_type.as_ref().unwrap().kind else {
+            unreachable!();
+        };
+        let mut args: Vec<Option<String>> = vec![None; func.params.len()];
+
+        let mut ordered_amount = 0;
+        self.push_scope();
+        for arg in &call.args {
+            let arg_expr = self.expr(&arg.expr.value);
+
+            if let Some(name) = &arg.name {
+                let (id, _) = func
+                    .params
+                    .iter()
+                    .enumerate()
+                    .find(|(_, p)| p.name == *name)
+                    .unwrap();
+                args[id] = Some(arg_expr.unwrap());
+            } else {
+                args[ordered_amount] = Some(arg_expr.unwrap());
+                ordered_amount += 1;
+            }
+        }
+        self.pop_scope();
+
+        let args = args
+            .into_iter()
+            .map(|a| a.unwrap_or_else(|| "nil".to_string()))
+            .join(", ");
+
+        Some(format!("{callee}({args})"))
     }
 
     fn block_last(&mut self, item: &ast::Stmt) -> Option<String> {
@@ -305,7 +396,9 @@ impl Context {
                     let expr = self.expr(&item.value);
                     if let Some(expr) = expr {
                         let ident = self.scope_mut().push_ident();
-                        self.result.push_str(&format!("{} = {}\n", ident, expr));
+                        self.call_stack_mut()
+                            .output
+                            .push_str(&format!("{} = {}\n", ident, expr));
                         Some(ident)
                     } else {
                         None
@@ -316,7 +409,9 @@ impl Context {
                         let expr = self.expr(&item.value);
                         if let Some(expr) = expr {
                             let ident = self.scope_mut().push_ident();
-                            self.result.push_str(&format!("{} = {}\n", ident, expr));
+                            self.call_stack_mut()
+                                .output
+                                .push_str(&format!("{} = {}\n", ident, expr));
                         }
                     }
                     None
@@ -325,7 +420,7 @@ impl Context {
             }
         } else {
             let stmt = self.stmt(item);
-            self.result.push_str(&format!("{stmt}\n"));
+            self.call_stack_mut().output.push_str(&format!("{stmt}\n"));
             None
         }
     }
@@ -334,19 +429,19 @@ impl Context {
         self.push_scope();
         match block.body.as_slice() {
             [item] => {
-                self.result.push_str("do\n");
+                self.call_stack_mut().output.push_str("do\n");
                 let last = self.block_last(&item.value);
-                self.result.push_str("end\n");
+                self.call_stack_mut().output.push_str("end\n");
                 last
             }
             [items @ .., last] => {
-                self.result.push_str("do\n");
+                self.call_stack_mut().output.push_str("do\n");
                 for item in items {
                     let stmt = self.stmt(&item.value);
-                    self.result.push_str(&format!("{stmt}\n"));
+                    self.call_stack_mut().output.push_str(&format!("{stmt}\n"));
                 }
                 let result = self.block_last(&last.value);
-                self.result.push_str("end\n");
+                self.call_stack_mut().output.push_str("end\n");
                 result
             }
             [] => None,
@@ -354,10 +449,10 @@ impl Context {
     }
 }
 
-pub fn generate(program: &[WithSpan<ast::Stmt>]) -> String {
+pub fn generate(program: &[WithSpan<ast::Item>]) -> String {
     let mut context = Context::new();
     context.generate(program);
-    context.result
+    context.output
 }
 
 #[cfg(test)]

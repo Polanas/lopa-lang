@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    rc::Rc,
+};
 
 use itertools::{Itertools, Position};
 
@@ -28,12 +32,12 @@ impl Type {
 
     pub fn try_unwrap_block(self) -> Self {
         if matches!(self.kind, TypeKind::Block(_)) {
-            if let TypeKind::Block(types) = self.kind
+            if let TypeKind::Block(types) = self.kind.clone()
                 && let Ok([item]) = TryInto::<[_; 1]>::try_into(types)
             {
                 item
             } else {
-                unreachable!()
+                self
             }
         } else {
             self
@@ -86,6 +90,7 @@ impl Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnParam {
     pub kind: common::FnParamKind,
+    pub name: Identifier,
     pub ty: Type,
 }
 
@@ -105,6 +110,7 @@ pub enum TypeKind {
     Custom,
     Block(Vec<Type>),
     Fn(Fn),
+    // Never,
 }
 
 impl TypeKind {
@@ -178,24 +184,42 @@ impl Scope {
 
 #[derive(Debug, Default, Clone)]
 pub struct Definitions {
-    //TODO: globals should know their type immediately
-    globals: HashMap<Identifier, Type>,
     fns: HashMap<Identifier, Type>,
 }
 
+#[derive(Debug)]
+struct FnContext {
+    func: ast::Fn,
+}
+
 #[derive(Default)]
-pub struct Context {
+pub struct Context<'a> {
     defs: Definitions,
     scopes: Vec<Scope>,
+    call_stack: Vec<FnContext>,
+    source: &'a str,
     pub diagnostics: Vec<position::Diagnostic>,
 }
 
-impl Context {
-    pub fn new() -> Self {
+impl<'a> Context<'a> {
+    pub fn new(source: &'a str) -> Self {
         Self {
             scopes: vec![Scope::new()],
+            source,
             ..Default::default()
         }
+    }
+
+    fn push_call_stack(&mut self, context: FnContext) {
+        self.call_stack.push(context);
+    }
+
+    fn pop_call_stack(&mut self) {
+        self.call_stack.pop();
+    }
+
+    fn call_stack(&self) -> Option<&FnContext> {
+        self.call_stack.last()
     }
 
     fn push_scope(&mut self) {
@@ -216,23 +240,15 @@ impl Context {
         &mut self.scopes[len - 1]
     }
 
-    fn insert_global(&mut self, name: &str, ty: Type) {
-        // self.globals.insert(name.to_owned(), ty);
-    }
-
-    fn insert_ident(&mut self, name: &str, ty: Type, kind: common::BindingKind) {
-        match kind {
-            common::BindingKind::Local => self.scope_mut().insert_local(name, ty),
-            common::BindingKind::Global => self.insert_global(name, ty),
-        }
-    }
-
     fn ident_type(&mut self, ident: &Identifier, span: position::Span) -> Option<Type> {
-        let ty = self.scope().local(ident).cloned();
-        if ty.is_none() {
+        if let Some(ty) = self.scope().local(ident).cloned() {
+            Some(ty)
+        } else if let Some(ty) = self.defs.fns.get(ident).cloned() {
+            Some(ty)
+        } else {
             self.add_error(&format!("{} not found", ident), span);
+            None
         }
-        ty
     }
 
     fn add_error(&mut self, message: &str, span: position::Span) {
@@ -242,7 +258,7 @@ impl Context {
         });
     }
 
-    fn expr(&mut self, expr: &mut WithSpan<ast::Expr>, source: &str) -> Option<Type> {
+    fn expr(&mut self, expr: &mut WithSpan<ast::Expr>) -> Option<Type> {
         Some(match &mut expr.value {
             ast::Expr::Nil => TypeKind::Nil.into(),
             ast::Expr::Number(number) => match number {
@@ -251,9 +267,9 @@ impl Context {
             },
             ast::Expr::Bool(_) => TypeKind::Bool.into(),
             ast::Expr::String(_) => TypeKind::String.into(),
-            ast::Expr::Grouping(e) => self.expr(e, source)?,
+            ast::Expr::Grouping(e) => self.expr(e)?,
             ast::Expr::Unary(unary) => {
-                let expr_type = self.expr(&mut unary.expr, source)?;
+                let expr_type = self.expr(&mut unary.expr)?;
                 let unary_type = match &unary.op.value {
                     common::UnaryOp::Not => TypeKind::Bool,
                     common::UnaryOp::Negate => match &expr_type.kind {
@@ -283,8 +299,8 @@ impl Context {
                 }
             }
             ast::Expr::Binary(binary_expr) => {
-                let left = self.expr(&mut binary_expr.left, source)?;
-                let right = self.expr(&mut binary_expr.right, source)?;
+                let left = self.expr(&mut binary_expr.left)?;
+                let right = self.expr(&mut binary_expr.right)?;
 
                 if !(left == right || (left.is_number() && right.is_number())) {
                     //FIXME: this will change with the introduction of vectors / operator
@@ -293,9 +309,9 @@ impl Context {
                         &format!(
                             "could not apply {} to {}: {} and {}: {}",
                             binary_expr.op.value,
-                            self.source(binary_expr.left.span, source),
+                            self.source(binary_expr.left.span),
                             left,
-                            self.source(binary_expr.right.span, source),
+                            self.source(binary_expr.right.span),
                             right
                         ),
                         expr.span,
@@ -313,7 +329,7 @@ impl Context {
                             self.add_error(
                                 &format!(
                                     "expected {} to be a number",
-                                    self.source(binary_expr.left.span, source)
+                                    self.source(binary_expr.left.span)
                                 ),
                                 expr.span,
                             );
@@ -333,7 +349,7 @@ impl Context {
                             self.add_error(
                                 &format!(
                                     "expected {} to be a number",
-                                    self.source(binary_expr.left.span, source)
+                                    self.source(binary_expr.left.span)
                                 ),
                                 expr.span,
                             );
@@ -346,7 +362,7 @@ impl Context {
                             self.add_error(
                                 &format!(
                                     "expected {} to be a number",
-                                    self.source(binary_expr.left.span, source)
+                                    self.source(binary_expr.left.span)
                                 ),
                                 expr.span,
                             );
@@ -365,12 +381,9 @@ impl Context {
                 ident_type
             }
             ast::Expr::If(if_expr) => {
-                let _cond_type = self.expr(&mut if_expr.condition, source)?;
-                let then_type = self.block(&mut if_expr.then_branch.value.body, source)?;
-                let else_type = if_expr
-                    .else_branch
-                    .as_mut()
-                    .and_then(|b| self.expr(b, source));
+                let _cond_type = self.expr(&mut if_expr.condition)?;
+                let then_type = self.block(&mut if_expr.then_branch.value.body)?;
+                let else_type = if_expr.else_branch.as_mut().and_then(|b| self.expr(b));
                 if else_type.is_none() && if_expr.else_branch.is_some() {
                     return None;
                 }
@@ -418,18 +431,91 @@ impl Context {
                 }
             }
             ast::Expr::Block(ast::Block { body, ty }) => {
-                let block_ty = self.block(body, source)?;
+                let block_ty = self.block(body)?;
                 *ty = Some(block_ty.clone());
                 block_ty
             }
-            ast::Expr::Call(_) => todo!(),
+            ast::Expr::Call(call) => self.call(WithSpan::new(call, expr.span))?,
         })
     }
 
-    fn block(&mut self, stmts: &mut [WithSpan<ast::Stmt>], source: &str) -> Option<Type> {
+    fn call(&mut self, call: WithSpan<&mut ast::Call>) -> Option<Type> {
+        let callee_type = self.expr(&mut call.value.callee)?;
+        call.value.callee_type = Some(callee_type.clone());
+        match &callee_type.kind {
+            TypeKind::Fn(func) => {
+                let mut checked_params: HashMap<Identifier, &FnParam> = Default::default();
+
+                let mut ordered_amount = 0;
+                for arg in call.value.args.iter_mut() {
+                    let expr_ty = self.expr(&mut arg.expr)?;
+                    let param = if let Some(name) = &arg.name {
+                        let Some(param) = func.params.iter().find(|p| p.name == *name) else {
+                            self.add_error(
+                                &format!("could not find parameter {name}"),
+                                arg.expr.span,
+                            );
+                            return None;
+                        };
+                        param
+                    } else {
+                        let Some(param) = func.params.get(ordered_amount) else {
+                            //TODO: variadics
+                            self.add_error("too many arguments", call.span);
+                            return None;
+                        };
+                        param
+                    };
+                    if checked_params.contains_key(&param.name) {
+                        self.add_error(
+                            &format!("attempt to pass parameter {} multiple times", &param.name),
+                            arg.expr.span,
+                        );
+                        return None;
+                    }
+                    if !param.ty.assignable_from(&expr_ty) {
+                        self.add_error(
+                            &format!(
+                                "mismatched types: could not assign {} from {}",
+                                param.ty, expr_ty
+                            ),
+                            arg.expr.span,
+                        );
+                        return None;
+                    }
+
+                    checked_params.insert(param.name.clone(), param);
+                    if arg.name.is_none() {
+                        ordered_amount += 1;
+                    }
+                }
+
+                if checked_params.len() < func.params.len() {
+                    for param in func.params.iter() {
+                        if !checked_params.contains_key(&param.name) && !param.ty.nilable {
+                            self.add_error("not enough arguments", call.span);
+                        }
+                    }
+                    return None;
+                }
+
+                match func.returns.as_slice() {
+                    [] => Some(TypeKind::Nil.into()),
+                    [item] => Some(item.clone()),
+                    types => Some(TypeKind::Block(types.to_vec()).into()),
+                }
+            }
+            other => {
+                self.add_error(&format!("expected function, got {}", other), call.span);
+                None
+            }
+        }
+    }
+
+    fn block(&mut self, stmts: &mut [WithSpan<ast::Stmt>]) -> Option<Type> {
         self.push_scope();
         for stmt in stmts.iter_mut() {
-            self.stmt(stmt, source, None);
+            self.stmt(stmt);
         }
 
         let result = Some(match stmts.last_mut() {
@@ -439,7 +525,7 @@ impl Context {
                 {
                     let mut types = vec![];
                     for expr in exprs {
-                        let ty = self.expr(expr, source)?;
+                        let ty = self.expr(expr)?;
                         types.push(ty);
                     }
                     TypeKind::Block(types).into()
@@ -454,10 +540,12 @@ impl Context {
         result
     }
 
-    fn func(&mut self, func: WithSpan<&mut ast::Fn>, source: &str) -> Option<()> {
-        let func_clone = func.value.clone();
+    fn func(&mut self, func: WithSpan<&mut ast::Fn>) -> Option<()> {
+        self.push_call_stack(FnContext {
+            func: func.value.clone(),
+        });
         self.push_scope();
-        for param in &func_clone.params {
+        for param in &func.value.params {
             self.scope_mut()
                 .insert_local(&param.name.value, param.ty.value.clone());
         }
@@ -465,15 +553,15 @@ impl Context {
         for (pos, stmt) in func.value.body.value.body.iter_mut().with_position() {
             match pos {
                 Position::First | Position::Middle => {
-                    self.stmt(stmt, source, Some(&func_clone))?;
+                    self.stmt(stmt)?;
                 }
                 Position::Last | Position::Only => {
                     if let ast::Stmt::Expr(ast::StmtExpr { exprs, semi }) = &mut stmt.value
                         && semi.is_none()
                     {
-                        self.rtrn(&func_clone, exprs, stmt.span, source)?;
+                        self.rtrn(exprs, stmt.span)?;
                     } else {
-                        self.stmt(stmt, source, Some(&func_clone))?;
+                        self.stmt(stmt)?;
                     }
                 }
             }
@@ -481,31 +569,31 @@ impl Context {
 
         //TODO: ensure some return value is always present
         self.pop_scope();
+        self.pop_call_stack();
         Some(())
     }
 
-    fn stmt(
-        &mut self,
-        stmt: &mut WithSpan<ast::Stmt>,
-        source: &str,
-        outer: Option<&ast::Fn>,
-    ) -> Option<()> {
+    fn item(&mut self, item: &mut WithSpan<ast::Item>) -> Option<()> {
+        match &mut item.value {
+            ast::Item::Fn(func) => self.func(WithSpan::new(func, item.span))?,
+        }
+        Some(())
+    }
+
+    fn stmt(&mut self, stmt: &mut WithSpan<ast::Stmt>) -> Option<()> {
         match &mut stmt.value {
             ast::Stmt::Expr(stmt_expr) => {
                 for expr in &mut stmt_expr.exprs {
-                    self.expr(expr, source)?;
+                    self.expr(expr)?;
                 }
             }
-            ast::Stmt::Item(item) => match item {
-                ast::Item::Fn(func) => self.func(WithSpan::new(func, stmt.span), source)?,
-            },
             ast::Stmt::Assign(assign) => {
-                self.assign(assign, stmt.span, source)?;
+                self.assign(assign, stmt.span)?;
             }
             ast::Stmt::Binding(binding) => {
                 let mut value_types = vec![];
                 for value in binding.values.iter_mut().flatten() {
-                    value_types.append(&mut self.expr(value, source)?.flatten_block());
+                    value_types.append(&mut self.expr(value)?.flatten_block());
                 }
                 for (i, ident) in binding.idents.iter().enumerate() {
                     let parsed_ty = &binding.types[i];
@@ -526,22 +614,21 @@ impl Context {
                                     ),
                                     stmt.span,
                                 );
-                                self.insert_ident(&ident.value, value_ty, binding.kind);
+                                self.scope_mut().insert_local(&ident.value, value_ty);
                                 return None;
                             }
                             let ty = parsed_ty
                                 .clone()
                                 .map(|t| t.value)
                                 .unwrap_or_else(|| value_ty);
-                            self.insert_ident(&ident.value, ty, binding.kind);
+                            self.scope_mut().insert_local(&ident.value, ty);
                         }
-                        None => self.insert_ident(
+                        None => self.scope_mut().insert_local(
                             &ident.value,
                             parsed_ty
                                 .as_ref()
                                 .map(|t| t.value.clone())
                                 .unwrap_or_else(|| TypeKind::Nil.into()),
-                            binding.kind,
                         ),
                     }
                 }
@@ -549,63 +636,62 @@ impl Context {
             ast::Stmt::Print(_) => {}
             ast::Stmt::Empty => {}
             ast::Stmt::Return(exprs) => {
-                self.rtrn(outer.unwrap(), exprs, stmt.span, source)?;
+                self.rtrn(exprs, stmt.span)?;
             }
         };
         Some(())
     }
 
-    fn rtrn(
-        &mut self,
-        func: &ast::Fn,
-        exprs: &mut [WithSpan<ast::Expr>],
-        span: position::Span,
-        source: &str,
-    ) -> Option<()> {
+    fn rtrn(&mut self, exprs: &mut [WithSpan<ast::Expr>], span: position::Span) -> Option<()> {
         let mut values = vec![];
         for expr in exprs.iter_mut() {
-            values.append(&mut self.expr(expr, source)?.flatten_block());
+            values.append(&mut self.expr(expr)?.flatten_block());
         }
-        match values.len().cmp(&func.returns.len()) {
-            std::cmp::Ordering::Less => {
-                self.add_error("not enough return values provided", span);
-                return None;
+        if let Some(returns) = self.call_stack().map(|stack| &stack.func.returns) {
+            //functions with no return values are allowed to return nil
+            if !(returns.is_empty()
+                && matches!(
+                    values.as_slice(),
+                    [Type {
+                        kind: TypeKind::Nil,
+                        ..
+                    }]
+                ))
+            {
+                match values.len().cmp(&returns.len()) {
+                    std::cmp::Ordering::Less => {
+                        self.add_error("not enough return values provided", span);
+                        return None;
+                    }
+                    std::cmp::Ordering::Greater => {
+                        self.add_error("too much return values provided", span);
+                        return None;
+                    }
+                    _ => {}
+                }
             }
-            std::cmp::Ordering::Greater => {
-                self.add_error("too much return values provided", span);
-                return None;
-            }
-            _ => {}
-        }
-        for (value_ty, param_ty) in values
-            .into_iter()
-            .zip(func.returns.iter().map(|r| &r.value))
-        {
-            if !param_ty.assignable_from(&value_ty) {
-                self.add_error(
-                    &format!(
-                        "mismatched types: could not assign {} from {}",
-                        param_ty, value_ty
-                    ),
-                    span,
-                );
-                return None;
+            for (value_ty, param_ty) in values.into_iter().zip(returns.iter().map(|r| &r.value)) {
+                if !param_ty.assignable_from(&value_ty) {
+                    self.add_error(
+                        &format!(
+                            "mismatched types: could not assign {} from {}",
+                            param_ty, value_ty
+                        ),
+                        span,
+                    );
+                    return None;
+                }
             }
         }
         Some(())
     }
 
-    fn assign(
-        &mut self,
-        assign: &mut ast::Assign,
-        span: position::Span,
-        source: &str,
-    ) -> Option<()> {
+    fn assign(&mut self, assign: &mut ast::Assign, span: position::Span) -> Option<()> {
         for (i, ident) in assign.idents.iter().enumerate() {
             let ident_ty = self.ident_type(&ident.value, ident.span)?;
             match assign.values.as_mut().and_then(|v| v.get_mut(i)) {
                 Some(value) => {
-                    let value_type = self.expr(value, source)?;
+                    let value_type = self.expr(value)?;
                     if !ident_ty.assignable_from(&value_type) {
                         self.add_error(
                             //TODO: improve errors messages. This should be something like "could
@@ -633,16 +719,16 @@ impl Context {
         Some(())
     }
 
-    fn source<'a>(&self, range: position::Span, source: &'a str) -> &'a str {
+    fn source(&self, range: position::Span) -> &str {
         let (start, end) = (range.start.0, range.end.0);
         if start == end {
             if start == 0 {
-                &source[0..1]
+                &self.source[0..1]
             } else {
-                &source[(range.start.0 - 1)..(range.end.0)]
+                &self.source[(range.start.0 - 1)..(range.end.0)]
             }
         } else {
-            &source[(range.start.0)..(range.end.0)]
+            &self.source[(range.start.0)..(range.end.0)]
         }
     }
 
@@ -656,6 +742,7 @@ impl Context {
                     .map(|p| FnParam {
                         kind: p.kind.clone(),
                         ty: p.ty.value.clone(),
+                        name: p.name.value.clone(),
                     })
                     .collect(),
                 returns: func.returns.iter().map(|r| r.value.clone()).collect(),
@@ -663,18 +750,18 @@ impl Context {
         );
     }
 
-    fn collect_definitions(&mut self, program: &[WithSpan<ast::Stmt>]) {
-        for stmt in program {
-            if let ast::Stmt::Item(ast::Item::Fn(func)) = &stmt.value {
+    fn collect_definitions(&mut self, program: &[WithSpan<ast::Item>]) {
+        for item in program {
+            if let ast::Item::Fn(func) = &item.value {
                 self.add_func_definition(func);
             }
         }
     }
 
-    pub fn type_check(&mut self, program: &mut [WithSpan<ast::Stmt>], source: &str) -> Option<()> {
+    pub fn type_check(&mut self, program: &mut [WithSpan<ast::Item>]) -> Option<()> {
         self.collect_definitions(program);
-        for stmt in program {
-            self.stmt(stmt, source, None);
+        for item in program {
+            self.item(item);
         }
         Some(())
     }
