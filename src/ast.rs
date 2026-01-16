@@ -119,7 +119,25 @@ pub struct Fn {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum ExternKind {
+    Lua,
+    C,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Extern {
+    pub kind: ExternKind,
+    pub defs: Vec<WithSpan<Definition>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Item {
+    Fn(Fn),
+    Extern(Extern),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Definition {
     Fn(Fn),
 }
 

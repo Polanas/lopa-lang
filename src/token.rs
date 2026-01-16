@@ -66,6 +66,7 @@ pub enum TokenKind {
     Struct,
     Impl,
     Match,
+    Extern,
     _Self,
 
     UnterminatedString,
@@ -136,6 +137,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Unknown => write!(f, "unknown"),
             TokenKind::EOF => write!(f, "EOF"),
             TokenKind::QuestionMark => write!(f, "?"),
+            TokenKind::Extern => write!(f, "extern"),
         }
     }
 }
@@ -201,6 +203,7 @@ pub enum Token {
     Struct,
     Impl,
     Match,
+    Extern,
     _Self,
 
     UnterminatedString(String),
@@ -277,6 +280,7 @@ impl From<&Token> for TokenKind {
             Token::Unknown(_) => Self::Unknown,
             Token::EOF => Self::EOF,
             Token::QuestionMark => Self::QuestionMark,
+            Token::Extern => Self::Extern,
         }
     }
 }

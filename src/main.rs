@@ -6,15 +6,9 @@ use std::error::Error;
 use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = "
-        fn add(a: int, b: int) -> int {
-            return a + b;
-        }
-        fn sub(a: int, b: int, c: int?) -> int {
-            return a - b;
-        }
         fn main() {
-            let result = sub(b: 2, a: 3);
-            print result;
+            let x = 1_000_000;
+            print x;
         }
 ";
     let tokens = tokenizer::tokenize(source);

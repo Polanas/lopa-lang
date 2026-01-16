@@ -26,8 +26,10 @@ impl std::fmt::Display for Type {
 
 impl Type {
     pub fn assignable_from(&self, other: &Type) -> bool {
-        (self.kind.eq(&other.kind)) && ((self.nilable, other.nilable) != (false, true))
-            || (self.nilable && other.kind == TypeKind::Nil)
+        ((self.kind.eq(&other.kind)) && ((self.nilable, other.nilable) != (false, true))
+            || (self.nilable && other.kind == TypeKind::Nil))
+            || self.kind == TypeKind::Any
+            || other.kind == TypeKind::Any
     }
 
     pub fn try_unwrap_block(self) -> Self {
@@ -110,6 +112,7 @@ pub enum TypeKind {
     Custom,
     Block(Vec<Type>),
     Fn(Fn),
+    Any,
     // Never,
 }
 
@@ -124,6 +127,7 @@ impl TypeKind {
             "nil" => TypeKind::Nil,
             "string" => TypeKind::String,
             "bool" => TypeKind::Bool,
+            "any" => TypeKind::Any,
             _ => TypeKind::Custom,
         }
     }
@@ -155,6 +159,7 @@ impl Display for TypeKind {
             TypeKind::Custom => write!(f, "custom"),
             TypeKind::Block(_) => write!(f, "block"),
             TypeKind::Fn(_) => write!(f, "func"),
+            TypeKind::Any => write!(f, "any"),
         }
     }
 }
@@ -576,6 +581,7 @@ impl<'a> Context<'a> {
     fn item(&mut self, item: &mut WithSpan<ast::Item>) -> Option<()> {
         match &mut item.value {
             ast::Item::Fn(func) => self.func(WithSpan::new(func, item.span))?,
+            ast::Item::Extern(_) => todo!(),
         }
         Some(())
     }
@@ -633,7 +639,9 @@ impl<'a> Context<'a> {
                     }
                 }
             }
-            ast::Stmt::Print(_) => {}
+            ast::Stmt::Print(expr) => {
+                self.expr(expr)?;
+            }
             ast::Stmt::Empty => {}
             ast::Stmt::Return(exprs) => {
                 self.rtrn(exprs, stmt.span)?;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use itertools::{Itertools, Position};
 
-use crate::{ast, common, position::WithSpan, types};
+use crate::{ast::{self, Item}, common, position::WithSpan, types};
 
 const STACK_IDENT: &str = "__stack_var__";
 const SCOPE_IDENT: &str = "__scope__local__";
@@ -124,15 +124,16 @@ impl Context {
         self.scopes.pop();
     }
 
-    fn generate(&mut self, program: &[WithSpan<ast::Item>]) {
+    fn generate(&mut self, program: &[WithSpan<Item>]) {
         for item in program {
             self.item(&item.value);
         }
     }
 
-    fn item(&mut self, item: &ast::Item) {
+    fn item(&mut self, item: &Item) {
         match item {
-            ast::Item::Fn(func) => self.func(func),
+            Item::Fn(func) => self.func(func),
+            Item::Extern(_) => todo!(),
         }
     }
 
@@ -147,6 +148,18 @@ impl Context {
         self.block(&func.body.value);
         self.output
             .push_str(&self.call_stack.last().unwrap().output);
+        if let Some(last) = func.body.value.body.last()
+            && let ast::Stmt::Expr(ast::StmtExpr { semi: None, .. }) = &last.value
+        {
+            let stack = self.scope_mut().stack;
+            let returns = &format!(
+                "return {}\n",
+                ((stack - func.returns.len())..stack)
+                    .map(|i| self.scope_mut().stack_ident(i))
+                    .join(", ")
+            );
+            self.output.push_str(returns);
+        }
         self.pop_call_stack();
         self.output.push_str("end\n");
     }
@@ -449,7 +462,7 @@ impl Context {
     }
 }
 
-pub fn generate(program: &[WithSpan<ast::Item>]) -> String {
+pub fn generate(program: &[WithSpan<Item>]) -> String {
     let mut context = Context::new();
     context.generate(program);
     context.output

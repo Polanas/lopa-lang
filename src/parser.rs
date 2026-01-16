@@ -433,10 +433,75 @@ impl Parser<'_> {
     fn parse_item(&mut self) -> Option<WithSpan<Item>> {
         match self.peek() {
             TokenKind::Fn => self.parse_fn(),
+            TokenKind::Extern => self.parse_extern(),
             other => {
-                panic!("{other}");
+                let token = self.advance();
+                self.add_error(&format!("expected item, got {}", other), token.span);
+                return None;
             }
         }
+    }
+
+    fn parse_extern(&mut self) -> Option<WithSpan<Item>> {
+        let extern_token = self.expect(TokenKind::Extern)?;
+        self.expect(TokenKind::LeftParen)?;
+        let WithSpan {
+            value: Token::Identifier(ident),
+            span: ident_span,
+        } = self.expect(TokenKind::Identifier)?
+        else {
+            unreachable!();
+        };
+        let extern_kind = match ident.as_str() {
+            "C" => ExternKind::C,
+            "lua" => ExternKind::Lua,
+            other => {
+                self.add_error(
+                    &format!("expected valid extern variant (lua, C), got {}", other),
+                    *ident_span,
+                );
+                return None;
+            }
+        };
+        self.expect(TokenKind::RightParen)?;
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut defs = vec![];
+        while !self.check(TokenKind::RightBrace) {
+            defs.push(self.parse_def()?);
+        }
+        let span = extern_token
+            .span
+            .union(self.expect(TokenKind::RightBrace)?.span);
+
+        Some(WithSpan::new(
+            Item::Extern(Extern {
+                kind: extern_kind,
+                defs,
+            }),
+            span,
+        ))
+    }
+
+    fn parse_def(&mut self) -> Option<WithSpan<Definition>> {
+        match self.peek() {
+            TokenKind::Fn => self.parse_fn_def(),
+            other => {
+                let token = self.advance();
+                self.add_error(&format!("expected definition, got {}", other), token.span);
+                return None;
+            }
+        }
+    }
+
+    fn parse_fn_def(&mut self) -> Option<WithSpan<Definition>> {
+        todo!()
+    }
+
+    fn parse_fn_head(
+        &mut self,
+    ) -> Option<(position::Span, Vec<FnParam>, Vec<WithSpan<types::Type>>)> {
+        todo!()
     }
 
     fn parse_stmt(&mut self) -> Option<WithSpan<Stmt>> {
