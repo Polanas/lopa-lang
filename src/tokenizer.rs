@@ -174,11 +174,7 @@ impl<'a> Tokenizer<'a> {
 
     fn string(&mut self) -> Option<Token> {
         let string: String = self.consume_while(|ch| ch != '"').into_iter().collect();
-        if self.input.next().is_none() {
-            Some(Token::UnterminatedString(string))
-        } else {
-            Some(Token::String(string))
-        }
+        Some(Token::String(string))
     }
 
     fn identifier(&mut self, ch: char) -> Option<Token> {

@@ -206,7 +206,6 @@ pub enum Token {
     Extern,
     _Self,
 
-    UnterminatedString(String),
     Unknown(char),
     EOF,
 }
@@ -276,7 +275,6 @@ impl From<&Token> for TokenKind {
             Token::Impl => Self::Impl,
             Token::Match => Self::Match,
             Token::_Self => Self::_Self,
-            Token::UnterminatedString(_) => Self::UnterminatedString,
             Token::Unknown(_) => Self::Unknown,
             Token::EOF => Self::EOF,
             Token::QuestionMark => Self::QuestionMark,
