@@ -10,4 +10,11 @@ function pcall(f, ...) end
 
 --global b = a
 --global a = b
---
+
+debug.setmetatable(0, {
+	__index = {
+		print = function(value)
+			print(value)
+		end,
+	},
+});

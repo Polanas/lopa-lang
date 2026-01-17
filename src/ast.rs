@@ -108,6 +108,7 @@ pub struct FnParam {
     pub kind: FnParamKind,
     pub ty: WithSpan<types::Type>,
     pub name: WithSpan<Identifier>,
+    pub default_value: Option<WithSpan<Expr>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -115,6 +116,21 @@ pub struct Fn {
     pub name: Identifier,
     pub params: Vec<FnParam>,
     pub body: WithSpan<Block>,
+    pub returns: Vec<WithSpan<types::Type>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ExternFn {
+    pub name: Identifier,
+    pub params: Vec<FnParam>,
+    pub returns: Vec<WithSpan<types::Type>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct InlineFn {
+    pub name: Identifier,
+    pub params: Vec<FnParam>,
+    pub body: String,
     pub returns: Vec<WithSpan<types::Type>>,
 }
 
@@ -127,18 +143,24 @@ pub enum ExternKind {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Extern {
     pub kind: ExternKind,
-    pub defs: Vec<WithSpan<Definition>>,
+    pub defs: Vec<WithSpan<ExternDefinition>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Inline {
+    pub defs: Vec<WithSpan<InlineFn>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Item {
     Fn(Fn),
     Extern(Extern),
+    Inline(Inline),
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Definition {
-    Fn(Fn),
+pub enum ExternDefinition {
+    Fn(ExternFn),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -158,7 +180,6 @@ pub enum Stmt {
     Expr(StmtExpr),
     Assign(Assign),
     Binding(Binding),
-    Print(Box<WithSpan<Expr>>),
     Return(Vec<WithSpan<Expr>>),
     Empty,
 }

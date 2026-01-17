@@ -2,6 +2,23 @@ use std::collections::HashMap;
 
 use itertools::{Itertools, Position};
 
+trait Output {
+    fn line(&mut self, text: &str);
+    fn stmt(&mut self, text: &str);
+}
+
+impl Output for String {
+    fn line(&mut self, text: &str) {
+        self.push_str(text);
+        self.push('\n');
+    }
+
+    fn stmt(&mut self, text: &str) {
+        self.push_str(text);
+        self.push_str(";\n");
+    }
+}
+
 use crate::{
     ast::{self, Item},
     common,
@@ -138,18 +155,42 @@ impl Context {
     fn item(&mut self, item: &Item) {
         match item {
             Item::Fn(func) => self.func(func),
-            Item::Extern(_) => todo!(),
+            Item::Extern(_extern) => (),
+            Item::Inline(inline) => inline
+                .defs
+                .iter()
+                .for_each(|func| self.inline_func(&func.value)),
         }
+    }
+
+    fn inline_func(&mut self, func: &ast::InlineFn) {
+        let args = func.params.iter().map(|p| &p.name.value).join(", ");
+        self.output
+            .line(&format!("{} = function({args})", &func.name));
+        self.output.push_str(&func.body);
+        self.output.stmt("end");
     }
 
     fn func(&mut self, func: &ast::Fn) {
         let args = func.params.iter().map(|p| &p.name.value).join(", ");
         self.output
-            .push_str(&format!("{} = function({args})\n", &func.name));
+            .line(&format!("{} = function({args})", &func.name));
         self.push_call_stack(FnContext {
             func: func.clone(),
             output: String::new(),
         });
+        for param in func.params.iter() {
+            if let Some(default_value) = &param.default_value {
+                let default_value = self.expr(&default_value.value).unwrap();
+                self.call_stack_mut().output.push_str(&format!(
+                    r#"if {0} == nil then
+  {0} = {1};
+end;
+"#,
+                    &param.name.value, default_value
+                ));
+            }
+        }
         self.block(&func.body.value);
         self.output
             .push_str(&self.call_stack.last().unwrap().output);
@@ -157,16 +198,13 @@ impl Context {
             && let ast::Stmt::Expr(ast::StmtExpr { semi: None, .. }) = &last.value
         {
             let stack = self.scope_mut().stack;
-            let returns = &format!(
-                "return {}\n",
-                ((stack - func.returns.len())..stack)
-                    .map(|i| self.scope_mut().stack_ident(i))
-                    .join(", ")
-            );
-            self.output.push_str(returns);
+            let returns = ((stack - func.returns.len())..stack)
+                .map(|i| self.scope_mut().stack_ident(i))
+                .join(", ");
+            self.output.stmt(&format!("return {}", returns));
         }
         self.pop_call_stack();
-        self.output.push_str("end\n");
+        self.output.stmt("end");
     }
 
     fn stmt(&mut self, stmt: &ast::Stmt) -> String {
@@ -175,7 +213,7 @@ impl Context {
             ast::Stmt::Expr(stmt_expr) => {
                 for expr in &stmt_expr.exprs {
                     if let Some(expr) = self.expr(&expr.value) {
-                        result.push_str(&format!("{expr}\n"));
+                        result.stmt(&expr.to_string());
                     }
                 }
             }
@@ -189,13 +227,6 @@ impl Context {
             ast::Stmt::Binding(binding) => {
                 result.push_str(&self.binding(binding.as_ref()));
             }
-            ast::Stmt::Print(e) => {
-                if let Some(expr) = self.expr(&e.value) {
-                    self.call_stack_mut()
-                        .output
-                        .push_str(&format!("print({expr})"));
-                }
-            }
             ast::Stmt::Empty => {}
             ast::Stmt::Return(exprs) => {
                 for expr in exprs {
@@ -205,8 +236,8 @@ impl Context {
                         }
                         _ => {
                             if let Some(expr) = self.expr(&expr.value) {
-                                result.push_str(&format!(
-                                    "{} = {}\n",
+                                result.stmt(&format!(
+                                    "{} = {}",
                                     self.scope_mut().push_ident(),
                                     expr
                                 ));
@@ -218,7 +249,7 @@ impl Context {
                     ..self.scope().stack)
                     .map(|s| self.scope().stack_ident(s))
                     .join(", ");
-                result.push_str(&format!("return {args}\n"));
+                result.stmt(&format!("return {args}"));
             }
         };
         result
@@ -265,8 +296,8 @@ impl Context {
                         }
                         _ => {
                             if let Some(expr) = self.expr(&item.value) {
-                                result.push_str(&format!(
-                                    "{} = {}\n",
+                                result.stmt(&format!(
+                                    "{} = {}",
                                     self.scope_mut().push_ident(),
                                     expr
                                 ));
@@ -281,8 +312,8 @@ impl Context {
                         result.push_str("local ");
                     }
                     let stack_ident = self.scope().stack_ident(stack);
-                    result.push_str(&format!(
-                        "{} = {}\n",
+                    result.stmt(&format!(
+                        "{} = {}",
                         self.scope_mut().ident(&ident.value),
                         stack_ident
                     ));
@@ -359,14 +390,14 @@ impl Context {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
                 self.call_stack_mut()
                     .output
-                    .push_str(&format!("if {} then\n", &condition));
+                    .line(&format!("if {} then", &condition));
                 let ident = self.block(&if_expr.then_branch.value);
                 if let Some(else_branch) = &if_expr.else_branch {
                     self.pop_scope();
-                    self.call_stack_mut().output.push_str("else\n");
+                    self.call_stack_mut().output.line("else");
                     self.expr(&else_branch.value);
                 }
-                self.call_stack_mut().output.push_str("end\n");
+                self.call_stack_mut().output.stmt("end");
                 ident
             }
             ast::Expr::Block(block) => self.block(block),
@@ -382,6 +413,7 @@ impl Context {
 
         let mut ordered_amount = 0;
         self.push_scope();
+        //TODO: correctly handle multiple returns
         for arg in &call.args {
             let arg_expr = self.expr(&arg.expr.value);
 
@@ -419,7 +451,7 @@ impl Context {
                         let ident = self.scope_mut().push_ident();
                         self.call_stack_mut()
                             .output
-                            .push_str(&format!("{} = {}\n", ident, expr));
+                            .stmt(&format!("{} = {}", ident, expr));
                         Some(ident)
                     } else {
                         None
@@ -432,7 +464,7 @@ impl Context {
                             let ident = self.scope_mut().push_ident();
                             self.call_stack_mut()
                                 .output
-                                .push_str(&format!("{} = {}\n", ident, expr));
+                                .stmt(&format!("{} = {}", ident, expr));
                         }
                     }
                     None
@@ -441,7 +473,7 @@ impl Context {
             }
         } else {
             let stmt = self.stmt(item);
-            self.call_stack_mut().output.push_str(&format!("{stmt}\n"));
+            self.call_stack_mut().output.line(&stmt.to_string());
             None
         }
     }
@@ -450,19 +482,19 @@ impl Context {
         self.push_scope();
         match block.body.as_slice() {
             [item] => {
-                self.call_stack_mut().output.push_str("do\n");
+                self.call_stack_mut().output.line("do");
                 let last = self.block_last(&item.value);
-                self.call_stack_mut().output.push_str("end\n");
+                self.call_stack_mut().output.stmt("end");
                 last
             }
             [items @ .., last] => {
-                self.call_stack_mut().output.push_str("do\n");
+                self.call_stack_mut().output.line("do");
                 for item in items {
                     let stmt = self.stmt(&item.value);
-                    self.call_stack_mut().output.push_str(&format!("{stmt}\n"));
+                    self.call_stack_mut().output.line(&stmt.to_string());
                 }
                 let result = self.block_last(&last.value);
-                self.call_stack_mut().output.push_str("end\n");
+                self.call_stack_mut().output.stmt("end");
                 result
             }
             [] => None,

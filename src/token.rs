@@ -62,13 +62,13 @@ pub enum TokenKind {
     Break,
     In,
     Nil,
-    Print,
     Return,
     Use,
     Struct,
     Impl,
     Match,
     Extern,
+    Inline,
     _Self,
 
     UnterminatedString,
@@ -128,7 +128,6 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Break => write!(f, "break"),
             TokenKind::In => write!(f, "in"),
             TokenKind::Nil => write!(f, "nil"),
-            TokenKind::Print => write!(f, "print"),
             TokenKind::Return => write!(f, "return"),
             TokenKind::Use => write!(f, "use"),
             TokenKind::Struct => write!(f, "struct"),
@@ -140,6 +139,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::EOF => write!(f, "EOF"),
             TokenKind::QuestionMark => write!(f, "?"),
             TokenKind::Extern => write!(f, "extern"),
+            TokenKind::Inline => write!(f, "inline"),
         }
     }
 }
@@ -199,13 +199,13 @@ pub enum Token {
     Break,
     In,
     Nil,
-    Print,
     Return,
     Use,
     Struct,
     Impl,
     Match,
     Extern,
+    Inline,
     _Self,
 
     Unknown(char),
@@ -270,7 +270,6 @@ impl From<&Token> for TokenKind {
             Token::Break => Self::Break,
             Token::In => Self::In,
             Token::Nil => Self::Nil,
-            Token::Print => Self::Print,
             Token::Return => Self::Return,
             Token::Use => Self::Use,
             Token::Struct => Self::Struct,
@@ -281,6 +280,7 @@ impl From<&Token> for TokenKind {
             Token::EOF => Self::EOF,
             Token::QuestionMark => Self::QuestionMark,
             Token::Extern => Self::Extern,
+            Token::Inline => Self::Inline,
         }
     }
 }

@@ -233,7 +233,6 @@ impl<'a> Tokenizer<'a> {
             "loop" => Some(Token::Loop),
             "in" => Some(Token::In),
             "nil" => Some(Token::Nil),
-            "print" => Some(Token::Print),
             "return" => Some(Token::Return),
             "use" => Some(Token::Use),
             "struct" => Some(Token::Struct),
@@ -242,6 +241,8 @@ impl<'a> Tokenizer<'a> {
             "self" => Some(Token::_Self),
             "break" => Some(Token::Break),
             "continue" => Some(Token::Continue),
+            "extern" => Some(Token::Extern),
+            "inline" => Some(Token::Inline),
             _ => None,
         }
     }

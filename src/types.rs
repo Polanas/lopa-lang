@@ -94,6 +94,7 @@ pub struct FnParam {
     pub kind: common::FnParamKind,
     pub name: Identifier,
     pub ty: Type,
+    pub default_value: Option<Type>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -497,11 +498,15 @@ impl<'a> Context<'a> {
 
                 if checked_params.len() < func.params.len() {
                     for param in func.params.iter() {
-                        if !checked_params.contains_key(&param.name) && !param.ty.nilable {
-                            self.add_error("not enough arguments", call.span);
+                        if checked_params.contains_key(&param.name)
+                            || param.ty.nilable
+                            || param.default_value.is_some()
+                        {
+                            continue;
                         }
+                        self.add_error("not enough arguments", call.span);
+                        return None;
                     }
-                    return None;
                 }
 
                 match func.returns.as_slice() {
@@ -550,9 +555,28 @@ impl<'a> Context<'a> {
             func: func.value.clone(),
         });
         self.push_scope();
-        for param in &func.value.params {
+        for (i, param) in func.value.params.iter_mut().enumerate() {
             self.scope_mut()
                 .insert_local(&param.name.value, param.ty.value.clone());
+
+            if let Some(default_value) = &mut param.default_value {
+                let expr_ty = self.expr(default_value)?;
+                if !param.ty.value.assignable_from(&expr_ty) {
+                    self.add_error(
+                        &format!(
+                            "mismatched types: could not assign {} from {}",
+                            param.ty.value, expr_ty,
+                        ),
+                        default_value.span,
+                    );
+                    return None;
+                }
+                let TypeKind::Fn(func) = &mut self.defs.fns.get_mut(&func.value.name).unwrap().kind
+                else {
+                    unreachable!()
+                };
+                func.params[i].default_value = Some(expr_ty);
+            }
         }
 
         for (pos, stmt) in func.value.body.value.body.iter_mut().with_position() {
@@ -581,7 +605,9 @@ impl<'a> Context<'a> {
     fn item(&mut self, item: &mut WithSpan<ast::Item>) -> Option<()> {
         match &mut item.value {
             ast::Item::Fn(func) => self.func(WithSpan::new(func, item.span))?,
-            ast::Item::Extern(_) => todo!(),
+            //these are already checked when collecting definitions
+            ast::Item::Extern(_) => (),
+            ast::Item::Inline(_) => (),
         }
         Some(())
     }
@@ -638,9 +664,6 @@ impl<'a> Context<'a> {
                         ),
                     }
                 }
-            }
-            ast::Stmt::Print(expr) => {
-                self.expr(expr)?;
             }
             ast::Stmt::Empty => {}
             ast::Stmt::Return(exprs) => {
@@ -740,6 +763,44 @@ impl<'a> Context<'a> {
         }
     }
 
+    fn add_inline_definition(&mut self, func: &ast::InlineFn) {
+        self.defs.fns.insert(
+            func.name.clone(),
+            Type::non_nilable(TypeKind::Fn(Fn {
+                params: func
+                    .params
+                    .iter()
+                    .map(|p| FnParam {
+                        kind: p.kind.clone(),
+                        ty: p.ty.value.clone(),
+                        name: p.name.value.clone(),
+                        default_value: None,
+                    })
+                    .collect(),
+                returns: func.returns.iter().map(|r| r.value.clone()).collect(),
+            })),
+        );
+    }
+
+    fn add_extern_definition(&mut self, func: &ast::ExternFn) {
+        self.defs.fns.insert(
+            func.name.clone(),
+            Type::non_nilable(TypeKind::Fn(Fn {
+                params: func
+                    .params
+                    .iter()
+                    .map(|p| FnParam {
+                        kind: p.kind.clone(),
+                        ty: p.ty.value.clone(),
+                        name: p.name.value.clone(),
+                        default_value: None,
+                    })
+                    .collect(),
+                returns: func.returns.iter().map(|r| r.value.clone()).collect(),
+            })),
+        );
+    }
+
     fn add_func_definition(&mut self, func: &ast::Fn) {
         self.defs.fns.insert(
             func.name.clone(),
@@ -751,6 +812,7 @@ impl<'a> Context<'a> {
                         kind: p.kind.clone(),
                         ty: p.ty.value.clone(),
                         name: p.name.value.clone(),
+                        default_value: None,
                     })
                     .collect(),
                 returns: func.returns.iter().map(|r| r.value.clone()).collect(),
@@ -760,8 +822,17 @@ impl<'a> Context<'a> {
 
     fn collect_definitions(&mut self, program: &[WithSpan<ast::Item>]) {
         for item in program {
-            if let ast::Item::Fn(func) = &item.value {
-                self.add_func_definition(func);
+            match &item.value {
+                ast::Item::Fn(func) => self.add_func_definition(func),
+                ast::Item::Inline(inline) => inline
+                    .defs
+                    .iter()
+                    .for_each(|func| self.add_inline_definition(&func.value)),
+                ast::Item::Extern(_extern) => {
+                    _extern.defs.iter().for_each(|def| match &def.value {
+                        ast::ExternDefinition::Fn(func) => self.add_extern_definition(func),
+                    })
+                }
             }
         }
     }
