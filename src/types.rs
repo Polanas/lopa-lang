@@ -271,7 +271,7 @@ impl<'a> Context<'a> {
                 ast::Number::Int(_) => TypeKind::Int.into(),
             },
             ast::Expr::Bool(_) => TypeKind::Bool.into(),
-            ast::Expr::String(_) => TypeKind::String.into(),
+            ast::Expr::String(_, _) => TypeKind::String.into(),
             ast::Expr::Grouping(e) => self.expr(e)?,
             ast::Expr::Unary(unary) => {
                 let expr_type = self.expr(&mut unary.expr)?;

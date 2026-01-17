@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{
-    common::*,
+    common::{self, *},
     position::{self, WithSpan},
     types,
 };
@@ -68,7 +68,7 @@ pub enum Expr {
     Nil,
     Number(Number),
     Bool(bool),
-    String(String),
+    String(common::StringKind, String),
     Grouping(Box<WithSpan<Expr>>),
     Unary(UnaryExpr),
     Binary(BinaryExpr),

@@ -1,3 +1,5 @@
+use crate::common;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum NumberToken {
     Int(i64),
@@ -180,7 +182,7 @@ pub enum Token {
 
     Identifier(String),
     Label(String),
-    String(String),
+    String(common::StringKind, String),
     Number(NumberToken),
 
     Let,
@@ -252,7 +254,7 @@ impl From<&Token> for TokenKind {
             Token::Ampersand2 => Self::Ampersand2,
             Token::Identifier(_) => Self::Identifier,
             Token::Label(_) => Self::Label,
-            Token::String(_) => Self::String,
+            Token::String(_, _) => Self::String,
             Token::Number(_) => Self::Number,
             Token::Let => Self::Let,
             Token::Global => Self::Global,

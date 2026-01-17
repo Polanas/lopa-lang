@@ -5,12 +5,13 @@ use std::error::Error;
 
 use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
-    let source = "
+    let source = r#"
         fn main() {
-            let x = 1_000_000;
-            print x;
+            let s ="""hi
+hello there""";
+            print s;
         }
-";
+"#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
     match ast {

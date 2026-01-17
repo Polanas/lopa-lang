@@ -2,7 +2,12 @@ use std::collections::HashMap;
 
 use itertools::{Itertools, Position};
 
-use crate::{ast::{self, Item}, common, position::WithSpan, types};
+use crate::{
+    ast::{self, Item},
+    common,
+    position::WithSpan,
+    types,
+};
 
 const STACK_IDENT: &str = "__stack_var__";
 const SCOPE_IDENT: &str = "__scope__local__";
@@ -313,7 +318,10 @@ impl Context {
                 ast::Number::Int(i) => Some(i.to_string()),
             },
             ast::Expr::Bool(b) => Some(b.to_string()),
-            ast::Expr::String(s) => Some(format!("\"{s}\"")),
+            ast::Expr::String(kind, s) => match kind {
+                common::StringKind::Regular => Some(format!("\"{s}\"")),
+                common::StringKind::Multiline => Some(format!("[[{s}]]")),
+            },
             ast::Expr::Grouping(e) => self.expr(&e.value),
             ast::Expr::Unary(ast::UnaryExpr { expr, op, .. }) => match op.value {
                 common::UnaryOp::Not => self.expr(&expr.value).map(|e| format!("not ({})", e)),

@@ -394,7 +394,9 @@ impl Parser<'_> {
             }
             &Token::True => Some(WithSpan::new(Expr::Bool(true), token.span)),
             &Token::False => Some(WithSpan::new(Expr::Bool(false), token.span)),
-            Token::String(s) => Some(WithSpan::new(Expr::String(s.clone()), token.span)),
+            Token::String(kind, s) => {
+                Some(WithSpan::new(Expr::String(*kind, s.clone()), token.span))
+            }
             Token::Identifier(s) => {
                 Some(WithSpan::new(Expr::Identifier(s.clone(), None), token.span))
             }

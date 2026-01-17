@@ -1,4 +1,4 @@
-use crate::{position, token};
+use crate::{common, position, token};
 use std::str;
 use token::Token;
 
@@ -70,7 +70,7 @@ impl<'a> Tokenizer<'a> {
         let mut chars = Vec::<char>::new();
         while let Some(&ch) = self.input.peek() {
             if func(ch) {
-                self.next_char().unwrap();
+                self.next_char();
                 chars.push(ch);
             } else {
                 break;
@@ -173,8 +173,35 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn string(&mut self) -> Option<Token> {
-        let string: String = self.consume_while(|ch| ch != '"').into_iter().collect();
-        Some(Token::String(string))
+        if self.peek().map(|&ch| ch == '"').unwrap_or_default()
+            && self.peek_next().map(|ch| ch == '"').unwrap_or_default()
+        {
+            self.next_char();
+            self.next_char();
+            let mut chars = Vec::<char>::new();
+            while let Some(ch) = self.next_char() {
+                if ch == '"'
+                    && self.peek().map(|&ch| ch == '"').unwrap_or_default()
+                    && self.peek_next().map(|ch| ch == '"').unwrap_or_default()
+                {
+                    self.next_char();
+                    self.next_char();
+                    break;
+                }
+                chars.push(ch);
+            }
+            Some(Token::String(
+                common::StringKind::Multiline,
+                chars.into_iter().collect::<String>(),
+            ))
+        } else {
+            let string: String = self
+                .consume_while(|ch| ch != '"')
+                .into_iter()
+                .collect::<String>();
+            self.next_char();
+            Some(Token::String(common::StringKind::Regular, string))
+        }
     }
 
     fn identifier(&mut self, ch: char) -> Option<Token> {
@@ -278,6 +305,7 @@ pub fn tokenize(input: &str) -> Vec<position::WithSpan<Token>> {
 #[cfg(test)]
 mod tests {
     use crate::{
+        common,
         token::{self, NumberToken},
         tokenizer::{Token, Tokenizer},
     };
@@ -323,7 +351,10 @@ mod tests {
     fn string() {
         assert_eq!(
             tokenize(" \"str\""),
-            vec![Token::String(String::from("str")),]
+            vec![Token::String(
+                common::StringKind::Regular,
+                String::from("str")
+            ),]
         )
     }
 
