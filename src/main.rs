@@ -12,11 +12,8 @@ extern(lua) {
 fn test() -> int, int {
     1,2
 }
-fn test1() -> int, int {
-    1,2
-}
 fn main() {
-    let x,y,z = test(),3;
+    let x,y,z = {test(),3};
     print(x,y,z);
 }
 "#;

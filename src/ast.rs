@@ -160,10 +160,37 @@ pub struct Inline {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum StructKind {
+    GC,
+    Native,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Field {
+    ty: WithSpan<types::Type>,
+    default_value: Option<WithSpan<Expr>>,
+    name: Option<Identifier>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Fields {
+    Unit,
+    Tuple(Vec<Field>),
+    Named(Vec<Field>),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Struct {
+    kind: StructKind,
+    fields: Fields,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Item {
     Fn(Fn),
     Extern(Extern),
     Inline(Inline),
+    Struct(Struct),
 }
 
 #[derive(Debug, PartialEq, Clone)]

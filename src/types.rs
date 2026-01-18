@@ -111,7 +111,6 @@ pub enum TypeKind {
     Int,
     Float,
     String,
-    Custom,
     Block(Vec<Type>),
     Fn(Fn),
     Any,
@@ -132,15 +131,15 @@ impl TypeKind {
             _ => (self == other) || (self.is_number() && other.is_number()),
         }
     }
-    pub fn from_ident(ident: &str) -> Self {
+    pub fn from_ident_primitive(ident: &str) -> Option<Self> {
         match ident {
-            "int" => TypeKind::Int,
-            "float" => TypeKind::Float,
-            "nil" => TypeKind::Nil,
-            "string" => TypeKind::String,
-            "bool" => TypeKind::Bool,
-            "any" => TypeKind::Any,
-            _ => TypeKind::Custom,
+            "int" => Some(TypeKind::Int),
+            "float" => Some(TypeKind::Float),
+            "nil" => Some(TypeKind::Nil),
+            "string" => Some(TypeKind::String),
+            "bool" => Some(TypeKind::Bool),
+            "any" => Some(TypeKind::Any),
+            _ => None,
         }
     }
 }
@@ -168,7 +167,6 @@ impl Display for TypeKind {
             TypeKind::Int => write!(f, "int"),
             TypeKind::Float => write!(f, "float"),
             TypeKind::String => write!(f, "string"),
-            TypeKind::Custom => write!(f, "custom"),
             TypeKind::Block(_) => write!(f, "block"),
             TypeKind::Fn(func) => {
                 let args = func.params.iter().map(|p| p.ty.to_string()).join(", ");
@@ -703,9 +701,9 @@ impl<'a> Context<'a> {
     fn item(&mut self, item: &mut WithSpan<ast::Item>) -> Option<()> {
         match &mut item.value {
             ast::Item::Fn(func) => self.func(WithSpan::new(func, item.span))?,
-            //these are already checked when collecting definitions
             ast::Item::Extern(_) => (),
             ast::Item::Inline(_) => (),
+            ast::Item::Struct(_) => todo!(),
         }
         Some(())
     }
@@ -908,7 +906,7 @@ impl<'a> Context<'a> {
                     .params
                     .iter()
                     .map(|p| FnParam {
-                        kind: p.kind.clone(),
+                        kind: p.kind,
                         ty: p.ty.value.clone(),
                         name: Some(p.name.value.clone()),
                         default_value: None,
@@ -932,6 +930,7 @@ impl<'a> Context<'a> {
                         ast::ExternDefinition::Fn(func) => self.add_extern_definition(func),
                     })
                 }
+                ast::Item::Struct(_) => todo!(),
             }
         }
     }

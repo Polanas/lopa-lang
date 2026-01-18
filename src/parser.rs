@@ -158,6 +158,17 @@ impl Parser<'_> {
         }
     }
 
+    fn parse_ident(&mut self) -> Option<WithSpan<Identifier>> {
+        let WithSpan {
+            value: Token::Identifier(ident),
+            span,
+        } = self.expect(TokenKind::Identifier)?
+        else {
+            unreachable!();
+        };
+        Some(WithSpan::new(ident.clone(), *span))
+    }
+
     fn parse_expr(&mut self, precedence: Precedence) -> Option<WithSpan<Expr>> {
         let mut expr = self.parse_prefix()?;
         while !self.is_at_end() {
@@ -275,13 +286,7 @@ impl Parser<'_> {
         let bar = self.expect(TokenKind::Bar)?;
         let mut params = vec![];
         while self.peek() != TokenKind::Bar {
-            let WithSpan {
-                value: Token::Identifier(ident),
-                span: ident_span,
-            } = self.expect(TokenKind::Identifier)?
-            else {
-                unreachable!()
-            };
+            let ident = self.parse_ident()?;
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type()?;
             if self.peek() == TokenKind::Comma {
@@ -299,7 +304,7 @@ impl Parser<'_> {
             params.push(FnParam {
                 kind: FnParamKind::Regular,
                 ty,
-                name: WithSpan::new(ident.clone(), *ident_span),
+                name: WithSpan::new(ident.value, ident.span),
                 default_value,
             });
         }
@@ -523,6 +528,7 @@ impl Parser<'_> {
             TokenKind::Fn => self.parse_fn(),
             TokenKind::Extern => self.parse_extern(),
             TokenKind::Inline => self.parse_inline(),
+            TokenKind::Struct => self.parse_struct(),
             other => {
                 let token = self.advance();
                 self.add_error(&format!("expected item, got {}", other), token.span);
@@ -531,20 +537,19 @@ impl Parser<'_> {
         }
     }
 
+    fn parse_struct(&mut self) -> Option<WithSpan<Item>> {
+        let struct_token = self.expect(TokenKind::Struct)?;
+        todo!()
+    }
+
     fn parse_inline(&mut self) -> Option<WithSpan<Item>> {
         let inline_token = self.expect(TokenKind::Inline)?;
         self.expect(TokenKind::LeftParen)?;
-        let WithSpan {
-            value: Token::Identifier(ident),
-            span: ident_span,
-        } = self.expect(TokenKind::Identifier)?
-        else {
-            unreachable!();
-        };
-        if ident != "lua" {
+        let ident = self.parse_ident()?;
+        if ident.value != "lua" {
             self.add_error(
-                &format!("expected valid inline variant (lua), got {}", ident),
-                *ident_span,
+                &format!("expected valid inline variant (lua), got {}", ident.value),
+                ident.span,
             );
             return None;
         }
@@ -564,33 +569,13 @@ impl Parser<'_> {
 
     fn parse_inline_def(&mut self) -> Option<WithSpan<InlineFn>> {
         let fn_token = self.expect(TokenKind::Fn)?;
-        let WithSpan {
-            value: Token::Identifier(name),
-            ..
-        } = self.expect(TokenKind::Identifier)?
-        else {
-            unreachable!()
-        };
+        let name = self.parse_ident()?;
         self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
-            let WithSpan {
-                value: Token::Identifier(ident),
-                span: name_span,
-            } = self.expect(TokenKind::Identifier)?
-            else {
-                unreachable!()
-            };
-
+            let ident = self.parse_ident()?;
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type()?;
-
-            // let default_value = if self.peek() == TokenKind::Equal {
-            //     self.expect(TokenKind::Equal)?;
-            //     Some(self.parse_expr(Precedence::Lowest)?)
-            // } else {
-            //     None
-            // };
 
             if self.peek() == TokenKind::Comma {
                 self.expect(TokenKind::Comma)?;
@@ -599,7 +584,7 @@ impl Parser<'_> {
             params.push(FnParam {
                 kind: FnParamKind::Regular,
                 ty,
-                name: WithSpan::new(ident.clone(), *name_span),
+                name: WithSpan::new(ident.value, ident.span),
                 default_value: None,
             });
         }
@@ -632,7 +617,7 @@ impl Parser<'_> {
         };
         Some(WithSpan::new(
             InlineFn {
-                name: name.clone(),
+                name: name.value,
                 params,
                 body: body_string.clone(),
                 returns,
@@ -644,20 +629,14 @@ impl Parser<'_> {
     fn parse_extern(&mut self) -> Option<WithSpan<Item>> {
         let extern_token = self.expect(TokenKind::Extern)?;
         self.expect(TokenKind::LeftParen)?;
-        let WithSpan {
-            value: Token::Identifier(ident),
-            span: ident_span,
-        } = self.expect(TokenKind::Identifier)?
-        else {
-            unreachable!();
-        };
-        let extern_kind = match ident.as_str() {
+        let ident = self.parse_ident()?;
+        let extern_kind = match ident.value.as_str() {
             "C" => ExternKind::C,
             "lua" => ExternKind::Lua,
             other => {
                 self.add_error(
                     &format!("expected valid extern variant (lua, C), got {}", other),
-                    *ident_span,
+                    ident.span,
                 );
                 return None;
             }
@@ -695,33 +674,14 @@ impl Parser<'_> {
 
     fn parse_fn_def(&mut self) -> Option<WithSpan<ExternDefinition>> {
         let fn_token = self.expect(TokenKind::Fn)?;
-        let WithSpan {
-            value: Token::Identifier(name),
-            ..
-        } = self.expect(TokenKind::Identifier)?
-        else {
-            unreachable!()
-        };
+        let name = self.parse_ident()?;
         self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
-            let WithSpan {
-                value: Token::Identifier(ident),
-                span: name_span,
-            } = self.expect(TokenKind::Identifier)?
-            else {
-                unreachable!()
-            };
+            let ident = self.parse_ident()?;
 
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type()?;
-
-            // let default_value = if self.peek() == TokenKind::Equal {
-            //     self.expect(TokenKind::Equal)?;
-            //     Some(self.parse_expr(Precedence::Lowest)?)
-            // } else {
-            //     None
-            // };
 
             if self.peek() == TokenKind::Comma {
                 self.expect(TokenKind::Comma)?;
@@ -730,7 +690,7 @@ impl Parser<'_> {
             params.push(FnParam {
                 kind: FnParamKind::Regular,
                 ty,
-                name: WithSpan::new(ident.clone(), *name_span),
+                name: WithSpan::new(ident.value, ident.span),
                 default_value: None,
             });
         }
@@ -757,7 +717,7 @@ impl Parser<'_> {
             .union(returns.last().map(|r| r.span).unwrap_or(right_paren.span));
         Some(WithSpan::new(
             ExternDefinition::Fn(ExternFn {
-                name: name.clone(),
+                name: name.value,
                 params,
                 returns,
             }),
@@ -807,23 +767,11 @@ impl Parser<'_> {
 
     fn parse_fn(&mut self) -> Option<WithSpan<Item>> {
         let fn_token = self.expect(TokenKind::Fn)?;
-        let WithSpan {
-            value: Token::Identifier(name),
-            ..
-        } = self.expect(TokenKind::Identifier)?
-        else {
-            unreachable!()
-        };
+        let name = self.parse_ident()?;
         self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
-            let WithSpan {
-                value: Token::Identifier(ident),
-                span: name_span,
-            } = self.expect(TokenKind::Identifier)?
-            else {
-                unreachable!()
-            };
+            let ident = self.parse_ident()?;
 
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type()?;
@@ -842,7 +790,7 @@ impl Parser<'_> {
             params.push(FnParam {
                 kind: FnParamKind::Regular,
                 ty,
-                name: WithSpan::new(ident.clone(), *name_span),
+                name: WithSpan::new(ident.value, ident.span),
                 default_value,
             });
         }
@@ -868,7 +816,7 @@ impl Parser<'_> {
         let body = self.parse_block()?;
         Some(WithSpan::new(
             Item::Fn(Fn {
-                name: name.clone(),
+                name: name.value,
                 params,
                 body: match body.value {
                     Expr::Block(block) => WithSpan::new(block, body.span),
@@ -988,13 +936,7 @@ impl Parser<'_> {
                 while self.peek() != TokenKind::RightParen {
                     if self.peek() == TokenKind::Identifier && self.peek_next() == TokenKind::Colon
                     {
-                        let WithSpan {
-                            value: Token::Identifier(ident),
-                            ..
-                        } = self.expect(TokenKind::Identifier)?
-                        else {
-                            unreachable!()
-                        };
+                        let ident = self.parse_ident()?;
 
                         self.expect(TokenKind::Colon)?;
                         let ty = self.parse_type()?;
@@ -1005,7 +947,7 @@ impl Parser<'_> {
                         params.push(types::FnParam {
                             kind: FnParamKind::Regular,
                             ty: ty.value,
-                            name: Some(ident.clone()),
+                            name: Some(ident.value),
                             default_value: None,
                         });
                     } else {
@@ -1051,18 +993,21 @@ impl Parser<'_> {
                 )
             }
             TokenKind::Identifier => {
-                let WithSpan {
-                    value: Token::Identifier(ident),
-                    span,
-                } = self.advance()
-                else {
-                    unreachable!()
-                };
+                let ident = self.parse_ident()?;
                 let mark = self.parse_optional_mark();
-                let span = mark.map(|s| span.union(s)).unwrap_or(*span);
+                let span = mark.map(|s| ident.span.union(s)).unwrap_or(ident.span);
                 WithSpan::new(
                     types::Type {
-                        kind: types::TypeKind::from_ident(ident),
+                        kind: match types::TypeKind::from_ident_primitive(&ident.value) {
+                            Some(ty) => ty,
+                            None => {
+                                self.add_error(
+                                    &format!("type {} not found", &ident.value),
+                                    ident.span,
+                                );
+                                return None;
+                            }
+                        },
                         nilable: mark.is_some(),
                     },
                     span,
