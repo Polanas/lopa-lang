@@ -793,6 +793,7 @@ impl<'a> Context<'a> {
                         return None;
                     }
                     std::cmp::Ordering::Greater => {
+                        dbg!(returns, &values);
                         self.add_error("too much return values provided", span);
                         return None;
                     }

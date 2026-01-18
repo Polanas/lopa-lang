@@ -6,9 +6,18 @@ use std::error::Error;
 use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        fn main() {
-            let x = |a: int, b: int| -> int { 20 };
-        }
+extern(lua) {
+    fn print(value: any)
+}
+fn call_once(f: fn(any), arg: any) {
+    f(arg);
+}
+fn main() {
+    call_once(
+        f: |value: any| { print(value) },
+        arg: 20
+    );
+}
 "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
@@ -26,12 +35,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     );
                 }
             } else {
-                // let code = code_gen::generate(&ast);
-                // println!("------------------------------");
-                // println!("{code}");
-                // let lua = mlua::Lua::new();
-                // lua.load(&code).exec().unwrap();
-                // lua.load("main()").exec().unwrap();
+                let code = code_gen::generate(&ast);
+                println!("------------------------------");
+                println!("{code}");
+                let lua = mlua::Lua::new();
+                lua.load(&code).exec().unwrap();
+                lua.load("main()").exec().unwrap();
             }
         }
         Err(errs) => {

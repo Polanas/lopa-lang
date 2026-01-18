@@ -92,7 +92,7 @@ impl Scope {
 
 #[derive(Debug)]
 pub struct FnContext {
-    func: ast::Fn,
+    returns: Vec<types::Type>,
     output: String,
 }
 
@@ -176,7 +176,7 @@ impl Context {
         self.output
             .line(&format!("{} = function({args})", &func.name));
         self.push_call_stack(FnContext {
-            func: func.clone(),
+            returns: func.returns.iter().map(|r| r.value.clone()).collect(),
             output: String::new(),
         });
         for param in func.params.iter() {
@@ -245,7 +245,7 @@ end;
                         }
                     }
                 }
-                let args = ((self.scope().stack - self.call_stack().func.returns.len())
+                let args = ((self.scope().stack - self.call_stack().returns.len())
                     ..self.scope().stack)
                     .map(|s| self.scope().stack_ident(s))
                     .join(", ");
@@ -400,8 +400,50 @@ end;
                 ident
             }
             ast::Expr::Block(block) => self.block(block),
-            ast::Expr::Closure(closure) => todo!(),
+            ast::Expr::Closure(closure) => self.closure(closure),
         }
+    }
+
+    fn closure(&mut self, closure: &ast::Closure) -> Option<String> {
+        let args = closure.params.iter().map(|p| &p.name.value).join(", ");
+        let mut result = String::new();
+        result.line(&format!("function({args})"));
+        self.push_call_stack(FnContext {
+            returns: closure
+                .returns
+                .iter()
+                .flatten()
+                .map(|r| r.value.clone())
+                .collect(),
+            output: String::new(),
+        });
+        for param in closure.params.iter() {
+            if let Some(default_value) = &param.default_value {
+                let default_value = self.expr(&default_value.value).unwrap();
+                self.call_stack_mut().output.push_str(&format!(
+                    r#"if {0} == nil then
+  {0} = {1};
+end;
+"#,
+                    &param.name.value, default_value
+                ));
+            }
+        }
+        self.block(&closure.body.value);
+        result
+            .push_str(&self.call_stack.last().unwrap().output);
+        if let Some(last) = closure.body.value.body.last()
+            && let ast::Stmt::Expr(ast::StmtExpr { semi: None, .. }) = &last.value
+        {
+            let stack = self.scope_mut().stack;
+            let returns = (stack - closure.returns.iter().flatten().count()..stack)
+                .map(|i| self.scope_mut().stack_ident(i))
+                .join(", ");
+            result.stmt(&format!("return {}", returns));
+        }
+        self.pop_call_stack();
+        result.line("end");
+        Some(result)
     }
 
     fn call(&mut self, call: &ast::Call) -> Option<String> {
