@@ -7,7 +7,7 @@ use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
 extern(lua) {
-    fn print(v1: any, v2: any, v3: any)
+    fn print(v1: any, v2: any, v3: any);
 }
 fn test() -> int, int {
     1,2

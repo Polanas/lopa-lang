@@ -11,7 +11,7 @@ pub struct BinaryExpr {
     pub left: Box<WithSpan<Expr>>,
     pub right: Box<WithSpan<Expr>>,
     pub op: WithSpan<BinaryOp>,
-    pub types: Option<(types::Type, types::Type, types::Type)>,
+    pub types: Option<(Type, Type, Type)>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -19,7 +19,7 @@ pub struct IfExpr {
     pub condition: Box<WithSpan<Expr>>,
     pub then_branch: WithSpan<Block>,
     pub else_branch: Option<Box<WithSpan<Expr>>>,
-    pub ty: Option<types::Type>,
+    pub ty: Option<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -41,13 +41,13 @@ impl Display for Number {
 pub struct UnaryExpr {
     pub expr: Box<WithSpan<Expr>>,
     pub op: WithSpan<UnaryOp>,
-    pub ty: Option<types::Type>,
+    pub ty: Option<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Block {
     pub body: Vec<WithSpan<Stmt>>,
-    pub ty: Option<types::Type>,
+    pub ty: Option<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -59,7 +59,7 @@ pub struct Arg {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Call {
     pub callee: Box<WithSpan<Expr>>,
-    pub callee_type: Option<types::Type>,
+    pub callee_type: Option<Type>,
     pub args: Vec<Arg>,
 }
 
@@ -67,7 +67,7 @@ pub struct Call {
 pub struct Closure {
     pub params: Vec<FnParam>,
     pub body: WithSpan<Block>,
-    pub returns: Option<Vec<WithSpan<types::Type>>>,
+    pub returns: Option<Vec<WithSpan<Type>>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -79,7 +79,7 @@ pub enum Expr {
     Grouping(Box<WithSpan<Expr>>),
     Unary(UnaryExpr),
     Binary(BinaryExpr),
-    Identifier(Identifier, Option<types::Type>),
+    Identifier(Identifier, Option<Type>),
     Call(Call),
     If(IfExpr),
     Block(Block),
@@ -90,7 +90,7 @@ pub enum Expr {
 pub struct Binding {
     pub kind: BindingKind,
     pub idents: Vec<WithSpan<Identifier>>,
-    pub types: Vec<Option<WithSpan<types::Type>>>,
+    pub types: Vec<Option<WithSpan<Type>>>,
     pub values: Option<Vec<WithSpan<Expr>>>,
 }
 
@@ -114,7 +114,7 @@ pub struct BindingRef<'a> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct FnParam {
     pub kind: FnParamKind,
-    pub ty: WithSpan<types::Type>,
+    pub ty: WithSpan<Type>,
     pub name: WithSpan<Identifier>,
     pub default_value: Option<WithSpan<Expr>>,
 }
@@ -124,14 +124,16 @@ pub struct Fn {
     pub name: Identifier,
     pub params: Vec<FnParam>,
     pub body: WithSpan<Block>,
-    pub returns: Vec<WithSpan<types::Type>>,
+    pub returns: Vec<WithSpan<Type>>,
+    pub ty: Option<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ExternFn {
     pub name: Identifier,
     pub params: Vec<FnParam>,
-    pub returns: Vec<WithSpan<types::Type>>,
+    pub returns: Vec<WithSpan<Type>>,
+    pub ty: Option<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -139,7 +141,8 @@ pub struct InlineFn {
     pub name: Identifier,
     pub params: Vec<FnParam>,
     pub body: String,
-    pub returns: Vec<WithSpan<types::Type>>,
+    pub returns: Vec<WithSpan<Type>>,
+    pub ty: Option<Type>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -160,20 +163,14 @@ pub struct Inline {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum StructKind {
-    GC,
-    Native,
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct Field {
-    ty: WithSpan<types::Type>,
-    default_value: Option<WithSpan<Expr>>,
-    name: Option<Identifier>,
+    pub ty: WithSpan<Type>,
+    pub default_value: Option<WithSpan<Expr>>,
+    pub name: Option<WithSpan<Identifier>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Fields {
+pub enum StructFields {
     Unit,
     Tuple(Vec<Field>),
     Named(Vec<Field>),
@@ -181,8 +178,9 @@ pub enum Fields {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Struct {
-    kind: StructKind,
-    fields: Fields,
+    pub name: WithSpan<Identifier>,
+    pub kind: StructKind,
+    pub fields: StructFields,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -217,4 +215,73 @@ pub enum Stmt {
     Binding(Binding),
     Return(Vec<WithSpan<Expr>>),
     Empty,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AstType {
+    pub kind: TypeKind,
+    pub nilable: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Type {
+    Ast(AstType),
+    Checked(types::Type),
+}
+
+impl From<types::TypeKind> for Type {
+    fn from(value: types::TypeKind) -> Self {
+        Self::Checked(value.into())
+    }
+}
+
+impl From<types::Type> for Type {
+    fn from(value: types::Type) -> Self {
+        Self::Checked(value)
+    }
+}
+
+impl Type {
+    pub fn checked(&self) -> Option<&types::Type> {
+        match self {
+            Type::Checked(checked) => Some(checked),
+            _ => None
+        }
+    }
+}
+
+impl AstType {
+    pub fn non_nilable(kind: TypeKind) -> Self {
+        Self {
+            kind,
+            nilable: false,
+        }
+    }
+
+    pub fn nilable(kind: TypeKind) -> Self {
+        Self {
+            kind,
+            nilable: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FnParamType {
+    pub kind: common::FnParamKind,
+    pub name: Option<Identifier>,
+    pub ty: WithSpan<Type>,
+    pub default_value: Option<()>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FnType {
+    pub params: Vec<FnParamType>,
+    pub returns: Vec<WithSpan<Type>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TypeKind {
+    Fn(FnType),
+    Path(WithSpan<Identifier>),
 }

@@ -2,12 +2,43 @@ use crate::token;
 
 pub type Identifier = String;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Primitive {
+    Nil,
+    Bool,
+    Int,
+    Float,
+    String,
+    Any,
+}
+
+impl Primitive {
+    pub fn from_ident_primitive(ident: &str) -> Option<Self> {
+        Some(match ident {
+            "int" => Primitive::Int,
+            "float" => Primitive::Float,
+            "nil" => Primitive::Nil,
+            "string" => Primitive::String,
+            "bool" => Primitive::Bool,
+            "any" => Primitive::Any,
+            _ => {
+                return None;
+            }
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StringKind {
     Regular,
-    Multiline
+    Multiline,
 }
 
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum StructKind {
+    GC,
+    Native,
+}
 
 #[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
 pub enum FnParamKind {

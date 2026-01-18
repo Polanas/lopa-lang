@@ -173,12 +173,13 @@ impl Context {
     }
 
     fn func(&mut self, func: &ast::Fn) {
+        let func_ty = func.ty.as_ref().unwrap().checked().unwrap().func().unwrap();
         let args = func.params.iter().map(|p| &p.name.value).join(", ");
         self.output
             .line(&format!("{} = function({args})", &func.name));
         self.push_scope();
         self.push_call_stack(FnContext {
-            returns: func.returns.iter().map(|r| r.value.clone()).collect(),
+            returns: func_ty.returns.iter().map(|r| r.clone()).collect(),
             output: String::new(),
         });
         for param in func.params.iter() {
@@ -417,7 +418,7 @@ end;
                 .returns
                 .iter()
                 .flatten()
-                .map(|r| r.value.clone())
+                .map(|r| r.value.checked().unwrap().clone())
                 .collect(),
             output: String::new(),
         });
@@ -452,7 +453,8 @@ end;
 
     fn call(&mut self, call: &ast::Call) -> Option<String> {
         let callee = self.expr(&call.callee.value)?;
-        let types::TypeKind::Fn(func) = &call.callee_type.as_ref().unwrap().kind else {
+        let types::TypeKind::Fn(func) = &call.callee_type.as_ref().unwrap().checked().unwrap().kind
+        else {
             unreachable!();
         };
         let mut args: Vec<Option<String>> = vec![None; func.params.len()];
@@ -492,7 +494,9 @@ end;
                 .iter()
                 .map(|_| self.scope_mut().push_ident())
                 .join(", ");
-            self.call_stack_mut().output.stmt(&format!("{idents} = {call_string}"));
+            self.call_stack_mut()
+                .output
+                .stmt(&format!("{idents} = {call_string}"));
             None
         }
     }

@@ -1,14 +1,10 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    rc::Rc,
-};
+use std::{collections::HashMap, fmt::Display};
 
 use itertools::{Itertools, Position};
 
 use crate::{
     ast::{self},
-    common::{self, Identifier},
+    common::{self, Identifier, Primitive},
     position::{self, WithSpan},
 };
 
@@ -25,12 +21,19 @@ impl std::fmt::Display for Type {
 }
 
 impl Type {
+    pub fn func(&self) -> Option<&Fn> {
+        match &self.kind {
+            TypeKind::Fn(func) => Some(func),
+            _ => None,
+        }
+    }
+
     //TODO: remove implicit cast from any, add as operator with runtime type checking
     pub fn assignable_from(&self, other: &Type) -> bool {
         ((self.kind.eq(&other.kind)) && ((self.nilable, other.nilable) != (false, true))
-            || (self.nilable && other.kind == TypeKind::Nil))
-            || self.kind == TypeKind::Any
-            || other.kind == TypeKind::Any
+            || (self.nilable && other.kind == TypeKind::nil()))
+            || self.kind == TypeKind::any()
+            || other.kind == TypeKind::any()
     }
 
     pub fn try_unwrap_block(self) -> Self {
@@ -64,7 +67,7 @@ impl Type {
     }
 
     pub fn is_number(&self) -> bool {
-        matches!(self.kind, TypeKind::Int | TypeKind::Float) && !self.nilable
+        self.kind.is_number() && !self.nilable
     }
 
     pub fn non_nilable(kind: TypeKind) -> Self {
@@ -100,24 +103,64 @@ pub struct FnParam {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fn {
+    pub name: Option<Identifier>,
     pub params: Vec<FnParam>,
     pub returns: Vec<Type>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub ty: Type,
+    pub default_value: Option<()>,
+    pub name: Option<Identifier>,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq)]
+pub enum StructFields {
+    Unit,
+    Tuple(Vec<Field>),
+    Named(Vec<Field>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Struct {
+    pub name: Identifier,
+    pub kind: common::StructKind,
+    pub fields: StructFields,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeKind {
-    Nil,
-    Bool,
-    Int,
-    Float,
-    String,
+    Primitive(Primitive),
     Block(Vec<Type>),
     Fn(Fn),
-    Any,
-    // Never,
 }
 
 impl TypeKind {
+    pub fn nil() -> Self {
+        Self::Primitive(Primitive::Nil)
+    }
+
+    pub fn int() -> Self {
+        Self::Primitive(Primitive::Int)
+    }
+
+    pub fn float() -> Self {
+        Self::Primitive(Primitive::Float)
+    }
+
+    pub fn string() -> Self {
+        Self::Primitive(Primitive::String)
+    }
+
+    pub fn bool() -> Self {
+        Self::Primitive(Primitive::Bool)
+    }
+
+    pub fn any() -> Self {
+        Self::Primitive(Primitive::Any)
+    }
+
     #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -129,17 +172,6 @@ impl TypeKind {
                 .zip(fn2.returns.iter())
                 .all(|(((p1, p2), r1), r2)| p1.ty.eq(&p2.ty) && r1.eq(r2)),
             _ => (self == other) || (self.is_number() && other.is_number()),
-        }
-    }
-    pub fn from_ident_primitive(ident: &str) -> Option<Self> {
-        match ident {
-            "int" => Some(TypeKind::Int),
-            "float" => Some(TypeKind::Float),
-            "nil" => Some(TypeKind::Nil),
-            "string" => Some(TypeKind::String),
-            "bool" => Some(TypeKind::Bool),
-            "any" => Some(TypeKind::Any),
-            _ => None,
         }
     }
 }
@@ -155,18 +187,24 @@ impl From<TypeKind> for Type {
 
 impl TypeKind {
     pub fn is_number(&self) -> bool {
-        matches!(self, TypeKind::Int | TypeKind::Float)
+        matches!(
+            self,
+            TypeKind::Primitive(Primitive::Float | common::Primitive::Nil)
+        )
     }
 }
 
 impl Display for TypeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypeKind::Nil => write!(f, "nil"),
-            TypeKind::Bool => write!(f, "bool"),
-            TypeKind::Int => write!(f, "int"),
-            TypeKind::Float => write!(f, "float"),
-            TypeKind::String => write!(f, "string"),
+            TypeKind::Primitive(primitive) => match primitive {
+                Primitive::Nil => write!(f, "nil"),
+                Primitive::Bool => write!(f, "bool"),
+                Primitive::Int => write!(f, "int"),
+                Primitive::Float => write!(f, "float"),
+                Primitive::String => write!(f, "string"),
+                Primitive::Any => write!(f, "any"),
+            },
             TypeKind::Block(_) => write!(f, "block"),
             TypeKind::Fn(func) => {
                 let args = func.params.iter().map(|p| p.ty.to_string()).join(", ");
@@ -177,7 +215,6 @@ impl Display for TypeKind {
                     write!(f, "fn({args}) -> {returns}")
                 }
             }
-            TypeKind::Any => write!(f, "any"),
         }
     }
 }
@@ -208,6 +245,7 @@ impl Scope {
 #[derive(Debug, Default, Clone)]
 pub struct Definitions {
     fns: HashMap<Identifier, Type>,
+    structs: HashMap<Identifier, Type>,
 }
 
 #[derive(Debug)]
@@ -283,22 +321,62 @@ impl<'a> Context<'a> {
         });
     }
 
+    fn ast_to_checked<'b>(&mut self, ast_type: &'b mut ast::Type) -> Option<&'b Type> {
+        if let ast::Type::Ast(ast) = ast_type {
+            let ty = match &mut ast.kind {
+                ast::TypeKind::Fn(func) => TypeKind::Fn(Fn {
+                    name: None,
+                    params: func
+                        .params
+                        .iter_mut()
+                        .map(|p| {
+                            self.ast_to_checked(&mut p.ty.value).map(|t| FnParam {
+                                kind: p.kind,
+                                name: p.name.clone(),
+                                ty: t.clone(),
+                                default_value: p.default_value.clone(),
+                            })
+                        })
+                        .collect::<Option<_>>()?,
+                    returns: func
+                        .returns
+                        .iter_mut()
+                        .map(|r| self.ast_to_checked(&mut r.value).cloned())
+                        .collect::<Option<_>>()?,
+                }),
+                ast::TypeKind::Path(path) => {
+                    if let Some(strct) = self.defs.structs.get(&path.value) {
+                        strct.kind.clone()
+                    } else {
+                        self.add_error(&format!("unknown type: {}", &path.value), path.span);
+                        return None;
+                    }
+                }
+            };
+            *ast_type = ast::Type::Checked(Type {
+                kind: ty,
+                nilable: ast.nilable,
+            });
+        };
+        ast_type.checked()
+    }
+
     fn expr(&mut self, expr: &mut WithSpan<ast::Expr>) -> Option<Type> {
         Some(match &mut expr.value {
-            ast::Expr::Nil => TypeKind::Nil.into(),
+            ast::Expr::Nil => TypeKind::nil().into(),
             ast::Expr::Number(number) => match number {
-                ast::Number::Float(_) => TypeKind::Float.into(),
-                ast::Number::Int(_) => TypeKind::Int.into(),
+                ast::Number::Float(_) => TypeKind::float().into(),
+                ast::Number::Int(_) => TypeKind::int().into(),
             },
-            ast::Expr::Bool(_) => TypeKind::Bool.into(),
-            ast::Expr::String(_, _) => TypeKind::String.into(),
+            ast::Expr::Bool(_) => TypeKind::bool().into(),
+            ast::Expr::String(_, _) => TypeKind::string().into(),
             ast::Expr::Grouping(e) => self.expr(e)?,
             ast::Expr::Unary(unary) => {
                 let expr_type = self.expr(&mut unary.expr)?;
                 let unary_type = match &unary.op.value {
-                    common::UnaryOp::Not => TypeKind::Bool,
+                    common::UnaryOp::Not => TypeKind::bool(),
                     common::UnaryOp::Negate => match &expr_type.kind {
-                        ty @ (TypeKind::Int | TypeKind::Float) => ty.clone(),
+                        ty if ty.is_number() => ty.clone(),
                         ty => {
                             self.add_error(&format!("expected number, got {}", ty), expr.span);
                             return None;
@@ -361,9 +439,11 @@ impl<'a> Context<'a> {
                             return None;
                         }
                         match (&left.kind, &right.kind) {
-                            (TypeKind::Int, TypeKind::Int) => TypeKind::Int,
-                            (TypeKind::Float, TypeKind::Float) => TypeKind::Float,
-                            _ => TypeKind::Float,
+                            (
+                                TypeKind::Primitive(Primitive::Int),
+                                TypeKind::Primitive(Primitive::Int),
+                            ) => TypeKind::int(),
+                            _ => TypeKind::float(),
                         }
                     }
                     common::BinaryOp::Less
@@ -380,10 +460,10 @@ impl<'a> Context<'a> {
                             );
                             return None;
                         }
-                        TypeKind::Bool
+                        TypeKind::bool()
                     }
                     common::BinaryOp::And | common::BinaryOp::Or => {
-                        if left.kind != TypeKind::Bool {
+                        if left.kind != TypeKind::bool() {
                             self.add_error(
                                 &format!(
                                     "expected {} to be a number",
@@ -393,16 +473,16 @@ impl<'a> Context<'a> {
                             );
                             return None;
                         }
-                        TypeKind::Bool
+                        TypeKind::bool()
                     }
-                    _ => TypeKind::Bool,
+                    _ => TypeKind::bool(),
                 };
-                binary_expr.types = Some((left, right, ty.clone().into()));
+                binary_expr.types = Some((left.into(), right.into(), ty.clone().into()));
                 ty.into()
             }
             ast::Expr::Identifier(ident, ty) => {
                 let ident_type = self.ident_type(ident, expr.span)?;
-                *ty = Some(ident_type.clone());
+                *ty = Some(ident_type.clone().into());
                 ident_type
             }
             ast::Expr::If(if_expr) => {
@@ -416,7 +496,8 @@ impl<'a> Context<'a> {
                 match else_type {
                     Some(else_type) => {
                         if !(else_type.kind.eq(&then_type.kind)
-                            || (else_type.kind == TypeKind::Nil || then_type.kind == TypeKind::Nil))
+                            || (else_type.kind == TypeKind::nil()
+                                || then_type.kind == TypeKind::nil()))
                         {
                             self.add_error(
                                 &format!(
@@ -432,24 +513,24 @@ impl<'a> Context<'a> {
                             (then_ty, else_ty)
                                 if then_type.is_number() && else_type.is_number() =>
                             {
-                                if then_type.kind == TypeKind::Float
-                                    || else_type.kind == TypeKind::Float
+                                if then_type.kind == TypeKind::float()
+                                    || else_type.kind == TypeKind::float()
                                 {
-                                    TypeKind::Float
+                                    TypeKind::float()
                                 } else {
-                                    TypeKind::Int
+                                    TypeKind::int()
                                 }
                             }
-                            (then_ty, TypeKind::Nil) => then_ty.clone(),
-                            (TypeKind::Nil, else_ty) => else_ty.clone(),
+                            (then_ty, TypeKind::Primitive(Primitive::Nil)) => then_ty.clone(),
+                            (TypeKind::Primitive(Primitive::Nil), else_ty) => else_ty.clone(),
                             (_, _) => else_type.kind.clone(),
                         };
                         Type {
                             kind: ty_kind,
                             nilable: then_type.nilable
                                 || else_type.nilable
-                                || then_type.kind == TypeKind::Nil
-                                || else_type.kind == TypeKind::Nil,
+                                || then_type.kind == TypeKind::nil()
+                                || else_type.kind == TypeKind::nil(),
                         }
                     }
                     None => then_type.make_nilable(),
@@ -457,7 +538,7 @@ impl<'a> Context<'a> {
             }
             ast::Expr::Block(ast::Block { body, ty }) => {
                 let block_ty = self.block(body)?;
-                *ty = Some(block_ty.clone());
+                *ty = Some(block_ty.clone().into());
                 block_ty
             }
             ast::Expr::Call(call) => self.call(WithSpan::new(call, expr.span))?,
@@ -466,12 +547,18 @@ impl<'a> Context<'a> {
     }
 
     fn closure(&mut self, closure: WithSpan<&mut ast::Closure>) -> Option<Type> {
+        for r in closure.value.returns.iter_mut().flatten() {
+            self.ast_to_checked(&mut r.value);
+        }
+        for p in &mut closure.value.params {
+            self.ast_to_checked(&mut p.ty.value);
+        }
         let returns = closure
             .value
             .returns
-            .iter()
+            .iter_mut()
             .flatten()
-            .map(|r| r.value.clone())
+            .map(|r| r.value.checked().unwrap().clone())
             .collect::<Vec<_>>();
         self.push_call_stack(FnContext {
             params: closure.value.params.clone(),
@@ -481,15 +568,16 @@ impl<'a> Context<'a> {
         self.push_scope();
         for param in closure.value.params.iter_mut() {
             self.scope_mut()
-                .insert_local(&param.name.value, param.ty.value.clone());
+                .insert_local(&param.name.value, param.ty.value.checked().unwrap().clone());
 
             if let Some(default_value) = &mut param.default_value {
                 let expr_ty = self.expr(default_value)?;
-                if !param.ty.value.assignable_from(&expr_ty) {
+                if !param.ty.value.checked().unwrap().assignable_from(&expr_ty) {
                     self.add_error(
                         &format!(
                             "mismatched types: could not assign {} from {}",
-                            param.ty.value, expr_ty,
+                            param.ty.value.checked().unwrap(),
+                            expr_ty,
                         ),
                         default_value.span,
                     );
@@ -525,17 +613,18 @@ impl<'a> Context<'a> {
                 .map(|p| FnParam {
                     kind: p.kind,
                     name: Some(p.name.value.clone()),
-                    ty: p.ty.value.clone(),
+                    ty: p.ty.value.checked().unwrap().clone(),
                     default_value: p.default_value.as_ref().map(|_| ()),
                 })
                 .collect(),
             returns,
+            name: None,
         })))
     }
 
     fn call(&mut self, call: WithSpan<&mut ast::Call>) -> Option<Type> {
         let callee_type = self.expr(&mut call.value.callee)?;
-        call.value.callee_type = Some(callee_type.clone());
+        call.value.callee_type = Some(callee_type.clone().into());
         match &callee_type.kind {
             TypeKind::Fn(func) => {
                 let mut checked_params: Vec<Option<&FnParam>> = vec![None; func.params.len()];
@@ -604,7 +693,7 @@ impl<'a> Context<'a> {
                 }
 
                 match func.returns.as_slice() {
-                    [] => Some(TypeKind::Nil.into()),
+                    [] => Some(TypeKind::nil().into()),
                     [item] => Some(item.clone()),
                     types => Some(TypeKind::Block(types.to_vec()).into()),
                 }
@@ -634,10 +723,10 @@ impl<'a> Context<'a> {
                     }
                     TypeKind::Block(types).into()
                 } else {
-                    TypeKind::Block(vec![TypeKind::Nil.into()]).into()
+                    TypeKind::Block(vec![TypeKind::nil().into()]).into()
                 }
             }
-            None => TypeKind::Block(vec![TypeKind::Nil.into()]).into(),
+            None => TypeKind::Block(vec![TypeKind::nil().into()]).into(),
         })
         .map(|r: Type| r.try_unwrap_block());
         self.pop_scope();
@@ -645,23 +734,35 @@ impl<'a> Context<'a> {
     }
 
     fn func(&mut self, func: WithSpan<&mut ast::Fn>) -> Option<()> {
+        for r in &mut func.value.returns {
+            self.ast_to_checked(&mut r.value);
+        }
+        for p in &mut func.value.params {
+            self.ast_to_checked(&mut p.ty.value);
+        }
         self.push_call_stack(FnContext {
             params: func.value.params.clone(),
             body: ast::Expr::Block(func.value.body.value.clone()),
-            returns: func.value.returns.iter().map(|r| r.value.clone()).collect(),
+            returns: func
+                .value
+                .returns
+                .iter()
+                .map(|r| r.value.checked().unwrap().clone())
+                .collect(),
         });
         self.push_scope();
         for (i, param) in func.value.params.iter_mut().enumerate() {
             self.scope_mut()
-                .insert_local(&param.name.value, param.ty.value.clone());
+                .insert_local(&param.name.value, param.ty.value.checked().unwrap().clone());
 
             if let Some(default_value) = &mut param.default_value {
                 let expr_ty = self.expr(default_value)?;
-                if !param.ty.value.assignable_from(&expr_ty) {
+                if !param.ty.value.checked().unwrap().assignable_from(&expr_ty) {
                     self.add_error(
                         &format!(
                             "mismatched types: could not assign {} from {}",
-                            param.ty.value, expr_ty,
+                            param.ty.value.checked().unwrap(),
+                            expr_ty,
                         ),
                         default_value.span,
                     );
@@ -723,22 +824,32 @@ impl<'a> Context<'a> {
                 for value in binding.values.iter_mut().flatten() {
                     value_types.append(&mut self.expr(value)?.flatten_block());
                 }
+                for value in binding.types.iter_mut() {
+                    if let Some(value) = value {
+                        self.ast_to_checked(&mut value.value);
+                    }
+                }
                 for (i, ident) in binding.idents.iter().enumerate() {
-                    let parsed_ty = &binding.types[i];
+                    let parsed_ty = binding.types[i].as_ref();
                     let value_ty = value_types
                         .get(i)
                         .cloned()
-                        .unwrap_or_else(|| TypeKind::Nil.into());
+                        .unwrap_or_else(|| TypeKind::nil().into());
 
                     match binding.values {
                         Some(_) => {
                             if let Some(parsed_ty) = parsed_ty
-                                && !parsed_ty.value.assignable_from(&value_ty)
+                                && !parsed_ty
+                                    .value
+                                    .checked()
+                                    .unwrap()
+                                    .assignable_from(&value_ty)
                             {
                                 self.add_error(
                                     &format!(
                                         "mismatched types: expected {}, got {}",
-                                        parsed_ty.value, &value_ty
+                                        parsed_ty.value.checked().unwrap(),
+                                        &value_ty
                                     ),
                                     stmt.span,
                                 );
@@ -746,17 +857,15 @@ impl<'a> Context<'a> {
                                 return None;
                             }
                             let ty = parsed_ty
-                                .clone()
-                                .map(|t| t.value)
+                                .map(|t| t.value.checked().unwrap().clone())
                                 .unwrap_or_else(|| value_ty);
                             self.scope_mut().insert_local(&ident.value, ty);
                         }
                         None => self.scope_mut().insert_local(
                             &ident.value,
                             parsed_ty
-                                .as_ref()
-                                .map(|t| t.value.clone())
-                                .unwrap_or_else(|| TypeKind::Nil.into()),
+                                .map(|t| t.value.checked().unwrap().clone())
+                                .unwrap_or_else(|| TypeKind::nil().into()),
                         ),
                     }
                 }
@@ -780,7 +889,7 @@ impl<'a> Context<'a> {
                 && matches!(
                     values.as_slice(),
                     [Type {
-                        kind: TypeKind::Nil,
+                        kind: TypeKind::Primitive(Primitive::Nil),
                         ..
                     }]
                 ))
@@ -860,75 +969,108 @@ impl<'a> Context<'a> {
         }
     }
 
-    fn add_inline_definition(&mut self, func: &ast::InlineFn) {
-        self.defs.fns.insert(
-            func.name.clone(),
-            Type::non_nilable(TypeKind::Fn(Fn {
-                params: func
-                    .params
-                    .iter()
-                    .map(|p| FnParam {
-                        kind: p.kind.clone(),
-                        ty: p.ty.value.clone(),
-                        name: Some(p.name.value.clone()),
-                        default_value: None,
-                    })
-                    .collect(),
-                returns: func.returns.iter().map(|r| r.value.clone()).collect(),
-            })),
-        );
+    fn add_inline_definition(&mut self, func: &mut ast::InlineFn) {
+        for r in &mut func.returns {
+            self.ast_to_checked(&mut r.value);
+        }
+        for p in &mut func.params {
+            self.ast_to_checked(&mut p.ty.value);
+        }
+        let ty = Type::non_nilable(TypeKind::Fn(Fn {
+            params: func
+                .params
+                .iter()
+                .map(|p| FnParam {
+                    kind: p.kind,
+                    ty: p.ty.value.checked().unwrap().clone(),
+                    name: Some(p.name.value.clone()),
+                    default_value: None,
+                })
+                .collect(),
+            returns: func
+                .returns
+                .iter()
+                .map(|r| r.value.checked().unwrap().clone())
+                .collect(),
+            name: Some(func.name.clone()),
+        }));
+        func.ty = Some(ty.clone().into());
+        self.defs.fns.insert(func.name.clone(), ty);
     }
 
-    fn add_extern_definition(&mut self, func: &ast::ExternFn) {
-        self.defs.fns.insert(
-            func.name.clone(),
-            Type::non_nilable(TypeKind::Fn(Fn {
-                params: func
-                    .params
-                    .iter()
-                    .map(|p| FnParam {
-                        kind: p.kind.clone(),
-                        ty: p.ty.value.clone(),
-                        name: Some(p.name.value.clone()),
-                        default_value: None,
-                    })
-                    .collect(),
-                returns: func.returns.iter().map(|r| r.value.clone()).collect(),
-            })),
-        );
+    fn add_extern_definition(&mut self, func: &mut ast::ExternFn) {
+        for r in &mut func.returns {
+            self.ast_to_checked(&mut r.value);
+        }
+        for p in &mut func.params {
+            self.ast_to_checked(&mut p.ty.value);
+        }
+        let ty = Type::non_nilable(TypeKind::Fn(Fn {
+            params: func
+                .params
+                .iter()
+                .map(|p| FnParam {
+                    kind: p.kind,
+                    ty: p.ty.value.checked().unwrap().clone(),
+                    name: Some(p.name.value.clone()),
+                    default_value: None,
+                })
+                .collect(),
+            returns: func
+                .returns
+                .iter()
+                .map(|r| r.value.checked().unwrap().clone())
+                .collect(),
+            name: Some(func.name.clone()),
+        }));
+        func.ty = Some(ty.clone().into());
+        self.defs.fns.insert(func.name.clone(), ty);
     }
 
-    fn add_func_definition(&mut self, func: &ast::Fn) {
-        self.defs.fns.insert(
-            func.name.clone(),
-            Type::non_nilable(TypeKind::Fn(Fn {
-                params: func
-                    .params
-                    .iter()
-                    .map(|p| FnParam {
-                        kind: p.kind,
-                        ty: p.ty.value.clone(),
-                        name: Some(p.name.value.clone()),
-                        default_value: None,
-                    })
-                    .collect(),
-                returns: func.returns.iter().map(|r| r.value.clone()).collect(),
-            })),
-        );
+    fn add_func_definition(&mut self, func: &mut ast::Fn) {
+        for r in &mut func.returns {
+            self.ast_to_checked(&mut r.value);
+        }
+        for p in &mut func.params {
+            self.ast_to_checked(&mut p.ty.value);
+        }
+        let ty = Type::non_nilable(TypeKind::Fn(Fn {
+            params: func
+                .params
+                .iter()
+                .map(|p| FnParam {
+                    kind: p.kind,
+                    ty: p.ty.value.checked().unwrap().clone(),
+                    name: Some(p.name.value.clone()),
+                    default_value: None,
+                })
+                .collect(),
+            returns: func
+                .returns
+                .iter()
+                .map(|r| r.value.checked().unwrap().clone())
+                .collect(),
+            name: Some(func.name.clone()),
+        }));
+        func.ty = Some(ty.clone().into());
+        self.defs.fns.insert(func.name.clone(), ty);
     }
 
-    fn collect_definitions(&mut self, program: &[WithSpan<ast::Item>]) {
+    fn collect_definitions(&mut self, program: &mut [WithSpan<ast::Item>]) {
         for item in program {
-            match &item.value {
+            match &mut item.value {
                 ast::Item::Fn(func) => self.add_func_definition(func),
                 ast::Item::Inline(inline) => inline
                     .defs
-                    .iter()
-                    .for_each(|func| self.add_inline_definition(&func.value)),
+                    .iter_mut()
+                    .for_each(|func| self.add_inline_definition(&mut func.value)),
                 ast::Item::Extern(_extern) => {
-                    _extern.defs.iter().for_each(|def| match &def.value {
-                        ast::ExternDefinition::Fn(func) => self.add_extern_definition(func),
-                    })
+                    _extern
+                        .defs
+                        .iter_mut()
+                        .for_each(|def| match &mut def.value {
+                            ast::ExternDefinition::Fn(func) => self.add_extern_definition(func),
+                        })
                 }
                 ast::Item::Struct(_) => todo!(),
             }

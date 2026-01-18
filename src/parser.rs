@@ -3,7 +3,7 @@ use crate::{
     common::*,
     position::{self, WithSpan},
     token::{self, Token, TokenKind},
-    types::{self, TypeKind},
+    types,
 };
 
 static EOF_TOKEN: WithSpan<Token> = position::WithSpan::empty(Token::EOF);
@@ -539,7 +539,98 @@ impl Parser<'_> {
 
     fn parse_struct(&mut self) -> Option<WithSpan<Item>> {
         let struct_token = self.expect(TokenKind::Struct)?;
-        todo!()
+        //TODO: parse paths. namespaces?
+        let name = self.parse_ident()?;
+
+        Some(match self.peek() {
+            TokenKind::Semicolon => {
+                let semi = self.expect(TokenKind::Semicolon)?;
+                WithSpan::new(
+                    Item::Struct(Struct {
+                        kind: StructKind::GC,
+                        fields: StructFields::Unit,
+                        name,
+                    }),
+                    struct_token.span.union(semi.span),
+                )
+            }
+            TokenKind::LeftBrace => {
+                self.expect(TokenKind::LeftBrace)?;
+                let mut fields = vec![];
+                while self.peek() != TokenKind::RightBrace {
+                    let name = self.parse_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let ty = self.parse_type()?;
+                    let default_value = if self.peek() == TokenKind::Equal {
+                        self.expect(TokenKind::Equal)?;
+                        Some(self.parse_expr(Precedence::Lowest)?)
+                    } else {
+                        None
+                    };
+
+                    if self.peek() == TokenKind::Comma {
+                        self.expect(TokenKind::Comma)?;
+                    }
+
+                    fields.push(Field {
+                        ty,
+                        default_value,
+                        name: Some(name),
+                    })
+                }
+                let right_brace = self.expect(TokenKind::RightBrace)?;
+
+                WithSpan::new(
+                    Item::Struct(Struct {
+                        name,
+                        kind: StructKind::GC,
+                        fields: StructFields::Named(fields),
+                    }),
+                    struct_token.span.union(right_brace.span),
+                )
+            }
+            TokenKind::LeftParen => {
+                self.expect(TokenKind::LeftParen)?;
+                let mut fields = vec![];
+                while self.peek() != TokenKind::RightParen {
+                    let ty = self.parse_type()?;
+                    let default_value = if self.peek() == TokenKind::Equal {
+                        self.expect(TokenKind::Equal)?;
+                        Some(self.parse_expr(Precedence::Lowest)?)
+                    } else {
+                        None
+                    };
+
+                    if self.peek() == TokenKind::Comma {
+                        self.expect(TokenKind::Comma)?;
+                    }
+
+                    fields.push(Field {
+                        ty,
+                        default_value,
+                        name: None,
+                    })
+                }
+                self.expect(TokenKind::RightParen)?;
+                let semi = self.expect(TokenKind::Semicolon)?;
+                WithSpan::new(
+                    Item::Struct(Struct {
+                        name,
+                        kind: StructKind::GC,
+                        fields: StructFields::Named(fields),
+                    }),
+                    struct_token.span.union(semi.span),
+                )
+            }
+            _ => {
+                let token = self.advance();
+                self.add_error(
+                    &format!("expected '(', '{{', or ';', got {}", token.value.kind()),
+                    token.span,
+                );
+                return None;
+            }
+        })
     }
 
     fn parse_inline(&mut self) -> Option<WithSpan<Item>> {
@@ -615,12 +706,14 @@ impl Parser<'_> {
                 return None;
             }
         };
+        self.expect(TokenKind::Semicolon)?;
         Some(WithSpan::new(
             InlineFn {
                 name: name.value,
                 params,
                 body: body_string.clone(),
                 returns,
+                ty: None,
             },
             fn_token.span.union(body.span),
         ))
@@ -712,6 +805,7 @@ impl Parser<'_> {
         } else {
             vec![]
         };
+        self.expect(TokenKind::Semicolon)?;
         let span = fn_token
             .span
             .union(returns.last().map(|r| r.span).unwrap_or(right_paren.span));
@@ -720,6 +814,7 @@ impl Parser<'_> {
                 name: name.value,
                 params,
                 returns,
+                ty: None,
             }),
             span,
         ))
@@ -823,6 +918,7 @@ impl Parser<'_> {
                     _ => unreachable!(),
                 },
                 returns,
+                ty: None,
             }),
             fn_token.span.union(body.span),
         ))
@@ -923,10 +1019,12 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_type(&mut self) -> Option<WithSpan<types::Type>> {
+    fn parse_type(&mut self) -> Option<WithSpan<Type>> {
         Some(match self.peek() {
             TokenKind::Nil => WithSpan::new(
-                types::Type::non_nilable(TypeKind::Nil),
+                Type::Checked(types::Type::non_nilable(types::TypeKind::Primitive(
+                    Primitive::Nil,
+                ))),
                 self.expect(TokenKind::Nil)?.span,
             ),
             TokenKind::Fn => {
@@ -944,9 +1042,9 @@ impl Parser<'_> {
                             self.expect(TokenKind::Comma)?;
                         }
 
-                        params.push(types::FnParam {
+                        params.push(FnParamType {
                             kind: FnParamKind::Regular,
-                            ty: ty.value,
+                            ty,
                             name: Some(ident.value),
                             default_value: None,
                         });
@@ -956,9 +1054,9 @@ impl Parser<'_> {
                             self.expect(TokenKind::Comma)?;
                         }
 
-                        params.push(types::FnParam {
+                        params.push(FnParamType {
                             kind: FnParamKind::Regular,
-                            ty: ty.value,
+                            ty,
                             name: None,
                             default_value: None,
                         });
@@ -985,10 +1083,10 @@ impl Parser<'_> {
                     .span
                     .union(returns.last().map(|r| r.span).unwrap_or(right_paren.span));
                 WithSpan::new(
-                    types::Type::non_nilable(TypeKind::Fn(types::Fn {
+                    Type::Ast(AstType::non_nilable(TypeKind::Fn(FnType {
                         params,
-                        returns: returns.into_iter().map(|r| r.value).collect(),
-                    })),
+                        returns: returns.into_iter().collect(),
+                    }))),
                     span,
                 )
             }
@@ -996,20 +1094,21 @@ impl Parser<'_> {
                 let ident = self.parse_ident()?;
                 let mark = self.parse_optional_mark();
                 let span = mark.map(|s| ident.span.union(s)).unwrap_or(ident.span);
+                let primitive = Primitive::from_ident_primitive(&ident.value);
                 WithSpan::new(
-                    types::Type {
-                        kind: match types::TypeKind::from_ident_primitive(&ident.value) {
-                            Some(ty) => ty,
-                            None => {
-                                self.add_error(
-                                    &format!("type {} not found", &ident.value),
-                                    ident.span,
-                                );
-                                return None;
-                            }
-                        },
-                        nilable: mark.is_some(),
-                    },
+                    primitive
+                        .map(|p| {
+                            Type::Checked(types::Type {
+                                kind: types::TypeKind::Primitive(p),
+                                nilable: mark.is_some(),
+                            })
+                        })
+                        .unwrap_or_else(|| {
+                            Type::Ast(AstType {
+                                kind: TypeKind::Path(ident.clone()),
+                                nilable: mark.is_some(),
+                            })
+                        }),
                     span,
                 )
             }
