@@ -175,6 +175,7 @@ impl Context {
         let args = func.params.iter().map(|p| &p.name.value).join(", ");
         self.output
             .line(&format!("{} = function({args})", &func.name));
+        self.push_scope();
         self.push_call_stack(FnContext {
             returns: func.returns.iter().map(|r| r.value.clone()).collect(),
             output: String::new(),
@@ -204,6 +205,7 @@ end;
             self.output.stmt(&format!("return {}", returns));
         }
         self.pop_call_stack();
+        self.pop_scope();
         self.output.stmt("end");
     }
 
@@ -408,6 +410,7 @@ end;
         let args = closure.params.iter().map(|p| &p.name.value).join(", ");
         let mut result = String::new();
         result.line(&format!("function({args})"));
+        self.push_scope();
         self.push_call_stack(FnContext {
             returns: closure
                 .returns
@@ -441,6 +444,7 @@ end;
             result.stmt(&format!("return {}", returns));
         }
         self.pop_call_stack();
+        self.pop_scope();
         result.line("end");
         Some(result)
     }
