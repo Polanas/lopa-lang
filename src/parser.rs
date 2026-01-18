@@ -261,6 +261,7 @@ impl Parser<'_> {
             TokenKind::LeftParen => self.parse_grouping(),
             TokenKind::LeftBrace => self.parse_block(),
             TokenKind::If => self.parse_if(),
+            TokenKind::Bar => self.parse_closure(),
             _ => {
                 self.add_error(
                     &format!("Unexpected {}", self.peek()),
@@ -269,6 +270,85 @@ impl Parser<'_> {
                 None
             }
         }
+    }
+    fn parse_closure(&mut self) -> Option<WithSpan<Expr>> {
+        let bar = self.expect(TokenKind::Bar)?;
+        let mut params = vec![];
+        while self.peek() != TokenKind::Bar {
+            let WithSpan {
+                value: Token::Identifier(ident),
+                span: ident_span,
+            } = self.expect(TokenKind::Identifier)?
+            else {
+                unreachable!()
+            };
+            self.expect(TokenKind::Colon)?;
+            let ty = self.parse_type()?;
+            if self.peek() == TokenKind::Comma {
+                self.expect(TokenKind::Comma)?;
+            }
+            let default_value = if self.peek() == TokenKind::Equal {
+                self.expect(TokenKind::Equal)?;
+                Some(self.parse_expr(Precedence::Lowest)?)
+            } else {
+                None
+            };
+            if self.peek() == TokenKind::Comma {
+                self.expect(TokenKind::Comma)?;
+            }
+            params.push(FnParam {
+                kind: FnParamKind::Regular,
+                ty,
+                name: WithSpan::new(ident.clone(), *ident_span),
+                default_value,
+            });
+        }
+        self.expect(TokenKind::Bar)?;
+        let returns = if self.peek() == TokenKind::Arrow {
+            self.expect(TokenKind::Arrow)?;
+            let mut returns = vec![];
+            loop {
+                let ty = self.parse_type()?;
+                returns.push(ty);
+                if self.peek() == TokenKind::Comma {
+                    self.expect(TokenKind::Comma)?;
+                } else {
+                    break;
+                }
+            }
+            Some(returns)
+        } else {
+            None
+        };
+        let body = if self.check(TokenKind::LeftBrace) {
+            let WithSpan {
+                value: Expr::Block(block),
+                span,
+            } = self.parse_block()?
+            else {
+                unreachable!()
+            };
+            WithSpan::new(block, span)
+        } else {
+            let stmt = self.parse_stmt_expr()?;
+            let stmt_span = stmt.span;
+            WithSpan::new(
+                Block {
+                    body: vec![stmt],
+                    ty: None,
+                },
+                stmt_span,
+            )
+        };
+        let body_span = body.span;
+        Some(WithSpan::new(
+            Expr::Closure(Closure {
+                params,
+                body,
+                returns,
+            }),
+            bar.span.union(body_span),
+        ))
     }
 
     fn parse_if(&mut self) -> Option<WithSpan<Expr>> {
@@ -491,7 +571,7 @@ impl Parser<'_> {
         else {
             unreachable!()
         };
-        self.expect(TokenKind::LeftParen);
+        self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
             let WithSpan {
@@ -526,13 +606,13 @@ impl Parser<'_> {
         self.expect(TokenKind::RightParen)?;
 
         let returns = if self.peek() == TokenKind::Arrow {
-            self.expect(TokenKind::Arrow);
+            self.expect(TokenKind::Arrow)?;
             let mut returns = vec![];
             loop {
                 let ty = self.parse_type()?;
                 returns.push(ty);
                 if self.peek() == TokenKind::Comma {
-                    self.expect(TokenKind::Comma);
+                    self.expect(TokenKind::Comma)?;
                 } else {
                     break;
                 }
@@ -542,7 +622,7 @@ impl Parser<'_> {
             vec![]
         };
 
-        self.expect(TokenKind::Equal);
+        self.expect(TokenKind::Equal)?;
         let body = self.advance();
         let body_string = match &body.value {
             Token::String(_, s) => s,
@@ -622,7 +702,7 @@ impl Parser<'_> {
         else {
             unreachable!()
         };
-        self.expect(TokenKind::LeftParen);
+        self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
             let WithSpan {
@@ -657,13 +737,13 @@ impl Parser<'_> {
         let right_paren = self.expect(TokenKind::RightParen)?;
 
         let returns = if self.peek() == TokenKind::Arrow {
-            self.expect(TokenKind::Arrow);
+            self.expect(TokenKind::Arrow)?;
             let mut returns = vec![];
             loop {
                 let ty = self.parse_type()?;
                 returns.push(ty);
                 if self.peek() == TokenKind::Comma {
-                    self.expect(TokenKind::Comma);
+                    self.expect(TokenKind::Comma)?;
                 } else {
                     break;
                 }
@@ -693,7 +773,7 @@ impl Parser<'_> {
                 Some(WithSpan::new(Stmt::Empty, semi.span))
             }
             TokenKind::Return => self.parse_return(),
-            _ => self.parse_expr_stmt(),
+            _ => self.parse_stmt_expr(),
         }
     }
 
@@ -701,12 +781,12 @@ impl Parser<'_> {
         let span = self.expect(TokenKind::Return)?.span;
         if self.check(TokenKind::Semicolon) {
             let semi = self.expect(TokenKind::Semicolon)?;
-            WithSpan::new(Stmt::Return(vec![]), span.union(semi.span));
+            return Some(WithSpan::new(Stmt::Return(vec![]), span.union(semi.span)));
         }
         let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
         let mut span = span.union(exprs[0].span);
         while let TokenKind::Comma = self.peek() {
-            self.expect(TokenKind::Comma);
+            self.expect(TokenKind::Comma)?;
             if let Some(semi) = self.parse_optional_semi() {
                 span = span.union(semi);
 
@@ -734,7 +814,7 @@ impl Parser<'_> {
         else {
             unreachable!()
         };
-        self.expect(TokenKind::LeftParen);
+        self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
             let WithSpan {
@@ -769,13 +849,13 @@ impl Parser<'_> {
         self.expect(TokenKind::RightParen)?;
 
         let returns = if self.peek() == TokenKind::Arrow {
-            self.expect(TokenKind::Arrow);
+            self.expect(TokenKind::Arrow)?;
             let mut returns = vec![];
             loop {
                 let ty = self.parse_type()?;
                 returns.push(ty);
                 if self.peek() == TokenKind::Comma {
-                    self.expect(TokenKind::Comma);
+                    self.expect(TokenKind::Comma)?;
                 } else {
                     break;
                 }
@@ -800,11 +880,11 @@ impl Parser<'_> {
         ))
     }
 
-    fn parse_expr_stmt(&mut self) -> Option<WithSpan<Stmt>> {
+    fn parse_stmt_expr(&mut self) -> Option<WithSpan<Stmt>> {
         let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
         let mut span = exprs[0].span;
         while let TokenKind::Comma = self.peek() {
-            self.expect(TokenKind::Comma);
+            self.expect(TokenKind::Comma)?;
             if self.peek() == TokenKind::Semicolon {
                 let semi = self.expect(TokenKind::Semicolon)?;
                 let span = span.union(semi.span);
@@ -823,7 +903,7 @@ impl Parser<'_> {
         }
 
         if TokenKind::Equal == self.peek() {
-            self.expect(TokenKind::Equal);
+            self.expect(TokenKind::Equal)?;
             let idents = exprs
                 .into_iter()
                 .map(|e| {
@@ -841,7 +921,7 @@ impl Parser<'_> {
             let mut values = vec![self.parse_expr(Precedence::Lowest)?];
             span = span.union(values[0].span);
             while let TokenKind::Comma = self.peek() {
-                self.expect(TokenKind::Comma);
+                self.expect(TokenKind::Comma)?;
                 if self.peek() == TokenKind::Semicolon {
                     let semi = self.expect(TokenKind::Semicolon)?;
                     let span = span.union(semi.span);
@@ -903,7 +983,7 @@ impl Parser<'_> {
             ),
             TokenKind::Fn => {
                 let fn_token = self.expect(TokenKind::Fn)?;
-                self.expect(TokenKind::LeftParen);
+                self.expect(TokenKind::LeftParen)?;
                 let mut params = vec![];
                 while self.peek() != TokenKind::RightParen {
                     if self.peek() == TokenKind::Identifier && self.peek_next() == TokenKind::Colon
@@ -944,13 +1024,13 @@ impl Parser<'_> {
                 }
                 let right_paren = self.expect(TokenKind::RightParen)?;
                 let returns = if self.peek() == TokenKind::Arrow {
-                    self.expect(TokenKind::Arrow);
+                    self.expect(TokenKind::Arrow)?;
                     let mut returns = vec![];
                     loop {
                         let ty = self.parse_type()?;
                         returns.push(ty);
                         if self.peek() == TokenKind::Comma {
-                            self.expect(TokenKind::Comma);
+                            self.expect(TokenKind::Comma)?;
                         } else {
                             break;
                         }
@@ -1024,7 +1104,7 @@ impl Parser<'_> {
             identifiers.push(WithSpan::new(ident.clone(), *ident_span));
 
             if self.peek() == TokenKind::Colon {
-                self.expect(TokenKind::Colon);
+                self.expect(TokenKind::Colon)?;
                 let ty = self.parse_type()?;
                 types.push(Some(ty));
             } else {
@@ -1032,7 +1112,7 @@ impl Parser<'_> {
             }
 
             if self.peek() == TokenKind::Comma {
-                self.expect(TokenKind::Comma);
+                self.expect(TokenKind::Comma)?;
             } else {
                 break;
             }
@@ -1042,7 +1122,7 @@ impl Parser<'_> {
             let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
             let mut span = span.union(exprs[0].span);
             while let TokenKind::Comma = self.peek() {
-                self.expect(TokenKind::Comma);
+                self.expect(TokenKind::Comma)?;
                 if let Some(semi) = self.parse_optional_semi() {
                     span = span.union(semi);
 

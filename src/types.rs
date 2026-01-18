@@ -95,7 +95,7 @@ pub struct FnParam {
     pub kind: common::FnParamKind,
     pub name: Option<Identifier>,
     pub ty: Type,
-    pub default_value: Option<Type>,
+    pub default_value: Option<()>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -214,7 +214,9 @@ pub struct Definitions {
 
 #[derive(Debug)]
 struct FnContext {
-    func: ast::Fn,
+    pub params: Vec<ast::FnParam>,
+    pub body: ast::Expr,
+    pub returns: Vec<Type>,
 }
 
 #[derive(Default)]
@@ -461,7 +463,76 @@ impl<'a> Context<'a> {
                 block_ty
             }
             ast::Expr::Call(call) => self.call(WithSpan::new(call, expr.span))?,
+            ast::Expr::Closure(closure) => self.closure(WithSpan::new(closure, expr.span))?,
         })
+    }
+
+    fn closure(&mut self, closure: WithSpan<&mut ast::Closure>) -> Option<Type> {
+        let returns = closure
+            .value
+            .returns
+            .iter()
+            .flatten()
+            .map(|r| r.value.clone())
+            .collect::<Vec<_>>();
+        self.push_call_stack(FnContext {
+            params: closure.value.params.clone(),
+            body: ast::Expr::Block(closure.value.body.value.clone()),
+            returns: returns.clone(),
+        });
+        self.push_scope();
+        for param in closure.value.params.iter_mut() {
+            self.scope_mut()
+                .insert_local(&param.name.value, param.ty.value.clone());
+
+            if let Some(default_value) = &mut param.default_value {
+                let expr_ty = self.expr(default_value)?;
+                if !param.ty.value.assignable_from(&expr_ty) {
+                    self.add_error(
+                        &format!(
+                            "mismatched types: could not assign {} from {}",
+                            param.ty.value, expr_ty,
+                        ),
+                        default_value.span,
+                    );
+                    return None;
+                }
+            }
+        }
+        for (pos, stmt) in closure.value.body.value.body.iter_mut().with_position() {
+            match pos {
+                Position::First | Position::Middle => {
+                    self.stmt(stmt)?;
+                }
+                Position::Last | Position::Only => {
+                    if let ast::Stmt::Expr(ast::StmtExpr { exprs, semi }) = &mut stmt.value
+                        && semi.is_none()
+                    {
+                        self.rtrn(exprs, stmt.span)?;
+                    } else {
+                        self.stmt(stmt)?;
+                    }
+                }
+            }
+        }
+
+        self.pop_scope();
+        self.pop_call_stack();
+
+        Some(Type::non_nilable(TypeKind::Fn(Fn {
+            params: closure
+                .value
+                .params
+                .iter()
+                .map(|p| FnParam {
+                    kind: p.kind,
+                    name: Some(p.name.value.clone()),
+                    ty: p.ty.value.clone(),
+                    default_value: p.default_value.as_ref().map(|_| ()),
+                })
+                .collect(),
+            returns,
+        })))
     }
 
     fn call(&mut self, call: WithSpan<&mut ast::Call>) -> Option<Type> {
@@ -577,7 +648,9 @@ impl<'a> Context<'a> {
 
     fn func(&mut self, func: WithSpan<&mut ast::Fn>) -> Option<()> {
         self.push_call_stack(FnContext {
-            func: func.value.clone(),
+            params: func.value.params.clone(),
+            body: ast::Expr::Block(func.value.body.value.clone()),
+            returns: func.value.returns.iter().map(|r| r.value.clone()).collect(),
         });
         self.push_scope();
         for (i, param) in func.value.params.iter_mut().enumerate() {
@@ -600,7 +673,7 @@ impl<'a> Context<'a> {
                 else {
                     unreachable!()
                 };
-                func.params[i].default_value = Some(expr_ty);
+                func.params[i].default_value = Some(());
             }
         }
 
@@ -703,7 +776,7 @@ impl<'a> Context<'a> {
         for expr in exprs.iter_mut() {
             values.append(&mut self.expr(expr)?.flatten_block());
         }
-        if let Some(returns) = self.call_stack().map(|stack| &stack.func.returns) {
+        if let Some(returns) = self.call_stack().map(|stack| &stack.returns) {
             //functions with no return values are allowed to return nil
             if !(returns.is_empty()
                 && matches!(
@@ -726,7 +799,7 @@ impl<'a> Context<'a> {
                     _ => {}
                 }
             }
-            for (value_ty, param_ty) in values.into_iter().zip(returns.iter().map(|r| &r.value)) {
+            for (value_ty, param_ty) in values.into_iter().zip(returns.iter()) {
                 if !param_ty.assignable_from(&value_ty) {
                     self.add_error(
                         &format!(

@@ -64,6 +64,13 @@ pub struct Call {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct Closure {
+    pub params: Vec<FnParam>,
+    pub body: WithSpan<Block>,
+    pub returns: Option<Vec<WithSpan<types::Type>>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     Nil,
     Number(Number),
@@ -76,6 +83,7 @@ pub enum Expr {
     Call(Call),
     If(IfExpr),
     Block(Block),
+    Closure(Closure),
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -385,7 +385,6 @@ end;
             }
             ast::Expr::Identifier(ident, _) => Some(self.scope_mut().ident(ident).to_owned()),
             ast::Expr::Call(call) => self.call(call),
-
             ast::Expr::If(if_expr) => {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
                 self.call_stack_mut()
@@ -401,6 +400,7 @@ end;
                 ident
             }
             ast::Expr::Block(block) => self.block(block),
+            ast::Expr::Closure(closure) => todo!(),
         }
     }
 

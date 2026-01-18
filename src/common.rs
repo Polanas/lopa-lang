@@ -9,7 +9,7 @@ pub enum StringKind {
 }
 
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
 pub enum FnParamKind {
     Vararg,
     Regular,

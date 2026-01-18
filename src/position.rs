@@ -53,6 +53,10 @@ impl<T> WithSpan<T> {
         }
     }
 
+    pub fn map<R>(self, map: impl FnOnce(T) -> R) -> WithSpan<R> {
+        WithSpan::new(map(self.value), self.span)
+    }
+
     pub fn union(&self, other: &Self) -> Span {
         self.span.union(other.span)
     }

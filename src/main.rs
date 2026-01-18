@@ -6,24 +6,9 @@ use std::error::Error;
 use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-inline(lua) {
-    fn do_stuff(value: int?) -> int = """
-        value = value or 0
-        return value + 20
-    """
-}
-
-extern(lua) {
-    fn print(value: any)
-}
-
-fn print_wrapper(print_fn: fn(idk: any)) {
-    print_fn(idk: 20);
-}
-
-fn main() {
-    print_wrapper(print);
-}
+        fn main() {
+            let x = |a: int, b: int| -> int { 20 };
+        }
 "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
@@ -39,31 +24,23 @@ fn main() {
                         offsets.line(error.span.start),
                         error.message
                     );
-                    // dbg!(
-                    //     error.message,
-                    //     Some(
-                    //         &source[(((error.span.start.0 as i32) - 2).min(0) as usize)
-                    //             ..(error.span.end.0) + 2]
-                    //     )
-                    // );
                 }
             } else {
-                let code = code_gen::generate(&ast);
-                println!("------------------------------");
-                println!("{code}");
-                let lua = mlua::Lua::new();
-                lua.load(&code).exec().unwrap();
-                lua.load("main()").exec().unwrap();
+                // let code = code_gen::generate(&ast);
+                // println!("------------------------------");
+                // println!("{code}");
+                // let lua = mlua::Lua::new();
+                // lua.load(&code).exec().unwrap();
+                // lua.load("main()").exec().unwrap();
             }
         }
         Err(errs) => {
             for error in errs {
-                dbg!(
-                    error.message,
-                    Some(
-                        &source[(((error.span.start.0 as i32) - 2).min(0) as usize)
-                            ..(error.span.end.0) + 2]
-                    )
+                println!("ERROR: {}", error.message);
+                println!(
+                    "{}",
+                    &source[(((error.span.start.0 as i32) - 2).min(0) as usize)
+                        ..((error.span.end.0) + 2).min(source.len())]
                 );
             }
         }
