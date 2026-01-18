@@ -7,16 +7,14 @@ use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
 extern(lua) {
-    fn print(value: any)
+    fn print(v1: any, v2: any, v3: any)
 }
-fn call_once(f: fn(any), arg: any) {
-    f(arg);
+fn test() -> int, int {
+    1,2
 }
 fn main() {
-    call_once(
-        f: |value: any| { print(value) },
-        arg: 20
-    );
+    let x,y,z = test(),3;
+    print(x,y,z);
 }
 "#;
     let tokens = tokenizer::tokenize(source);

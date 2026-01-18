@@ -430,8 +430,7 @@ end;
             }
         }
         self.block(&closure.body.value);
-        result
-            .push_str(&self.call_stack.last().unwrap().output);
+        result.push_str(&self.call_stack.last().unwrap().output);
         if let Some(last) = closure.body.value.body.last()
             && let ast::Stmt::Expr(ast::StmtExpr { semi: None, .. }) = &last.value
         {
@@ -479,7 +478,18 @@ end;
             .map(|a| a.unwrap_or_else(|| "nil".to_string()))
             .join(", ");
 
-        Some(format!("{callee}({args})"))
+        let call_string = format!("{callee}({args})");
+        if func.returns.len() <= 1 {
+            Some(call_string)
+        } else {
+            let idents = func
+                .returns
+                .iter()
+                .map(|_| self.scope_mut().push_ident())
+                .join(", ");
+            self.call_stack_mut().output.stmt(&format!("{idents} = {call_string}"));
+            None
+        }
     }
 
     fn block_last(&mut self, item: &ast::Stmt) -> Option<String> {
