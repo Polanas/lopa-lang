@@ -25,6 +25,7 @@ impl std::fmt::Display for Type {
 }
 
 impl Type {
+    //TODO: remove implicit cast from any, add as operator with runtime type checking
     pub fn assignable_from(&self, other: &Type) -> bool {
         ((self.kind.eq(&other.kind)) && ((self.nilable, other.nilable) != (false, true))
             || (self.nilable && other.kind == TypeKind::Nil))
@@ -92,7 +93,7 @@ impl Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnParam {
     pub kind: common::FnParamKind,
-    pub name: Identifier,
+    pub name: Option<Identifier>,
     pub ty: Type,
     pub default_value: Option<Type>,
 }
@@ -118,8 +119,18 @@ pub enum TypeKind {
 }
 
 impl TypeKind {
+    #[allow(clippy::should_implement_trait)]
     pub fn eq(&self, other: &Self) -> bool {
-        (self == other) || (self.is_number() && other.is_number())
+        match (self, other) {
+            (TypeKind::Fn(fn1), TypeKind::Fn(fn2)) => fn1
+                .params
+                .iter()
+                .zip(fn2.params.iter())
+                .zip(fn1.returns.iter())
+                .zip(fn2.returns.iter())
+                .all(|(((p1, p2), r1), r2)| p1.ty.eq(&p2.ty) && r1.eq(r2)),
+            _ => (self == other) || (self.is_number() && other.is_number()),
+        }
     }
     pub fn from_ident(ident: &str) -> Self {
         match ident {
@@ -159,7 +170,15 @@ impl Display for TypeKind {
             TypeKind::String => write!(f, "string"),
             TypeKind::Custom => write!(f, "custom"),
             TypeKind::Block(_) => write!(f, "block"),
-            TypeKind::Fn(_) => write!(f, "func"),
+            TypeKind::Fn(func) => {
+                let args = func.params.iter().map(|p| p.ty.to_string()).join(", ");
+                let returns = func.returns.iter().map(|r| r.to_string()).join(", ");
+                if returns.is_empty() {
+                    write!(f, "fn({args})")
+                } else {
+                    write!(f, "fn({args}) -> {returns}")
+                }
+            }
             TypeKind::Any => write!(f, "any"),
         }
     }
@@ -450,31 +469,37 @@ impl<'a> Context<'a> {
         call.value.callee_type = Some(callee_type.clone());
         match &callee_type.kind {
             TypeKind::Fn(func) => {
-                let mut checked_params: HashMap<Identifier, &FnParam> = Default::default();
+                let mut checked_params: Vec<Option<&FnParam>> = vec![None; func.params.len()];
 
                 let mut ordered_amount = 0;
                 for arg in call.value.args.iter_mut() {
                     let expr_ty = self.expr(&mut arg.expr)?;
-                    let param = if let Some(name) = &arg.name {
-                        let Some(param) = func.params.iter().find(|p| p.name == *name) else {
-                            self.add_error(
-                                &format!("could not find parameter {name}"),
-                                arg.expr.span,
-                            );
-                            return None;
+                    let (i, param) =
+                        if let Some(name) = &arg.name {
+                            let Some((i, param)) = func.params.iter().enumerate().find(|(_, p)| {
+                                p.name.as_ref().map(|n| n == name).unwrap_or_default()
+                            }) else {
+                                self.add_error(
+                                    &format!("could not find parameter {name}"),
+                                    arg.expr.span,
+                                );
+                                return None;
+                            };
+                            (i, param)
+                        } else {
+                            let Some(param) = func.params.get(ordered_amount) else {
+                                //TODO: variadics
+                                self.add_error("too many arguments", call.span);
+                                return None;
+                            };
+                            (ordered_amount, param)
                         };
-                        param
-                    } else {
-                        let Some(param) = func.params.get(ordered_amount) else {
-                            //TODO: variadics
-                            self.add_error("too many arguments", call.span);
-                            return None;
-                        };
-                        param
-                    };
-                    if checked_params.contains_key(&param.name) {
+                    if checked_params[i].is_some() {
                         self.add_error(
-                            &format!("attempt to pass parameter {} multiple times", &param.name),
+                            &format!(
+                                "attempt to pass parameter {} multiple times",
+                                param.name.as_ref().unwrap()
+                            ),
                             arg.expr.span,
                         );
                         return None;
@@ -490,15 +515,15 @@ impl<'a> Context<'a> {
                         return None;
                     }
 
-                    checked_params.insert(param.name.clone(), param);
+                    checked_params[i] = Some(param);
                     if arg.name.is_none() {
                         ordered_amount += 1;
                     }
                 }
 
                 if checked_params.len() < func.params.len() {
-                    for param in func.params.iter() {
-                        if checked_params.contains_key(&param.name)
+                    for (i, param) in func.params.iter().enumerate() {
+                        if checked_params[i].is_some()
                             || param.ty.nilable
                             || param.default_value.is_some()
                         {
@@ -773,7 +798,7 @@ impl<'a> Context<'a> {
                     .map(|p| FnParam {
                         kind: p.kind.clone(),
                         ty: p.ty.value.clone(),
-                        name: p.name.value.clone(),
+                        name: Some(p.name.value.clone()),
                         default_value: None,
                     })
                     .collect(),
@@ -792,7 +817,7 @@ impl<'a> Context<'a> {
                     .map(|p| FnParam {
                         kind: p.kind.clone(),
                         ty: p.ty.value.clone(),
-                        name: p.name.value.clone(),
+                        name: Some(p.name.value.clone()),
                         default_value: None,
                     })
                     .collect(),
@@ -811,7 +836,7 @@ impl<'a> Context<'a> {
                     .map(|p| FnParam {
                         kind: p.kind.clone(),
                         ty: p.ty.value.clone(),
-                        name: p.name.value.clone(),
+                        name: Some(p.name.value.clone()),
                         default_value: None,
                     })
                     .collect(),

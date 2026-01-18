@@ -6,21 +6,24 @@ use std::error::Error;
 use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        inline(lua) {
-            fn do_stuff(value: int?) -> int = """
-                value = value or 0
-                return value + 20
-            """
-        }
+inline(lua) {
+    fn do_stuff(value: int?) -> int = """
+        value = value or 0
+        return value + 20
+    """
+}
 
-        extern(lua) {
-            fn print(value: any)
-        }
+extern(lua) {
+    fn print(value: any)
+}
 
-        fn main() {
-            print(value: 20);
-            print("hello there");
-        }
+fn print_wrapper(print_fn: fn(idk: any)) {
+    print_fn(idk: 20);
+}
+
+fn main() {
+    print_wrapper(print);
+}
 "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);

@@ -422,7 +422,7 @@ end;
                     .params
                     .iter()
                     .enumerate()
-                    .find(|(_, p)| p.name == *name)
+                    .find(|(_, p)| p.name.as_ref().map(|n| n == name).unwrap_or_default())
                     .unwrap();
                 args[id] = Some(arg_expr.unwrap());
             } else {
