@@ -34,7 +34,7 @@ pub enum StringKind {
     Multiline,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum StructKind {
     GC,
     Native,
@@ -44,6 +44,7 @@ pub enum StructKind {
 pub enum FnParamKind {
     Vararg,
     Regular,
+    Receiver,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]

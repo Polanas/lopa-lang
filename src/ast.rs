@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
+use itertools::Itertools;
+
 use crate::{
     common::{self, *},
     position::{self, WithSpan},
@@ -184,11 +186,23 @@ pub struct Struct {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum ImplItem {
+    Fn(Fn),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Impl {
+    pub target: WithSpan<Type>,
+    pub items: Vec<WithSpan<ImplItem>>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Item {
     Fn(Fn),
     Extern(Extern),
     Inline(Inline),
     Struct(Struct),
+    Impl(Impl),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -229,6 +243,24 @@ pub enum Type {
     Checked(types::Type),
 }
 
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Ast(ast) => write!(f, "{}{}", ast.kind, if self.nilable() { "?" } else { "" }),
+            Type::Checked(checked) => write!(f, "{checked}"),
+        }
+    }
+}
+
+impl Type {
+    pub fn nilable(&self) -> bool {
+        match self {
+            Type::Ast(ast) => ast.nilable,
+            Type::Checked(checked) => checked.nilable,
+        }
+    }
+}
+
 impl From<types::TypeKind> for Type {
     fn from(value: types::TypeKind) -> Self {
         Self::Checked(value.into())
@@ -245,7 +277,7 @@ impl Type {
     pub fn checked(&self) -> Option<&types::Type> {
         match self {
             Type::Checked(checked) => Some(checked),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -284,4 +316,25 @@ pub struct FnType {
 pub enum TypeKind {
     Fn(FnType),
     Path(WithSpan<Identifier>),
+}
+
+impl Display for TypeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeKind::Fn(func) => {
+                let args = func
+                    .params
+                    .iter()
+                    .map(|p| p.ty.value.to_string())
+                    .join(", ");
+                let returns = func.returns.iter().map(|r| r.value.to_string()).join(", ");
+                if returns.is_empty() {
+                    write!(f, "fn({args})")
+                } else {
+                    write!(f, "fn({args}) -> {returns}")
+                }
+            }
+            TypeKind::Path(path) => write!(f, "{}", path.value),
+        }
+    }
 }

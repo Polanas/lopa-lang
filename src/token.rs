@@ -1,5 +1,58 @@
 use crate::common;
 
+#[macro_export]
+macro_rules! Token {
+    [,]       => { $crate::token::TokenKind::Comma };
+    [.]       => { $crate::token::TokenKind::Dot };
+    [-]       => { $crate::token::TokenKind::Minus };
+    [+]       => { $crate::token::TokenKind::Plus };
+    [;]       => { $crate::token::TokenKind::Semi };
+    [/]       => { $crate::token::TokenKind::Slash };
+    [*]       => { $crate::token::TokenKind::Star };
+    [%]       => { $crate::token::TokenKind::Percent };
+    [%]       => { $crate::token::TokenKind::Percent };
+    [#]    => { $crate::token::TokenKind::Hash };
+    [?]    => { $crate::token::TokenKind::QuestionMark };
+    [?.]    => { $crate::token::TokenKind::MarkDot };
+    [:]    => { $crate::token::TokenKind::Colon };
+    [!]    => { $crate::token::TokenKind::Bang };
+    [!=]    => { $crate::token::TokenKind::BangEqual };
+    [=]    => { $crate::token::TokenKind::Equal };
+    [==]    => { $crate::token::TokenKind::Equal2 };
+    [>]    => { $crate::token::TokenKind::Greater };
+    [>=]    => { $crate::token::TokenKind::GreaterEqual };
+    [->]    => { $crate::token::TokenKind::Arrow };
+    [=>]    => { $crate::token::TokenKind::FatArrow };
+    [|]    => { $crate::token::TokenKind::Bar };
+    [&]    => { $crate::token::TokenKind::Ampersand };
+    [||]          => { $crate::token::TokenKind::Bar2 };
+    [&&]        => { $crate::token::TokenKind::Ampersand2 };
+    [let]        => { $crate::token::TokenKind::Let };
+    [true]        => { $crate::token::TokenKind::True };
+    [false]        => { $crate::token::TokenKind::False };
+    [fn]          => { $crate::token::TokenKind::Fn};
+    [if]          => { $crate::token::TokenKind::If };
+    [else]          => { $crate::token::TokenKind::Else };
+    [for]          => { $crate::token::TokenKind::For };
+    [while]          => { $crate::token::TokenKind::While };
+    [loop]          => { $crate::token::TokenKind::Loop };
+    [continue]          => { $crate::token::TokenKind::Continue };
+    [break]          => { $crate::token::TokenKind::Break };
+    [in]          => { $crate::token::TokenKind::In };
+    [nil]          => { $crate::token::TokenKind::Nil };
+    [return]          => { $crate::token::TokenKind::Return };
+    [use]          => { $crate::token::TokenKind::Use };
+    [struct]          => { $crate::token::TokenKind::Struct };
+    [impl]          => { $crate::token::TokenKind::Impl };
+    [match]          => { $crate::token::TokenKind::Match };
+    [extern]      => { $crate::token::TokenKind::Extern };
+    [inline]      => { $crate::token::TokenKind::Inline };
+    [self]      => { $crate::token::TokenKind::_self };
+    [Self]      => { $crate::token::TokenKind::_Self };
+    [EOF]      => { $crate::token::TokenKind::EOF };
+    [enum]        => { $crate::token::TokenKind::Enum };
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum NumberToken {
     Int(i64),
@@ -70,6 +123,8 @@ pub enum TokenKind {
     Extern,
     Inline,
     _Self,
+    #[allow(non_camel_case_types)]
+    _self,
 
     UnterminatedString,
     Unknown,
@@ -140,6 +195,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::QuestionMark => write!(f, "?"),
             TokenKind::Extern => write!(f, "extern"),
             TokenKind::Inline => write!(f, "inline"),
+            TokenKind::_self => write!(f, "self"),
         }
     }
 }
@@ -206,6 +262,8 @@ pub enum Token {
     Match,
     Extern,
     Inline,
+    #[allow(non_camel_case_types)]
+    _self,
     _Self,
 
     Unknown(char),
@@ -275,12 +333,13 @@ impl From<&Token> for TokenKind {
             Token::Struct => Self::Struct,
             Token::Impl => Self::Impl,
             Token::Match => Self::Match,
-            Token::_Self => Self::_Self,
             Token::Unknown(_) => Self::Unknown,
             Token::EOF => Self::EOF,
             Token::QuestionMark => Self::QuestionMark,
             Token::Extern => Self::Extern,
             Token::Inline => Self::Inline,
+            Token::_Self => Self::_Self,
+            Token::_self => Self::_self,
         }
     }
 }

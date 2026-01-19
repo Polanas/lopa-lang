@@ -6,17 +6,21 @@ use std::error::Error;
 use lopa_lang::{code_gen, parser, position, tokenizer, types};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-extern(lua) {
-    fn print(v1: any, v2: any, v3: any);
-}
-fn test() -> int, int {
-    1,2
-}
+// struct Points([Point]);
+// struct Point {
+//     x: float,
+//     y: float,
+// }
+// impl Point {
+//     fn add(self, other: Point) {}
+// }
 fn main() {
-    let x,y,z = {test(),3};
-    print(x,y,z);
+    let x,y = 2+1,4;
+    print(x);
+    print(y);
 }
 "#;
+    let source = &format!("{}{}", include_str!("lopa/std.lopa"), source);
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
     match ast {

@@ -57,6 +57,10 @@ impl<T> WithSpan<T> {
         WithSpan::new(map(self.value), self.span)
     }
 
+    pub fn as_ref(&self) -> WithSpan<&T> {
+        WithSpan::new(&self.value, self.span)
+    }
+
     pub fn union(&self, other: &Self) -> Span {
         self.span.union(other.span)
     }

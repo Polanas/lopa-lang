@@ -134,6 +134,7 @@ pub enum TypeKind {
     Primitive(Primitive),
     Block(Vec<Type>),
     Fn(Fn),
+    Struct(Struct),
 }
 
 impl TypeKind {
@@ -189,7 +190,7 @@ impl TypeKind {
     pub fn is_number(&self) -> bool {
         matches!(
             self,
-            TypeKind::Primitive(Primitive::Float | common::Primitive::Nil)
+            TypeKind::Primitive(Primitive::Float | common::Primitive::Int)
         )
     }
 }
@@ -214,6 +215,9 @@ impl Display for TypeKind {
                 } else {
                     write!(f, "fn({args}) -> {returns}")
                 }
+            }
+            TypeKind::Struct(strct) => {
+                write!(f, "{}", strct.name)
             }
         }
     }
@@ -466,7 +470,7 @@ impl<'a> Context<'a> {
                         if left.kind != TypeKind::bool() {
                             self.add_error(
                                 &format!(
-                                    "expected {} to be a number",
+                                    "expected {} to be a bool",
                                     self.source(binary_expr.left.span)
                                 ),
                                 expr.span,
@@ -805,6 +809,7 @@ impl<'a> Context<'a> {
             ast::Item::Extern(_) => (),
             ast::Item::Inline(_) => (),
             ast::Item::Struct(_) => todo!(),
+            ast::Item::Impl(_) => todo!(),
         }
         Some(())
     }
@@ -1027,6 +1032,21 @@ impl<'a> Context<'a> {
         self.defs.fns.insert(func.name.clone(), ty);
     }
 
+    fn add_struct_definition(&mut self, strct: &ast::Struct) {
+        self.defs.structs.insert(
+            strct.name.value.clone(),
+            Type::non_nilable(TypeKind::Struct(Struct {
+                name: strct.name.value.clone(),
+                kind: strct.kind,
+                fields: match &strct.fields {
+                    ast::StructFields::Unit => todo!(),
+                    ast::StructFields::Tuple(fields) => todo!(),
+                    ast::StructFields::Named(fields) => todo!(),
+                },
+            })),
+        );
+    }
+
     fn add_func_definition(&mut self, func: &mut ast::Fn) {
         for r in &mut func.returns {
             self.ast_to_checked(&mut r.value);
@@ -1057,7 +1077,11 @@ impl<'a> Context<'a> {
     }
 
     fn collect_definitions(&mut self, program: &mut [WithSpan<ast::Item>]) {
-        for item in program {
+        for item in program.iter_mut() {
+            if let ast::Item::Struct(strct) = &item.value {}
+        }
+
+        for item in program.iter_mut() {
             match &mut item.value {
                 ast::Item::Fn(func) => self.add_func_definition(func),
                 ast::Item::Inline(inline) => inline
@@ -1072,7 +1096,8 @@ impl<'a> Context<'a> {
                             ast::ExternDefinition::Fn(func) => self.add_extern_definition(func),
                         })
                 }
-                ast::Item::Struct(_) => todo!(),
+                ast::Item::Struct(_) => {}
+                ast::Item::Impl(_) => todo!(),
             }
         }
     }

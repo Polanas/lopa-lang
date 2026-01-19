@@ -161,6 +161,7 @@ impl Context {
                 .iter()
                 .for_each(|func| self.inline_func(&func.value)),
             Item::Struct(_) => todo!(),
+            Item::Impl(_) => todo!(),
         }
     }
 
