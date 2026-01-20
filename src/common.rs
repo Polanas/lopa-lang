@@ -1,7 +1,5 @@
 use crate::token;
 
-pub type Identifier = String;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Primitive {
     Nil,

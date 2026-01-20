@@ -4,7 +4,7 @@ use itertools::{Itertools, Position};
 
 use crate::{
     ast::{self},
-    common::{self, Identifier, Primitive},
+    common::{self, Ident, Primitive},
     position::{self, WithSpan},
 };
 
@@ -96,14 +96,14 @@ impl Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FnParam {
     pub kind: common::FnParamKind,
-    pub name: Option<Identifier>,
+    pub name: Option<Ident>,
     pub ty: Type,
     pub default_value: Option<()>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fn {
-    pub name: Option<Identifier>,
+    pub name: Option<Ident>,
     pub params: Vec<FnParam>,
     pub returns: Vec<Type>,
 }
@@ -112,7 +112,7 @@ pub struct Fn {
 pub struct Field {
     pub ty: Type,
     pub default_value: Option<()>,
-    pub name: Option<Identifier>,
+    pub name: Option<Ident>,
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -124,7 +124,7 @@ pub enum StructFields {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Struct {
-    pub name: Identifier,
+    pub name: Ident,
     pub kind: common::StructKind,
     pub fields: StructFields,
 }
@@ -225,7 +225,7 @@ impl Display for TypeKind {
 
 #[derive(Clone, Debug)]
 struct Scope {
-    locals: HashMap<Identifier, Type>,
+    locals: HashMap<Ident, Type>,
 }
 
 impl Scope {
@@ -248,8 +248,8 @@ impl Scope {
 
 #[derive(Debug, Default, Clone)]
 pub struct Definitions {
-    fns: HashMap<Identifier, Type>,
-    structs: HashMap<Identifier, Type>,
+    fns: HashMap<Ident, Type>,
+    structs: HashMap<Ident, Type>,
 }
 
 #[derive(Debug)]
@@ -307,7 +307,7 @@ impl<'a> Context<'a> {
         &mut self.scopes[len - 1]
     }
 
-    fn ident_type(&mut self, ident: &Identifier, span: position::Span) -> Option<Type> {
+    fn ident_type(&mut self, ident: &Ident, span: position::Span) -> Option<Type> {
         if let Some(ty) = self.scope().local(ident).cloned() {
             Some(ty)
         } else if let Some(ty) = self.defs.fns.get(ident).cloned() {
@@ -343,7 +343,7 @@ impl<'a> Context<'a> {
                         })
                         .collect::<Option<_>>()?,
                     returns: func
-                        .returns
+                        .output
                         .iter_mut()
                         .map(|r| self.ast_to_checked(&mut r.value).cloned())
                         .collect::<Option<_>>()?,
@@ -369,12 +369,12 @@ impl<'a> Context<'a> {
         Some(match &mut expr.value {
             ast::Expr::Nil => TypeKind::nil().into(),
             ast::Expr::Number(number) => match number {
-                ast::Number::Float(_) => TypeKind::float().into(),
-                ast::Number::Int(_) => TypeKind::int().into(),
+                ast::LitNum::Float(_) => TypeKind::float().into(),
+                ast::LitNum::Int(_) => TypeKind::int().into(),
             },
             ast::Expr::Bool(_) => TypeKind::bool().into(),
             ast::Expr::String(_, _) => TypeKind::string().into(),
-            ast::Expr::Grouping(e) => self.expr(e)?,
+            ast::Expr::Paren(e) => self.expr(e)?,
             ast::Expr::Unary(unary) => {
                 let expr_type = self.expr(&mut unary.expr)?;
                 let unary_type = match &unary.op.value {
@@ -484,7 +484,7 @@ impl<'a> Context<'a> {
                 binary_expr.types = Some((left.into(), right.into(), ty.clone().into()));
                 ty.into()
             }
-            ast::Expr::Identifier(ident, ty) => {
+            ast::Expr::Path(ident, ty) => {
                 let ident_type = self.ident_type(ident, expr.span)?;
                 *ty = Some(ident_type.clone().into());
                 ident_type
@@ -540,17 +540,18 @@ impl<'a> Context<'a> {
                     None => then_type.make_nilable(),
                 }
             }
-            ast::Expr::Block(ast::Block { body, ty }) => {
+            ast::Expr::Block(ast::BlockExpr { body, ty }) => {
                 let block_ty = self.block(body)?;
                 *ty = Some(block_ty.clone().into());
                 block_ty
             }
             ast::Expr::Call(call) => self.call(WithSpan::new(call, expr.span))?,
             ast::Expr::Closure(closure) => self.closure(WithSpan::new(closure, expr.span))?,
+            ast::Expr::FieldGet(field_get) => todo!(),
         })
     }
 
-    fn closure(&mut self, closure: WithSpan<&mut ast::Closure>) -> Option<Type> {
+    fn closure(&mut self, closure: WithSpan<&mut ast::ClosureExpr>) -> Option<Type> {
         for r in closure.value.returns.iter_mut().flatten() {
             self.ast_to_checked(&mut r.value);
         }
@@ -626,8 +627,8 @@ impl<'a> Context<'a> {
         })))
     }
 
-    fn call(&mut self, call: WithSpan<&mut ast::Call>) -> Option<Type> {
-        let callee_type = self.expr(&mut call.value.callee)?;
+    fn call(&mut self, call: WithSpan<&mut ast::CallExpr>) -> Option<Type> {
+        let callee_type = self.expr(&mut call.value.func)?;
         call.value.callee_type = Some(callee_type.clone().into());
         match &callee_type.kind {
             TypeKind::Fn(func) => {
@@ -737,8 +738,8 @@ impl<'a> Context<'a> {
         result
     }
 
-    fn func(&mut self, func: WithSpan<&mut ast::Fn>) -> Option<()> {
-        for r in &mut func.value.returns {
+    fn func(&mut self, func: WithSpan<&mut ast::ItemFn>) -> Option<()> {
+        for r in &mut func.value.output {
             self.ast_to_checked(&mut r.value);
         }
         for p in &mut func.value.params {
@@ -749,7 +750,7 @@ impl<'a> Context<'a> {
             body: ast::Expr::Block(func.value.body.value.clone()),
             returns: func
                 .value
-                .returns
+                .output
                 .iter()
                 .map(|r| r.value.checked().unwrap().clone())
                 .collect(),
@@ -826,7 +827,7 @@ impl<'a> Context<'a> {
             }
             ast::Stmt::Binding(binding) => {
                 let mut value_types = vec![];
-                for value in binding.values.iter_mut().flatten() {
+                for value in binding.exprs.iter_mut().flatten() {
                     value_types.append(&mut self.expr(value)?.flatten_block());
                 }
                 for value in binding.types.iter_mut() {
@@ -841,7 +842,7 @@ impl<'a> Context<'a> {
                         .cloned()
                         .unwrap_or_else(|| TypeKind::nil().into());
 
-                    match binding.values {
+                    match binding.exprs {
                         Some(_) => {
                             if let Some(parsed_ty) = parsed_ty
                                 && !parsed_ty
@@ -1032,7 +1033,7 @@ impl<'a> Context<'a> {
         self.defs.fns.insert(func.name.clone(), ty);
     }
 
-    fn add_struct_definition(&mut self, strct: &ast::Struct) {
+    fn add_struct_definition(&mut self, strct: &ast::ItemStruct) {
         self.defs.structs.insert(
             strct.name.value.clone(),
             Type::non_nilable(TypeKind::Struct(Struct {
@@ -1040,15 +1041,15 @@ impl<'a> Context<'a> {
                 kind: strct.kind,
                 fields: match &strct.fields {
                     ast::StructFields::Unit => todo!(),
-                    ast::StructFields::Tuple(fields) => todo!(),
+                    ast::StructFields::Unnamed(fields) => todo!(),
                     ast::StructFields::Named(fields) => todo!(),
                 },
             })),
         );
     }
 
-    fn add_func_definition(&mut self, func: &mut ast::Fn) {
-        for r in &mut func.returns {
+    fn add_func_definition(&mut self, func: &mut ast::ItemFn) {
+        for r in &mut func.output {
             self.ast_to_checked(&mut r.value);
         }
         for p in &mut func.params {
@@ -1066,7 +1067,7 @@ impl<'a> Context<'a> {
                 })
                 .collect(),
             returns: func
-                .returns
+                .output
                 .iter()
                 .map(|r| r.value.checked().unwrap().clone())
                 .collect(),

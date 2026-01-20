@@ -27,3 +27,4 @@ main = function()
 		end, 20)
 	end
 end
+pcall()

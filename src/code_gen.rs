@@ -173,7 +173,7 @@ impl Context {
         self.output.stmt("end");
     }
 
-    fn func(&mut self, func: &ast::Fn) {
+    fn func(&mut self, func: &ast::ItemFn) {
         let func_ty = func.ty.as_ref().unwrap().checked().unwrap().func().unwrap();
         let args = func.params.iter().map(|p| &p.name.value).join(", ");
         self.output
@@ -202,7 +202,7 @@ end;
             && let ast::Stmt::Expr(ast::StmtExpr { semi: None, .. }) = &last.value
         {
             let stack = self.scope_mut().stack;
-            let returns = ((stack - func.returns.len())..stack)
+            let returns = ((stack - func.output.len())..stack)
                 .map(|i| self.scope_mut().stack_ident(i))
                 .join(", ");
             self.output.stmt(&format!("return {}", returns));
@@ -350,15 +350,15 @@ end;
         match &expr {
             ast::Expr::Nil => Some(String::from("nil")),
             ast::Expr::Number(number) => match number {
-                ast::Number::Float(f) => Some(f.to_string()),
-                ast::Number::Int(i) => Some(i.to_string()),
+                ast::LitNum::Float(f) => Some(f.to_string()),
+                ast::LitNum::Int(i) => Some(i.to_string()),
             },
             ast::Expr::Bool(b) => Some(b.to_string()),
             ast::Expr::String(kind, s) => match kind {
                 common::StringKind::Regular => Some(format!("\"{s}\"")),
                 common::StringKind::Multiline => Some(format!("[[{s}]]")),
             },
-            ast::Expr::Grouping(e) => self.expr(&e.value),
+            ast::Expr::Paren(e) => self.expr(&e.value),
             ast::Expr::Unary(ast::UnaryExpr { expr, op, .. }) => match op.value {
                 common::UnaryOp::Not => self.expr(&expr.value).map(|e| format!("not ({})", e)),
                 common::UnaryOp::Negate => self.expr(&expr.value).map(|e| format!("-{}", e)),
@@ -388,7 +388,7 @@ end;
                     None
                 }
             }
-            ast::Expr::Identifier(ident, _) => Some(self.scope_mut().ident(ident).to_owned()),
+            ast::Expr::Path(ident, _) => Some(self.scope_mut().ident(ident).to_owned()),
             ast::Expr::Call(call) => self.call(call),
             ast::Expr::If(if_expr) => {
                 let condition = self.expr(&if_expr.condition.value).unwrap();
@@ -406,10 +406,11 @@ end;
             }
             ast::Expr::Block(block) => self.block(block),
             ast::Expr::Closure(closure) => self.closure(closure),
+            ast::Expr::FieldGet(field_get) => todo!(),
         }
     }
 
-    fn closure(&mut self, closure: &ast::Closure) -> Option<String> {
+    fn closure(&mut self, closure: &ast::ClosureExpr) -> Option<String> {
         let args = closure.params.iter().map(|p| &p.name.value).join(", ");
         let mut result = String::new();
         result.line(&format!("function({args})"));
@@ -452,8 +453,8 @@ end;
         Some(result)
     }
 
-    fn call(&mut self, call: &ast::Call) -> Option<String> {
-        let callee = self.expr(&call.callee.value)?;
+    fn call(&mut self, call: &ast::CallExpr) -> Option<String> {
+        let callee = self.expr(&call.func.value)?;
         let types::TypeKind::Fn(func) = &call.callee_type.as_ref().unwrap().checked().unwrap().kind
         else {
             unreachable!();
@@ -540,7 +541,7 @@ end;
         }
     }
 
-    fn block(&mut self, block: &ast::Block) -> Option<String> {
+    fn block(&mut self, block: &ast::BlockExpr) -> Option<String> {
         self.push_scope();
         match block.body.as_slice() {
             [item] => {

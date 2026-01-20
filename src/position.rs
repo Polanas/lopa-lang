@@ -35,6 +35,10 @@ impl Span {
     }
 }
 
+pub trait Spanned {
+    fn span(&self) -> Span;
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct WithSpan<T> {
     pub value: T,
