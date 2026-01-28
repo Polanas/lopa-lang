@@ -102,9 +102,26 @@ impl<'a> Tokenizer<'a> {
                 ']' => Some(Token::RightBracket),
                 '[' => Some(Token::RightBracket),
                 ',' => Some(Token::Comma),
-                '.' => Some(Token::Dot),
-                '-' => Some(self.matches_or('>', Token::Arrow, Token::Minus)),
-                '+' => Some(Token::Plus),
+                '.' => {
+                    let mut input = self.input.clone();
+                    Some(
+                        if let (Some('.'), Some('.')) = (input.next(), input.next()) {
+                            self.next_char()?;
+                            self.next_char()?;
+                            Token::Dot3
+                        } else {
+                            Token::Dot
+                        },
+                    )
+                }
+                '-' => Some(if self.consume_if(|ch| ch == '>') {
+                    Token::Arrow
+                } else if self.consume_if(|ch| ch == '=') {
+                    Token::MinusEq
+                } else {
+                    Token::Minus
+                }),
+                '+' => Some(self.matches_or('=', Token::PlusEq, Token::Plus)),
                 ';' => Some(Token::Semicolon),
                 '/' => {
                     if self.consume_if(|ch| ch == '/') {
@@ -128,12 +145,18 @@ impl<'a> Tokenizer<'a> {
                         Some(Token::Slash)
                     }
                 }
-                '*' => Some(Token::Star),
-                '%' => Some(Token::Percent),
+                '*' => Some(self.matches_or('=', Token::StarEq, Token::Star)),
+                '%' => Some(self.matches_or('=', Token::PercentEq, Token::Percent)),
+                '^' => Some(self.matches_or('=', Token::CaretEq, Token::Caret)),
                 '#' => Some(Token::Hash),
-                '?' => Some(self.matches_or('.', Token::MarkDot, Token::QuestionMark)),
-                ':' => Some(Token::Colon),
-
+                '?' => Some(if self.consume_if(|ch| ch == '?') {
+                    Token::Mark2
+                } else if self.consume_if(|ch| ch == '.') {
+                    Token::MarkDot
+                } else {
+                    Token::Mark
+                }),
+                ':' => Some(self.matches_or(':', Token::Colon2, Token::Colon)),
                 '=' => {
                     if let Some(next) = self.peek().cloned() {
                         match next {
@@ -143,19 +166,39 @@ impl<'a> Tokenizer<'a> {
                             }
                             '=' => {
                                 self.next_char();
-                                Some(Token::Equal2)
+                                Some(Token::Eq2)
                             }
-                            _ => Some(Token::Equal),
+                            _ => Some(Token::Eq),
                         }
                     } else {
-                        Some(Token::Equal)
+                        Some(Token::Eq)
                     }
                 }
-                '!' => Some(self.matches_or('=', Token::BangEqual, Token::Bang)),
-                '<' => Some(self.matches_or('=', Token::LessEqual, Token::Less)),
-                '>' => Some(self.matches_or('=', Token::GreaterEqual, Token::Greater)),
-                '&' => Some(self.matches_or('&', Token::Ampersand2, Token::Ampersand)),
-                '|' => Some(self.matches_or('|', Token::Bar2, Token::Bar)),
+                '!' => Some(self.matches_or('=', Token::BangEq, Token::Bang)),
+                '<' => Some(if self.consume_if(|ch| ch == '<') {
+                    if self.consume_if(|ch| ch == '=') {
+                        Token::Less2Eq
+                    } else {
+                        Token::Less2
+                    }
+                } else if self.consume_if(|ch| ch == '=') {
+                    Token::LessEq
+                } else {
+                    Token::Less
+                }),
+                '>' => Some(if self.consume_if(|ch| ch == '>') {
+                    if self.consume_if(|ch| ch == '=') {
+                        Token::Greater2Eq
+                    } else {
+                        Token::Greater2
+                    }
+                } else if self.consume_if(|ch| ch == '=') {
+                    Token::GreaterEq
+                } else {
+                    Token::Greater
+                }),
+                '&' => Some(Token::Ampersand),
+                '|' => Some(Token::Bar),
                 other => Some(Token::Unknown(other)),
             } {
                 return Some(t);
@@ -215,14 +258,13 @@ impl<'a> Tokenizer<'a> {
         if let Some(token) = Self::keyword(&identifier) {
             Some(token)
         } else {
-            Some(Token::Identifier(identifier))
+            Some(Token::Ident(identifier))
         }
     }
 
     fn keyword(identifier: &str) -> Option<Token> {
         match identifier {
             "let" => Some(Token::Let),
-            "global" => Some(Token::Global),
             "true" => Some(Token::True),
             "false" => Some(Token::False),
             "fn" => Some(Token::Fn),
@@ -238,12 +280,14 @@ impl<'a> Tokenizer<'a> {
             "struct" => Some(Token::Struct),
             "impl" => Some(Token::Impl),
             "match" => Some(Token::Match),
-            "self" => Some(Token::_self),
-            "Self" => Some(Token::_Self),
+            "self" => Some(Token::SelfValue),
+            "Self" => Some(Token::SelfType),
             "break" => Some(Token::Break),
             "continue" => Some(Token::Continue),
             "extern" => Some(Token::Extern),
             "inline" => Some(Token::Inline),
+            "and" => Some(Token::And),
+            "or" => Some(Token::Or),
             _ => None,
         }
     }
@@ -334,10 +378,7 @@ mod tests {
 
     #[test]
     fn identifier() {
-        assert_eq!(
-            tokenize("ident"),
-            vec![Token::Identifier(String::from("ident"))]
-        );
+        assert_eq!(tokenize("ident"), vec![Token::Ident(String::from("ident"))]);
         assert_eq!(tokenize("let"), vec![Token::Let]);
     }
 
@@ -381,25 +422,25 @@ mod tests {
         assert_eq!(
             tokenize("a.b"),
             vec![
-                Token::Identifier(String::from("a")),
+                Token::Ident(String::from("a")),
                 Token::Dot,
-                Token::Identifier(String::from("b")),
+                Token::Ident(String::from("b")),
             ]
         );
         assert_eq!(
             tokenize("a?.b"),
             vec![
-                Token::Identifier(String::from("a")),
+                Token::Ident(String::from("a")),
                 Token::MarkDot,
-                Token::Identifier(String::from("b")),
+                Token::Ident(String::from("b")),
             ]
         );
         assert_eq!(
             tokenize("a?b"),
             vec![
-                Token::Identifier(String::from("a")),
+                Token::Ident(String::from("a")),
                 Token::Unknown('?'),
-                Token::Identifier(String::from("b")),
+                Token::Ident(String::from("b")),
             ]
         );
     }

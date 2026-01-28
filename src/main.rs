@@ -3,25 +3,12 @@ mod shared_mut;
 
 use std::error::Error;
 
-use lopa_lang::{parser, position, tokenizer};
+use lopa_lang::{position, tokenizer};
 fn main() -> Result<(), Box<dyn Error>> {
-    let source = r#"
-// struct Points([Point]);
-// struct Point {
-//     x: float,
-//     y: float,
-// }
-// impl Point {
-//     fn add(self, other: Point) {
-//       self.x += other.x;
-//     }
-// }
-fn main() {
-    let x,y = 2+1,4;
-}
-"#;
-    let source = &format!("{}{}", include_str!("lopa/std.lopa"), source);
-    let tokens = tokenizer::tokenize(source);
+    // let source = r#"<="#;
+    // // let source = &format!("{}{}", include_str!("lopa/std.lopa"), source);
+    // let tokens = tokenizer::tokenize(source);
+    // dbg!(&tokens);
     // let ast = parser::parse_program(&tokens);
     // match ast {
     //     Ok(mut ast) => {

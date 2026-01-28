@@ -2,6 +2,7 @@ use crate::{
     common::{self, *},
     position::{Span, Spanned},
 };
+use itertools::{Itertools, join};
 use paste::paste;
 
 macro_rules! impl_spanned {
@@ -26,6 +27,7 @@ macro_rules! impl_combined_enum {
             $($variant $(($ty))?,)*
         }
 
+        #[allow(non_snake_case)]
         impl $crate::position::Spanned for $name {
             fn span(&self) -> $crate::position::Span {
                 match self {
@@ -36,6 +38,7 @@ macro_rules! impl_combined_enum {
             }
         }
 
+        #[allow(non_snake_case)]
         impl AstNode for $name {
             fn node_id(&self) -> AstNodeId {
                 match self {
@@ -103,8 +106,7 @@ impl_combined!(BinaryExpr);
 #[derive(Debug, PartialEq, Clone)]
 pub struct IfExpr {
     pub condition: Box<Expr>,
-    pub then_branch: BlockExpr,
-    pub else_branch: Option<Box<Expr>>,
+    pub value: BlockExpr,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -145,7 +147,7 @@ impl_combined!(CallExpr);
 #[derive(Debug, PartialEq, Clone)]
 pub struct ClosureExpr {
     pub params: Vec<FnParam>,
-    pub body: BlockExpr,
+    pub body: Box<Expr>,
     pub output: ReturnType,
     pub id: AstNodeId,
     pub span: Span,
@@ -210,6 +212,13 @@ pub struct LitNil {
 impl_combined!(LitNil);
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct LitUnit {
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(LitUnit);
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct LitInt {
     pub value: i64,
     pub span: Span,
@@ -229,6 +238,7 @@ impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum LitExpr {
         Nil(LitNil),
+        Unit(LitUnit),
         Int(LitInt),
         Float(LitFloat),
         Bool(LitBool),
@@ -237,34 +247,96 @@ impl_combined_enum! {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ParenExpr {
-    pub span: Span,
+pub struct GroupExpr {
     pub expr: Box<Expr>,
+    pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(ParenExpr);
+impl_combined!(GroupExpr);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct IdentExpr {
+pub struct MethodCallExpr {
+    pub receiver: Box<Expr>,
+    pub method: Ident,
+    pub args: Vec<FnArg>,
     pub span: Span,
-    pub ident: Ident,
     pub id: AstNodeId,
 }
-impl_combined!(IdentExpr);
+impl_combined!(MethodCallExpr);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct IndexExpr {
+    pub index: Box<Expr>,
+    pub indexed: Box<Expr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(IndexExpr);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct LoopExpr {
+    pub body: BlockExpr,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(LoopExpr);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct WhileExpr {
+    pub cond: Box<Expr>,
+    pub body: BlockExpr,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(WhileExpr);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ForExpr {
+    pub pat: Pat,
+    pub expr: Box<Expr>,
+    pub body: BlockExpr,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ForExpr);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ArrayExpr {
+    pub elements: Vec<Expr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ArrayExpr);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TupleExpr {
+    pub exprs: Vec<Expr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(TupleExpr);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum Expr {
-        Lit(LitExpr),
-        Paren(ParenExpr),
-        Unary(UnaryExpr),
+        Array(ArrayExpr),
         Binary(BinaryExpr),
-        Path(PathExpr),
-        FieldGet(FieldGetExpr),
-        Call(CallExpr),
-        If(IfExpr),
         Block(BlockExpr),
+        Call(CallExpr),
         Closure(ClosureExpr),
+        For(ForExpr),
+        FieldGet(FieldGetExpr),
+        Group(GroupExpr),
+        If(IfExpr),
+        Index(IndexExpr),
+        Lit(LitExpr),
+        Loop(LoopExpr),
+        MethodCall(MethodCallExpr),
+        Path(Path),
+        Ident(Ident),
+        Tuple(TupleExpr),
+        Unary(UnaryExpr),
+        While(WhileExpr),
     }
 }
 
@@ -272,25 +344,35 @@ impl_combined_enum! {
 pub struct PatIdent {
     pub value: Ident,
     pub span: Span,
-    pub id: AstNodeId
+    pub id: AstNodeId,
 }
 impl_combined!(PatIdent);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct PatParen {
+    pub pat: Box<Pat>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(PatParen);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum Pat {
         Ident(PatIdent),
+        Paren(PatParen),
+        Path(Path),
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Binding {
+pub struct BindingStmt {
     pub pats: Vec<Pat>,
     pub exprs: Option<Vec<Expr>>,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(Binding);
+impl_combined!(BindingStmt);
 
 // impl Binding {
 //     pub fn as_ref(&'_ self) -> BindingRef<'_> {
@@ -309,9 +391,9 @@ impl_combined!(Binding);
 // }
 #[derive(Debug, PartialEq, Clone)]
 pub struct PrimitiveType {
-    span: Span,
-    value: Primitive,
-    id: AstNodeId,
+    pub span: Span,
+    pub value: Primitive,
+    pub id: AstNodeId,
 }
 impl_combined!(PrimitiveType);
 
@@ -319,6 +401,19 @@ impl_combined!(PrimitiveType);
 pub enum ReturnType {
     Default,
     Type(Vec<TypeExpr>),
+}
+
+impl ReturnType {
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            ReturnType::Default => None,
+            ReturnType::Type(type_exprs) => Some(
+                type_exprs
+                    .iter()
+                    .fold(type_exprs[0].span(), |span, expr| span.union(expr.span())),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -333,24 +428,10 @@ impl_combined!(BareFnType);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PathSegment {
-    ident: Ident,
-    span: Span,
+    pub ident: Ident,
+    pub span: Span,
 }
 impl_spanned!(PathSegment);
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct PathExpr(pub Path);
-
-impl Spanned for PathExpr {
-    fn span(&self) -> crate::position::Span {
-        self.0.span()
-    }
-}
-impl AstNode for PathExpr {
-    fn node_id(&self) -> AstNodeId {
-        self.0.node_id()
-    }
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Path {
@@ -360,13 +441,55 @@ pub struct Path {
 }
 impl_combined!(Path);
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct TupleType {
+    pub types: Vec<TypeExpr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(TupleType);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct SelfType {
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(SelfType);
+
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum TypeExpr {
-        Primitive(PrimitiveType),
+        Array(Box<TypeExpr>),
         BareFn(BareFnType),
-        Path(Path),
         Nilable(Box<TypeExpr>),
+        Path(Path),
+        SelfType(SelfType),
+        Primitive(PrimitiveType),
+        Paren(Box<TypeExpr>),
+        Tuple(TupleType),
+    }
+}
+
+impl std::fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeExpr::Array(type_expr) => todo!(),
+            TypeExpr::BareFn(bare_fn_type) => todo!(),
+            TypeExpr::Nilable(type_expr) => write!(f, "{type_expr}"),
+            TypeExpr::Path(path) => todo!(),
+            TypeExpr::SelfType(self_type) => write!(f, "Self"),
+            TypeExpr::Primitive(primitive_type) => write!(f, "{}", primitive_type.value),
+            TypeExpr::Paren(type_expr) => todo!(),
+            TypeExpr::Tuple(tuple_type) => {
+                todo!()
+            }
+        }
+    }
+}
+
+impl TypeExpr {
+    pub fn nilable(&self) -> bool {
+        matches!(self, Self::Nilable(_))
     }
 }
 
@@ -374,7 +497,7 @@ impl_combined_enum! {
 pub struct Receiver {
     pub ty: TypeExpr,
     pub span: Span,
-    pub id: AstNodeId
+    pub id: AstNodeId,
 }
 impl_combined!(Receiver);
 
@@ -383,15 +506,24 @@ pub struct PatType {
     pub pat: Box<Pat>,
     pub ty: Box<TypeExpr>,
     pub span: Span,
-    pub id: AstNodeId
+    pub id: AstNodeId,
 }
 impl_combined!(PatType);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct FnParamTyped {
+    pub pat_type: PatType,
+    pub default_value: Option<Expr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(FnParamTyped);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum FnParam {
         Receiver(Receiver),
-        Typed(PatType),
+        Typed(FnParamTyped),
     }
 }
 
@@ -420,6 +552,7 @@ impl_combined!(ExternFn);
 pub struct InlineFn {
     pub name: Ident,
     pub params: Vec<FnParam>,
+    pub output: ReturnType,
     pub body: String,
     pub id: AstNodeId,
     pub span: Span,
@@ -476,7 +609,7 @@ pub struct FieldsUnnamed {
 impl_combined!(FieldsUnnamed);
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum StructFields {
+pub enum Fields {
     Unit,
     Named(FieldsNamed),
     Unnamed(FieldsUnnamed),
@@ -486,7 +619,7 @@ pub enum StructFields {
 pub struct ItemStruct {
     pub name: Ident,
     pub kind: StructKind,
-    pub fields: StructFields,
+    pub fields: Fields,
     pub span: Span,
     pub id: AstNodeId,
 }
@@ -508,6 +641,24 @@ pub struct ItemImpl {
 }
 impl_combined!(ItemImpl);
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct EnumVariant {
+    pub name: Ident,
+    pub fields: Fields,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(EnumVariant);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ItemEnum {
+    pub name: Ident,
+    pub variants: Vec<EnumVariant>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ItemEnum);
+
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum Item {
@@ -515,6 +666,7 @@ impl_combined_enum! {
         Extern(ItemExtern),
         Inline(ItemInline),
         Struct(ItemStruct),
+        Enum(ItemEnum),
         Impl(ItemImpl),
     }
 }
@@ -527,46 +679,58 @@ impl_combined_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct StmtExpr {
+pub struct ExprStmt {
     pub exprs: Vec<Expr>,
     pub semi: Option<Span>,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(StmtExpr);
+impl_combined!(ExprStmt);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Assign {
+pub struct AssignStmt {
     pub left: Vec<Expr>,
     pub right: Vec<Expr>,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(Assign);
+impl_combined!(AssignStmt);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ReturnStmt {
-    pub expr: Vec<Expr>,
+    pub exprs: Option<Vec<Expr>>,
     pub span: Span,
     pub id: AstNodeId,
 }
 impl_combined!(ReturnStmt);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct StmtEmpty {
+pub struct EmptyStmt {
     pub span: Span,
-    pub id: AstNodeId
+    pub id: AstNodeId,
 }
-impl_combined!(StmtEmpty);
+impl_combined!(EmptyStmt);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BinaryAssignStmt {
+    pub left: Vec<Expr>,
+    pub right: Vec<Expr>,
+    pub op: BinaryAssignOp,
+    pub id: AstNodeId,
+    pub span: Span,
+}
+
+impl_combined!(BinaryAssignStmt);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum Stmt {
-        Expr(StmtExpr),
-        Assign(Assign),
-        Binding(Binding),
+        Expr(ExprStmt),
+        Assign(AssignStmt),
+        BinaryAssign(BinaryAssignStmt),
+        Binding(BindingStmt),
         Return(ReturnStmt),
-        Empty(StmtEmpty),
+        Empty(EmptyStmt),
     }
 }
 
@@ -648,7 +812,7 @@ impl_combined!(Variadic);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BareVariadic {
-    pub name: Option<Ident>,
+    pub ident: Option<Ident>,
     pub ty: Box<TypeExpr>,
     pub span: Span,
     pub id: AstNodeId,
@@ -658,7 +822,7 @@ impl_combined!(BareVariadic);
 #[derive(Clone, Debug, PartialEq)]
 pub struct BareFnParam {
     pub kind: common::FnParamKind,
-    pub name: Option<Ident>,
+    pub ident: Option<Ident>,
     pub ty: TypeExpr,
     pub span: Span,
     pub id: AstNodeId,
@@ -667,7 +831,7 @@ impl_combined!(BareFnParam);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FnType {
-    pub params: Vec<BareFnParam>,
+    pub params: Vec<FnParam>,
     pub variadic: Option<Variadic>,
     pub output: ReturnType,
     pub span: Span,
