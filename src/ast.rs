@@ -2,7 +2,6 @@ use crate::{
     common::{self, *},
     position::{Span, Spanned},
 };
-use itertools::{Itertools, join};
 use paste::paste;
 
 macro_rules! impl_spanned {
@@ -181,6 +180,7 @@ impl_combined_enum! {
 #[derive(Debug, PartialEq, Clone)]
 pub struct FieldGetExpr {
     pub base: Box<Expr>,
+    pub optional: bool,
     pub member: Member,
     pub id: AstNodeId,
     pub span: Span,
@@ -257,6 +257,7 @@ impl_combined!(GroupExpr);
 #[derive(Debug, PartialEq, Clone)]
 pub struct MethodCallExpr {
     pub receiver: Box<Expr>,
+    pub optional: bool,
     pub method: Ident,
     pub args: Vec<FnArg>,
     pub span: Span,
@@ -317,7 +318,7 @@ pub struct TupleExpr {
 impl_combined!(TupleExpr);
 
 impl_combined_enum! {
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Debug, PartialEq, Clone, strum_macros::Display)]
     pub enum Expr {
         Array(ArrayExpr),
         Binary(BinaryExpr),
@@ -357,7 +358,7 @@ pub struct PatParen {
 impl_combined!(PatParen);
 
 impl_combined_enum! {
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Debug, PartialEq, Clone, strum_macros::Display)]
     pub enum Pat {
         Ident(PatIdent),
         Paren(PatParen),
@@ -533,6 +534,7 @@ pub struct ItemFn {
     pub params: Vec<FnParam>,
     pub body: BlockExpr,
     pub output: ReturnType,
+    pub variadic: Option<Variadic>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -803,7 +805,7 @@ impl_combined_enum! {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Variadic {
-    pub name: Ident,
+    pub ident: Option<Ident>,
     pub ty: Box<TypeExpr>,
     pub span: Span,
     pub id: AstNodeId,
@@ -828,40 +830,3 @@ pub struct BareFnParam {
     pub id: AstNodeId,
 }
 impl_combined!(BareFnParam);
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct FnType {
-    pub params: Vec<FnParam>,
-    pub variadic: Option<Variadic>,
-    pub output: ReturnType,
-    pub span: Span,
-    pub id: AstNodeId,
-}
-impl_combined!(FnType);
-
-// #[derive(Clone, Debug, PartialEq)]
-// pub enum TypeKind {
-//     Fn(FnType),
-//     Path(WithSpan<Ident>),
-// }
-//
-// impl Display for TypeKind {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             TypeKind::Fn(func) => {
-//                 let args = func
-//                     .params
-//                     .iter()
-//                     .map(|p| p.ty.value.to_string())
-//                     .join(", ");
-//                 let returns = func.output.iter().map(|r| r.value.to_string()).join(", ");
-//                 if returns.is_empty() {
-//                     write!(f, "fn({args})")
-//                 } else {
-//                     write!(f, "fn({args}) -> {returns}")
-//                 }
-//             }
-//             TypeKind::Path(path) => write!(f, "{}", path.value),
-//         }
-//     }
-// }

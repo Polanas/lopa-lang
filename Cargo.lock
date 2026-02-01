@@ -130,6 +130,7 @@ dependencies = [
  "paste",
  "residua-uleb128",
  "strum",
+ "strum_macros",
  "thiserror",
 ]
 

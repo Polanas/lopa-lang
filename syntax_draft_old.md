@@ -30,7 +30,7 @@ while num < 50 {
     num += 1;
 }
 
-if num > 40 {
+if num > 39 {
   print('over 40');
 } else if s != 'walternate' {  
   io.write('not over 40\n');

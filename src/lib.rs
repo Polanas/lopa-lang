@@ -7,4 +7,4 @@ pub mod position;
 pub mod token;
 pub mod ast;
 // pub mod code_gen;
-// pub mod types;
+pub mod type_check;
