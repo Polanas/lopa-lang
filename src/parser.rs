@@ -213,8 +213,6 @@ impl Parser<'_> {
         mut value: String,
         span: Span,
     ) -> Option<LitInterpolatedString> {
-        value = value.replace("{{", "}");
-        value = value.replace("}}", "}");
         let mut char_start_pos;
         let mut index_start_pos;
         let mut char_index = 0;
@@ -223,33 +221,49 @@ impl Parser<'_> {
         loop {
             let ch = value.char_indices().nth(char_index).unwrap();
             if ch.1 == '{' {
-                char_start_pos = char_index;
-                index_start_pos = ch.0;
-                let mut char_end_pos = char_start_pos + 1;
-                let index_end_pos;
-                let mut stack = 1;
-                loop {
-                    let ch = value.char_indices().nth(char_end_pos).unwrap();
-                    match ch.1 {
-                        '{' => stack += 1,
-                        '}' => stack -= 1,
-                        _ => {}
-                    };
-                    if stack == 0 {
-                        index_end_pos = ch.0;
-                        break;
+                if let Some((_, '{')) = value.char_indices().nth(char_index + 1) {
+                    char_index += 1;
+                } else {
+                    char_start_pos = char_index;
+                    index_start_pos = ch.0;
+                    let mut char_end_pos = char_start_pos + 1;
+                    let index_end_pos;
+                    let mut stack = 1;
+                    loop {
+                        let ch = value.char_indices().nth(char_end_pos).unwrap();
+                        match ch.1 {
+                            '{' => {
+                                if let Some((_, '{')) = value.char_indices().nth(char_index + 1) {
+                                    char_index += 1;
+                                } else {
+                                    stack += 1
+                                }
+                            }
+                            '}' => {
+                                if let Some((_, '}')) = value.char_indices().nth(char_index + 1) {
+                                    char_index += 1;
+                                } else {
+                                    stack -= 1
+                                }
+                            }
+                            _ => {}
+                        };
+                        if stack == 0 {
+                            index_end_pos = ch.0;
+                            break;
+                        }
+                        char_end_pos += 1;
+                        if char_end_pos == chars_len {
+                            self.add_error("expected }", span);
+                            return None;
+                        }
                     }
-                    char_end_pos += 1;
-                    if char_end_pos == chars_len {
-                        self.add_error("expected }", span);
-                        return None;
-                    }
-                }
 
-                ranges.push((
-                    char_start_pos..=char_end_pos,
-                    index_start_pos..=index_end_pos,
-                ));
+                    ranges.push((
+                        char_start_pos..=char_end_pos,
+                        index_start_pos..=index_end_pos,
+                    ));
+                }
             }
             char_index += 1;
             if char_index == chars_len {
@@ -267,7 +281,7 @@ impl Parser<'_> {
             }
         }
         indices.reverse();
-        let value_stripped: String = chars.into_iter().collect();
+        let mut value_stripped: String = chars.into_iter().collect();
         let mut exprs = vec![];
         for ((_, range), index) in ranges.iter().zip(indices.iter()) {
             let range = (range.start() + 1)..=(range.end() - 1);
@@ -283,10 +297,12 @@ impl Parser<'_> {
             exprs.push((*index, expr));
         }
 
-        Some(dbg!(LitInterpolatedString {
+        value_stripped = value_stripped.replace("{{", "{");
+        value_stripped = value_stripped.replace("}}", "}");
+        Some(LitInterpolatedString {
             exprs: Some(exprs),
             value: value_stripped,
-        }))
+        })
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {

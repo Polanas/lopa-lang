@@ -7,7 +7,7 @@ use lopa_lang::{parser, position, tokenizer};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
         fn main() {
-            let x = $"{1}, {2}, {3}, {4}";
+            let x = $"""{{}} {1}, {2}, {3}, {4}""";
         }
         "#;
     let tokens = tokenizer::tokenize(source);
