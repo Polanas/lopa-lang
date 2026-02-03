@@ -10,4 +10,3 @@
 --
 -- --global b = a
 -- --global a = b
---

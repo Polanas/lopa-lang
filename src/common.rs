@@ -70,6 +70,7 @@ pub enum UnaryOp {
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BinaryOp {
     Div,
+    DivInt,
     Mult,
     Add,
     Sub,

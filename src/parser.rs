@@ -3,7 +3,8 @@ use crate::{
     ast::*,
     common::*,
     position::{self, Span, Spanned, WithSpan},
-    token::{self, Token, TokenKind},
+    token::{self, StringToken, Token, TokenKind},
+    tokenizer::tokenize,
 };
 
 static EOF_TOKEN: &Token = &Token::EOF;
@@ -117,7 +118,7 @@ pub enum Precedence {
     BitwiseAnd,   // &
     BitwiseShift, // <<, >>
     Term,         // + -
-    Factor,       // * / %
+    Factor,       // * / % //
     Unary,        // ! -
     Call,         // a()
     Index,        // []
@@ -134,7 +135,7 @@ impl From<TokenKind> for Precedence {
                 Self::Comparison
             }
             Token![+] | Token![-] => Self::Term,
-            Token![*] | Token![/] | Token![%] => Self::Factor,
+            Token![*] | Token![/] | Token![%] | TokenKind::Slash2 => Self::Factor,
             Token![!] => Self::Unary,
             TokenKind::LeftParen | Token![.] | Token![?.] => Self::Call,
             TokenKind::LeftBracket => Self::Index,
@@ -207,6 +208,87 @@ impl Parser<'_> {
         })
     }
 
+    fn parse_interpolated_string(
+        &mut self,
+        mut value: String,
+        span: Span,
+    ) -> Option<LitInterpolatedString> {
+        value = value.replace("{{", "}");
+        value = value.replace("}}", "}");
+        let mut char_start_pos;
+        let mut index_start_pos;
+        let mut char_index = 0;
+        let mut ranges = vec![];
+        let chars_len = value.chars().count();
+        loop {
+            let ch = value.char_indices().nth(char_index).unwrap();
+            if ch.1 == '{' {
+                char_start_pos = char_index;
+                index_start_pos = ch.0;
+                let mut char_end_pos = char_start_pos + 1;
+                let index_end_pos;
+                let mut stack = 1;
+                loop {
+                    let ch = value.char_indices().nth(char_end_pos).unwrap();
+                    match ch.1 {
+                        '{' => stack += 1,
+                        '}' => stack -= 1,
+                        _ => {}
+                    };
+                    if stack == 0 {
+                        index_end_pos = ch.0;
+                        break;
+                    }
+                    char_end_pos += 1;
+                    if char_end_pos == chars_len {
+                        self.add_error("expected }", span);
+                        return None;
+                    }
+                }
+
+                ranges.push((
+                    char_start_pos..=char_end_pos,
+                    index_start_pos..=index_end_pos,
+                ));
+            }
+            char_index += 1;
+            if char_index == chars_len {
+                break;
+            }
+        }
+        let mut chars = value.chars().collect::<Vec<_>>();
+        let mut indices = vec![];
+        for (range, _) in ranges.iter().rev() {
+            let amount = chars.drain(range.clone()).count();
+            indices.push(*range.end());
+
+            for index in &mut indices {
+                *index = index.saturating_sub(amount);
+            }
+        }
+        indices.reverse();
+        let value_stripped: String = chars.into_iter().collect();
+        let mut exprs = vec![];
+        for ((_, range), index) in ranges.iter().zip(indices.iter()) {
+            let range = (range.start() + 1)..=(range.end() - 1);
+            let tokens_str = &value[range.clone()];
+            let tokens = tokenize(tokens_str);
+            let mut ast = Parser::new(&tokens);
+            let Some(expr) = ast.parse_expr(Precedence::Lowest) else {
+                for err in ast.diagnostics {
+                    self.diagnostics.push(err);
+                }
+                return None;
+            };
+            exprs.push((*index, expr));
+        }
+
+        Some(dbg!(LitInterpolatedString {
+            exprs: Some(exprs),
+            value: value_stripped,
+        }))
+    }
+
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.peek() {
             Token![nil] => {
@@ -257,27 +339,46 @@ impl Parser<'_> {
                     Expr::Path(path)
                 })
             }
-            TokenKind::String => {
-                let WithSpan {
-                    value: Token::String(kind, value),
-                    span,
-                } = self.expect(TokenKind::String)?
-                else {
-                    unreachable!()
-                };
-                Some(Expr::Lit(LitExpr::String(LitString {
-                    value: value.clone(),
-                    kind: *kind,
-                    span,
-                    id: self.id(),
-                })))
-            }
+            TokenKind::String => self.parse_string(),
             other => {
                 let token = self.advance();
                 self.add_error(&format!("unexpected {}", other), token.span);
-                return None;
+                None
             }
         }
+    }
+
+    fn parse_string(&mut self) -> Option<Expr> {
+        let WithSpan {
+            value:
+                Token::String(StringToken {
+                    value,
+                    kind,
+                    interpolated,
+                }),
+            span,
+        } = self.expect(TokenKind::String)?
+        else {
+            unreachable!()
+        };
+        Some(Expr::Lit(LitExpr::String(if *interpolated {
+            let interpolated = self.parse_interpolated_string(value.clone(), span)?;
+            LitString {
+                value: value.clone(),
+                kind: *kind,
+                span,
+                id: self.id(),
+                interpolated: Some(interpolated),
+            }
+        } else {
+            LitString {
+                interpolated: None,
+                value: value.clone(),
+                kind: *kind,
+                span,
+                id: self.id(),
+            }
+        })))
     }
 
     fn parse_unary_op(&mut self) -> Option<WithSpan<UnaryOp>> {
@@ -786,7 +887,8 @@ impl Parser<'_> {
             | Token![&]
             | Token![|]
             | Token![<<]
-            | Token![>>] => self.parse_binary(left),
+            | Token![>>]
+            | TokenKind::Slash2 => self.parse_binary(left),
             Token![.] | Token![?.] => self.parse_get(left),
             TokenKind::LeftBracket => self.parse_index(left),
             TokenKind::LeftParen => self.parse_call(left),
@@ -1299,21 +1401,17 @@ impl Parser<'_> {
 
         let output = self.parse_output()?;
         self.expect(Token![=])?;
-        let body = self.expect(TokenKind::String)?;
+        let body = self.parse_string()?;
         self.expect(Token![;]);
-        let body_string = match &body.value {
-            Token::String(_, s) => s,
-            _ => {
-                unreachable!();
-            }
+        let span = fn_token.span.union(body.span());
+        let Expr::Lit(LitExpr::String(body)) = body else {
+            unreachable!();
         };
-
-        let span = fn_token.span.union(body.span);
 
         Some(InlineFn {
             name,
             params,
-            body: body_string.clone(),
+            body,
             id: self.id(),
             span,
             output,

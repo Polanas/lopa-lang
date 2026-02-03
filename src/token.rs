@@ -73,6 +73,13 @@ pub enum NumberToken {
     Float(f64),
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct StringToken {
+    pub value: String,
+    pub kind: common::StringKind,
+    pub interpolated: bool,
+}
+
 //TODO: store comments for docs generation
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenKind {
@@ -89,6 +96,8 @@ pub enum TokenKind {
     Plus,
     Semicolon,
     Slash,
+    Slash2,
+    Slash2Eq,
     Star,
     Percent,
     Hash,
@@ -129,6 +138,7 @@ pub enum TokenKind {
     String,
     Number,
 
+    Dollar,
     And,
     Or,
     Let,
@@ -240,6 +250,9 @@ impl std::fmt::Display for TokenKind {
             TokenKind::BarEq => write!(f, "|="),
             TokenKind::Dot3 => write!(f, "..."),
             TokenKind::Mark2 => write!(f, "??"),
+            TokenKind::Slash2 => write!(f, "//"),
+            TokenKind::Slash2Eq => write!(f, "//="),
+            TokenKind::Dollar => write!(f, "$"),
         }
     }
 }
@@ -259,6 +272,8 @@ pub enum Token {
     Plus,
     Semicolon,
     Slash,
+    Slash2,
+    Slash2Eq,
     Star,
     Percent,
     Hash,
@@ -296,9 +311,10 @@ pub enum Token {
 
     Ident(String),
     Label(String),
-    String(common::StringKind, String),
+    String(StringToken),
     Number(NumberToken),
 
+    Dollar,
     And,
     Or,
     Let,
@@ -372,7 +388,7 @@ impl From<&Token> for TokenKind {
             Token::And => Self::And,
             Token::Ident(_) => Self::Ident,
             Token::Label(_) => Self::Label,
-            Token::String(_, _) => Self::String,
+            Token::String(_) => Self::String,
             Token::Number(_) => Self::Number,
             Token::Let => Self::Let,
             Token::True => Self::True,
@@ -414,6 +430,9 @@ impl From<&Token> for TokenKind {
             Token::Greater2 => Self::Greater2,
             Token::Dot3 => Self::Dot3,
             Token::Mark2 => Self::Mark2,
+            Token::Slash2 => Self::Slash2,
+            Token::Slash2Eq => Self::Slash2Eq,
+            Token::Dollar => Self::Dollar,
         }
     }
 }

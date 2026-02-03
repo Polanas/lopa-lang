@@ -196,9 +196,16 @@ pub struct LitBool {
 impl_combined!(LitBool);
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct LitInterpolatedString {
+    pub exprs: Option<Vec<(usize, Expr)>>,
+    pub value: String,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct LitString {
     pub value: String,
     pub kind: common::StringKind,
+    pub interpolated: Option<LitInterpolatedString>,
     pub span: Span,
     pub id: AstNodeId,
 }
@@ -555,7 +562,7 @@ pub struct InlineFn {
     pub name: Ident,
     pub params: Vec<FnParam>,
     pub output: ReturnType,
-    pub body: String,
+    pub body: LitString,
     pub id: AstNodeId,
     pub span: Span,
 }
