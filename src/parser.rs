@@ -744,15 +744,49 @@ impl Parser<'_> {
     }
 
     fn parse_for(&mut self) -> Option<Expr> {
-        todo!()
+        let for_keyword = self.expect(Token![for])?;
+        let pat = self.parse_pat()?;
+        self.expect(Token![in])?;
+        let expr = self.parse_expr(Precedence::Lowest)?;
+        let Expr::Block(body) = self.parse_block()? else {
+            unreachable!();
+        };
+
+        Some(Expr::For(ForExpr {
+            span: for_keyword.span.union(body.span),
+            pat,
+            expr: expr.into(),
+            body,
+            id: self.id(),
+        }))
     }
 
     fn parse_while(&mut self) -> Option<Expr> {
-        todo!()
+        let while_keyword = self.expect(Token![while])?;
+        let condition = self.parse_expr(Precedence::Lowest)?;
+        let Expr::Block(body) = self.parse_block()? else {
+            unreachable!();
+        };
+
+        Some(Expr::While(WhileExpr {
+            span: while_keyword.span.union(body.span),
+            body,
+            id: self.id(),
+            condition: condition.into(),
+        }))
     }
 
     fn parse_loop(&mut self) -> Option<Expr> {
-        todo!()
+        let loop_keyword = self.expect(Token![loop])?;
+        let Expr::Block(body) = self.parse_block()? else {
+            unreachable!();
+        };
+
+        Some(Expr::Loop(LoopExpr {
+            span: loop_keyword.span.union(body.span),
+            body,
+            id: self.id(),
+        }))
     }
 
     fn parse_prefix(&mut self) -> Option<Expr> {

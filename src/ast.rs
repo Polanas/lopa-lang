@@ -291,7 +291,7 @@ impl_combined!(LoopExpr);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct WhileExpr {
-    pub cond: Box<Expr>,
+    pub condition: Box<Expr>,
     pub body: BlockExpr,
     pub span: Span,
     pub id: AstNodeId,
