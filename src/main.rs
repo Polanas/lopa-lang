@@ -6,15 +6,15 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        fn main() {
-            let x = $"""{{}} {1}, {2}, {3}, {4}""";
+        fn main(){
+            let x = Vec2 {x: 1, y: 2};
         }
         "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
     match ast {
         Ok(mut ast) => {
-            // dbg!(ast);
+            dbg!(ast);
             //         let mut type_context = types::Context::new(source);
             //         type_context.type_check(&mut ast);
             //         if !type_context.diagnostics.is_empty() {

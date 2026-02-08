@@ -324,6 +324,15 @@ pub struct TupleExpr {
 }
 impl_combined!(TupleExpr);
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct StructExpr {
+    pub path: Path,
+    pub fields: Vec<FieldValue>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(StructExpr);
+
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone, strum_macros::Display)]
     pub enum Expr {
@@ -340,6 +349,7 @@ impl_combined_enum! {
         Lit(LitExpr),
         Loop(LoopExpr),
         MethodCall(MethodCallExpr),
+        Struct(StructExpr),
         Path(Path),
         Ident(Ident),
         Tuple(TupleExpr),
@@ -536,7 +546,14 @@ impl_combined_enum! {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum FnType {
+    Sync,
+    Coroutine,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct ItemFn {
+    pub fn_type: FnType,
     pub name: Ident,
     pub params: Vec<FnParam>,
     pub body: BlockExpr,
@@ -600,6 +617,15 @@ pub struct Field {
     pub span: Span,
 }
 impl_combined!(Field);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct FieldValue {
+    pub name: Ident,
+    pub expr: Box<Expr>,
+    pub id: AstNodeId,
+    pub span: Span,
+}
+impl_combined!(FieldValue);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FieldsNamed {
@@ -714,6 +740,28 @@ pub struct ReturnStmt {
 impl_combined!(ReturnStmt);
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct ContinueStmt {
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ContinueStmt);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BreakStmt {
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(BreakStmt);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct YieldStmt {
+    pub exprs: Option<Vec<Expr>>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(YieldStmt);
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct EmptyStmt {
     pub span: Span,
     pub id: AstNodeId,
@@ -728,7 +776,6 @@ pub struct BinaryAssignStmt {
     pub id: AstNodeId,
     pub span: Span,
 }
-
 impl_combined!(BinaryAssignStmt);
 
 impl_combined_enum! {
@@ -739,6 +786,9 @@ impl_combined_enum! {
         BinaryAssign(BinaryAssignStmt),
         Binding(BindingStmt),
         Return(ReturnStmt),
+        Continue(ContinueStmt),
+        Break(BreakStmt),
+        Yield(YieldStmt),
         Empty(EmptyStmt),
     }
 }

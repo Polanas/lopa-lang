@@ -305,6 +305,33 @@ impl Parser<'_> {
         })
     }
 
+    fn parse_struct_init(&mut self, path: Path) -> Option<Expr> {
+        self.expect(TokenKind::LeftBrace)?;
+
+        let mut fields = vec![];
+        while !self.check(TokenKind::RightBrace) {
+            let name = self.parse_ident()?;
+            self.expect(Token![:])?;
+            let expr = self.parse_expr(Precedence::Lowest)?;
+            self.matches(Token![,]);
+
+            fields.push(FieldValue {
+                span: name.span.union(expr.span()),
+                id: self.id(),
+                name,
+                expr: expr.into(),
+            });
+        }
+        let right_brace = self.expect(TokenKind::RightBrace)?;
+
+        Some(Expr::Struct(StructExpr {
+            span: path.span.union(right_brace.span),
+            id: self.id(),
+            path,
+            fields,
+        }))
+    }
+
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.peek() {
             Token![nil] => {
@@ -349,7 +376,9 @@ impl Parser<'_> {
             }
             TokenKind::Ident => {
                 let mut path = self.parse_path()?;
-                Some(if path.segments.len() == 1 {
+                Some(if self.check(TokenKind::LeftBrace) {
+                    self.parse_struct_init(path)?
+                } else if path.segments.len() == 1 {
                     Expr::Ident(path.segments.remove(0).ident)
                 } else {
                     Expr::Path(path)
@@ -714,6 +743,18 @@ impl Parser<'_> {
         }))
     }
 
+    fn parse_for(&mut self) -> Option<Expr> {
+        todo!()
+    }
+
+    fn parse_while(&mut self) -> Option<Expr> {
+        todo!()
+    }
+
+    fn parse_loop(&mut self) -> Option<Expr> {
+        todo!()
+    }
+
     fn parse_prefix(&mut self) -> Option<Expr> {
         match self.peek() {
             TokenKind::Number
@@ -726,6 +767,9 @@ impl Parser<'_> {
             TokenKind::LeftParen => self.parse_parens(),
             TokenKind::LeftBrace => self.parse_block(),
             Token![if] => self.parse_if(),
+            Token![for] => self.parse_for(),
+            Token![while] => self.parse_while(),
+            Token![loop] => self.parse_loop(),
             Token![|] => self.parse_closure(),
             _ => {
                 self.add_error(
@@ -919,7 +963,15 @@ impl Parser<'_> {
     }
 
     fn parse_fn(&mut self) -> Option<Item> {
-        let fn_token = self.expect(Token![fn])?;
+        let (fn_type, fn_type_span) = {
+            if self.check(Token![fn]) {
+                let fn_token = self.expect(Token![fn])?;
+                (FnType::Sync, fn_token.span)
+            } else {
+                let co_token = self.expect(Token![co])?;
+                (FnType::Coroutine, co_token.span)
+            }
+        };
         let mut variadic_param = None;
         let name = self.parse_ident()?;
         self.expect(TokenKind::LeftParen)?;
@@ -984,9 +1036,7 @@ impl Parser<'_> {
 
         let output = self.parse_output()?;
         let body = self.parse_block()?;
-        let span = fn_token
-            .span
-            .union(output.span().unwrap_or_else(|| body.span()));
+        let span = fn_type_span.union(output.span().unwrap_or_else(|| body.span()));
 
         Some(Item::Fn(ItemFn {
             span,
@@ -999,6 +1049,7 @@ impl Parser<'_> {
             output,
             id: self.id(),
             variadic: variadic_param,
+            fn_type,
         }))
     }
 
@@ -1139,11 +1190,11 @@ impl Parser<'_> {
     }
 
     fn parse_return(&mut self) -> Option<Stmt> {
-        let span = self.expect(TokenKind::Return)?.span;
-        if let Some(semi) = self.matches(Token![;]) {
+        let span = self.expect(Token![return])?.span;
+        if self.matches(Token![;]).is_some() {
             return Some(Stmt::Return(ReturnStmt {
                 exprs: None,
-                span: span.union(semi.span),
+                span,
                 id: self.id(),
             }));
         }
@@ -1155,11 +1206,49 @@ impl Parser<'_> {
             exprs.push(expr);
         }
 
-        let semi = self.expect(Token![;])?;
-
         Some(Stmt::Return(ReturnStmt {
             exprs: Some(exprs),
-            span: span.union(semi.span),
+            span,
+            id: self.id(),
+        }))
+    }
+
+    fn parse_yield(&mut self) -> Option<Stmt> {
+        let span = self.expect(Token![yield])?.span;
+        if self.matches(Token![;]).is_some() {
+            return Some(Stmt::Yield(YieldStmt {
+                exprs: None,
+                span,
+                id: self.id(),
+            }));
+        }
+        let mut exprs = vec![self.parse_expr(Precedence::Lowest)?];
+        let mut span = span.union(exprs[0].span());
+        while self.matches(Token![,]).is_some() {
+            let expr = self.parse_expr(Precedence::Lowest)?;
+            span = span.union(expr.span());
+            exprs.push(expr);
+        }
+
+        Some(Stmt::Yield(YieldStmt {
+            exprs: Some(exprs),
+            span,
+            id: self.id(),
+        }))
+    }
+
+    fn parse_continue(&mut self) -> Option<Stmt> {
+        let continue_keyword = self.expect(Token![continue])?;
+        Some(Stmt::Continue(ContinueStmt {
+            span: continue_keyword.span,
+            id: self.id(),
+        }))
+    }
+
+    fn parse_break(&mut self) -> Option<Stmt> {
+        let break_keyword = self.expect(Token![break])?;
+        Some(Stmt::Continue(ContinueStmt {
+            span: break_keyword.span,
             id: self.id(),
         }))
     }
@@ -1175,6 +1264,9 @@ impl Parser<'_> {
                 })
             }
             Token![return] => self.parse_return()?,
+            Token![yield] => self.parse_yield()?,
+            Token![continue] => self.parse_continue()?,
+            Token![break] => self.parse_break()?,
             _ => self.parse_stmt_expr()?,
         })
     }

@@ -45,6 +45,7 @@ macro_rules! Token {
     [true]        => { $crate::token::TokenKind::True };
     [false]        => { $crate::token::TokenKind::False };
     [fn]          => { $crate::token::TokenKind::Fn};
+    [co]          => { $crate::token::TokenKind::Co};
     [if]          => { $crate::token::TokenKind::If };
     [else]          => { $crate::token::TokenKind::Else };
     [for]          => { $crate::token::TokenKind::For };
@@ -55,6 +56,7 @@ macro_rules! Token {
     [in]          => { $crate::token::TokenKind::In };
     [nil]          => { $crate::token::TokenKind::Nil };
     [return]          => { $crate::token::TokenKind::Return };
+    [yield]          => { $crate::token::TokenKind::Yield };
     [use]          => { $crate::token::TokenKind::Use };
     [struct]          => { $crate::token::TokenKind::Struct };
     [impl]          => { $crate::token::TokenKind::Impl };
@@ -145,6 +147,7 @@ pub enum TokenKind {
     True,
     False,
     Fn,
+    Co,
     If,
     Else,
     For,
@@ -155,6 +158,7 @@ pub enum TokenKind {
     In,
     Nil,
     Return,
+    Yield,
     Use,
     Struct,
     Impl,
@@ -253,6 +257,8 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Slash2 => write!(f, "//"),
             TokenKind::Slash2Eq => write!(f, "//="),
             TokenKind::Dollar => write!(f, "$"),
+            TokenKind::Yield => write!(f, "yield"),
+            TokenKind::Co => write!(f, "co"),
         }
     }
 }
@@ -321,6 +327,7 @@ pub enum Token {
     True,
     False,
     Fn,
+    Co,
     If,
     Else,
     For,
@@ -331,6 +338,7 @@ pub enum Token {
     In,
     Nil,
     Return,
+    Yield,
     Use,
     Struct,
     Impl,
@@ -433,6 +441,8 @@ impl From<&Token> for TokenKind {
             Token::Slash2 => Self::Slash2,
             Token::Slash2Eq => Self::Slash2Eq,
             Token::Dollar => Self::Dollar,
+            Token::Co => Self::Co,
+            Token::Yield => Self::Yield,
         }
     }
 }
