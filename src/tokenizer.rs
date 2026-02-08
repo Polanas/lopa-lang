@@ -106,8 +106,8 @@ impl<'a> Tokenizer<'a> {
                 ')' => Some(Token::RightParen),
                 '{' => Some(Token::LeftBrace),
                 '}' => Some(Token::RightBrace),
+                '[' => Some(Token::LeftBracket),
                 ']' => Some(Token::RightBracket),
-                '[' => Some(Token::RightBracket),
                 ',' => Some(Token::Comma),
                 '.' => {
                     let mut input = self.input.clone();

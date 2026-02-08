@@ -789,6 +789,21 @@ impl Parser<'_> {
         }))
     }
 
+    fn parse_array(&mut self) -> Option<Expr> {
+        let left = self.expect(TokenKind::LeftBracket)?;
+        let mut elements = vec![];
+        while !self.check(TokenKind::RightBracket) {
+            elements.push(self.parse_expr(Precedence::Lowest)?);
+            self.matches(Token![,]);
+        }
+        let right = self.expect(TokenKind::RightBracket)?;
+        Some(Expr::Array(ArrayExpr {
+            elements,
+            id: self.id(),
+            span: left.span.union(right.span),
+        }))
+    }
+
     fn parse_prefix(&mut self) -> Option<Expr> {
         match self.peek() {
             TokenKind::Number
@@ -800,6 +815,7 @@ impl Parser<'_> {
             Token![!] | Token![-] => self.parse_unary(),
             TokenKind::LeftParen => self.parse_parens(),
             TokenKind::LeftBrace => self.parse_block(),
+            TokenKind::LeftBracket => self.parse_array(),
             Token![if] => self.parse_if(),
             Token![for] => self.parse_for(),
             Token![while] => self.parse_while(),

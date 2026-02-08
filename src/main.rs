@@ -6,8 +6,8 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        fn main(){
-            let x = [1,2,3];
+        fn main() {
+            let x = [1,2,nil];
         }
         "#;
     let tokens = tokenizer::tokenize(source);
