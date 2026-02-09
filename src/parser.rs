@@ -1037,50 +1037,49 @@ impl Parser<'_> {
                     id: self.id(),
                 });
                 break;
-            } else {
-                let pat = self.parse_pat()?;
-
-                self.expect(Token![:])?;
-                let variadic = self.matches(Token![...]);
-                let ty = self.parse_type()?;
-
-                if let Some(variadic) = variadic {
-                    let Pat::Ident(ident) = pat else {
-                        self.add_error(&format!("expected ident, got {}", pat), pat.span());
-                        return None;
-                    };
-                    variadic_param = Some(Variadic {
-                        ident: Some(ident.value),
-                        span: variadic.span.union(ty.span()),
-                        ty: ty.into(),
-                        id: self.id(),
-                    });
-                    break;
-                }
-
-                let default_value = if self.matches(Token![=]).is_some() {
-                    Some(self.parse_expr(Precedence::Lowest)?)
-                } else {
-                    None
-                };
-
-                self.matches(Token![,]);
-
-                params.push(FnParam::Typed(FnParamTyped {
-                    span: default_value
-                        .as_ref()
-                        .map(|d| pat.span().union(d.span()))
-                        .unwrap_or_else(|| pat.span().union(ty.span())),
-                    pat_type: PatType {
-                        span: pat.span().union(ty.span()),
-                        pat: pat.into(),
-                        ty: ty.into(),
-                        id: self.id(),
-                    },
-                    default_value,
-                    id: self.id(),
-                }));
             }
+            let pat = self.parse_pat()?;
+
+            self.expect(Token![:])?;
+            let variadic = self.matches(Token![...]);
+            let ty = self.parse_type()?;
+
+            if let Some(variadic) = variadic {
+                let Pat::Ident(ident) = pat else {
+                    self.add_error(&format!("expected ident, got {}", pat), pat.span());
+                    return None;
+                };
+                variadic_param = Some(Variadic {
+                    ident: Some(ident.value),
+                    span: variadic.span.union(ty.span()),
+                    ty: ty.into(),
+                    id: self.id(),
+                });
+                break;
+            }
+
+            let default_value = if self.matches(Token![=]).is_some() {
+                Some(self.parse_expr(Precedence::Lowest)?)
+            } else {
+                None
+            };
+
+            self.matches(Token![,]);
+
+            params.push(FnParam::Typed(FnParamTyped {
+                span: default_value
+                    .as_ref()
+                    .map(|d| pat.span().union(d.span()))
+                    .unwrap_or_else(|| pat.span().union(ty.span())),
+                pat_type: PatType {
+                    span: pat.span().union(ty.span()),
+                    pat: pat.into(),
+                    ty: ty.into(),
+                    id: self.id(),
+                },
+                default_value,
+                id: self.id(),
+            }));
         }
         self.expect(TokenKind::RightParen)?;
 
@@ -1376,39 +1375,50 @@ impl Parser<'_> {
                     id: self.id(),
                 })
             }
-            // TokenKind::LeftParen => {
-            //     self.expect(TokenKind::LeftParen)?;
-            //     let mut fields = vec![];
-            //     while self.peek() != TokenKind::RightParen {
-            //         let ty = self.parse_type()?;
-            //         let default_value = if self.peek() == TokenKind::Eq {
-            //             self.expect(TokenKind::Eq)?;
-            //             Some(self.parse_expr(Precedence::Lowest)?)
-            //         } else {
-            //             None
-            //         };
-            //
-            //         if self.peek() == TokenKind::Comma {
-            //             self.expect(TokenKind::Comma)?;
-            //         }
-            //
-            //         fields.push(Field {
-            //             ty,
-            //             default_value,
-            //             name: None,
-            //         })
-            //     }
-            //     self.expect(TokenKind::RightParen)?;
-            //     let semi = self.expect(TokenKind::Semicolon)?;
-            //     WithSpan::new(
-            //         Item::Struct(ItemStruct {
-            //             name,
-            //             kind: StructKind::GC,
-            //             fields: StructFields::Named(fields),
-            //         }),
-            //         struct_token.span.union(semi.span),
-            //     )
-            // }
+            TokenKind::LeftParen => {
+                self.expect(TokenKind::LeftParen)?;
+                let mut fields = vec![];
+                let mut fields_span: Option<Span> = None;
+                while self.peek() != TokenKind::RightParen {
+                    let ty = self.parse_type()?;
+                    let default_value = if self.peek() == TokenKind::Eq {
+                        self.expect(TokenKind::Eq)?;
+                        Some(self.parse_expr(Precedence::Lowest)?)
+                    } else {
+                        None
+                    };
+
+                    if self.peek() == TokenKind::Comma {
+                        self.expect(TokenKind::Comma)?;
+                    }
+
+                    let span = default_value
+                        .as_ref()
+                        .map(|d| ty.span())
+                        .unwrap_or_else(|| ty.span());
+                    fields_span = Some(fields_span.map(|s| s.union(span)).unwrap_or_else(|| span));
+                    fields.push(Field {
+                        ty,
+                        default_value,
+                        name: None,
+                        id: self.id(),
+                        span,
+                    });
+                }
+                let right_paren = self.expect(TokenKind::RightParen)?;
+                self.expect(TokenKind::Semicolon)?;
+                Item::Struct(ItemStruct {
+                    name,
+                    kind: StructKind::GC,
+                    fields: Fields::Unnamed(FieldsUnnamed {
+                        fields,
+                        span: fields_span.unwrap_or_else(Span::empty),
+                        id: self.id(),
+                    }),
+                    span: struct_token.span.union(right_paren.span),
+                    id: self.id(),
+                })
+            }
             _ => {
                 let token = self.advance();
                 self.add_error(
@@ -1710,15 +1720,58 @@ impl Parser<'_> {
     //
 
     fn parse_impl_fn(&mut self, target: &TypeExpr) -> Option<ImplItem> {
-        let fn_token = self.expect(Token![fn])?;
+        let (fn_type, fn_type_span) = {
+            if self.check(Token![fn]) {
+                let fn_token = self.expect(Token![fn])?;
+                (FnType::Sync, fn_token.span)
+            } else {
+                let co_token = self.expect(Token![co])?;
+                (FnType::Coroutine, co_token.span)
+            }
+        };
+        let mut variadic_param = None;
         let name = self.parse_ident()?;
         self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
-        while self.peek() != TokenKind::RightParen {
+        while !self.check(TokenKind::RightParen) {
+            if let Some(variadic) = self.matches(Token![...]) {
+                let ty = self.parse_type()?;
+                variadic_param = Some(Variadic {
+                    ident: None,
+                    span: variadic.span.union(ty.span()),
+                    ty: ty.into(),
+                    id: self.id(),
+                });
+                break;
+            }
+            if let Some(self_token) = self.matches(Token![self]) {
+                self.expect(Token![self])?;
+                self.matches(Token![,]);
+                params.push(FnParam::Receiver(Receiver {
+                    ty: target.clone(),
+                    span: self_token.span,
+                    id: self.id(),
+                }));
+                continue;
+            }
             let pat = self.parse_pat()?;
-
             self.expect(Token![:])?;
+
+            let variadic = self.matches(Token![...]);
             let ty = self.parse_type()?;
+            if let Some(variadic) = variadic {
+                let Pat::Ident(ident) = pat else {
+                    self.add_error(&format!("expected ident, got {}", pat), pat.span());
+                    return None;
+                };
+                variadic_param = Some(Variadic {
+                    ident: Some(ident.value),
+                    span: variadic.span.union(ty.span()),
+                    ty: ty.into(),
+                    id: self.id(),
+                });
+                break;
+            }
 
             let default_value = if self.matches(Token![=]).is_some() {
                 Some(self.parse_expr(Precedence::Lowest)?)
@@ -1747,10 +1800,20 @@ impl Parser<'_> {
 
         let output = self.parse_output()?;
         let body = self.parse_block()?;
-        let span = fn_token
-            .span
-            .union(output.span().unwrap_or_else(|| body.span()));
-        todo!()
+        let span = fn_type_span.union(output.span().unwrap_or_else(|| body.span()));
+        Some(ImplItem::Fn(ItemFn {
+            fn_type,
+            name,
+            params,
+            body: match body {
+                Expr::Block(block) => block,
+                _ => unreachable!(),
+            },
+            output,
+            variadic: todo!(),
+            id: self.id(),
+            span,
+        }))
         // Some(Item::Fn(ItemFn {
         //     span,
         //     name,
