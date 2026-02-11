@@ -37,8 +37,11 @@ macro_rules! Token {
     [->]    => { $crate::token::TokenKind::Arrow };
     [=>]    => { $crate::token::TokenKind::FatArrow };
     [|]    => { $crate::token::TokenKind::Bar };
+    [|=]    => { $crate::token::TokenKind::BarEq };
     [&]    => { $crate::token::TokenKind::Ampersand };
+    [&=]    => { $crate::token::TokenKind::AmpersandEq };
     [^]    => { $crate::token::TokenKind::Caret };
+    [^=]    => { $crate::token::TokenKind::CaretEq };
     [and]          => { $crate::token::TokenKind::And };
     [or]        => { $crate::token::TokenKind::Or };
     [let]        => { $crate::token::TokenKind::Let };

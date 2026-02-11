@@ -134,6 +134,9 @@ impl From<TokenKind> for Precedence {
             Token![<] | Token![<=] | Token![>] | Token![>=] | Token![!=] | Token![==] => {
                 Self::Comparison
             }
+            Token![<<] | Token![>>] => Self::BitwiseShift,
+            Token![&] => Self::BitwiseOr,
+            Token![^] => Self::BitwiseXor,
             Token![+] | Token![-] => Self::Term,
             Token![*] | Token![/] | Token![%] | TokenKind::Slash2 => Self::Factor,
             Token![!] => Self::Unary,
@@ -831,6 +834,34 @@ impl Parser<'_> {
         }
     }
 
+    fn parse_binary_assign_op(&mut self) -> Option<WithSpan<BinaryAssignOp>> {
+        let token = self.advance();
+        let op = match &token.value.kind() {
+            Token![+=] => BinaryAssignOp::Add,
+            Token![-=] => BinaryAssignOp::Sub,
+            Token![*=] => BinaryAssignOp::Mul,
+            Token![/=] => BinaryAssignOp::Div,
+            TokenKind::Slash2Eq => BinaryAssignOp::DivInt,
+            Token![%=] => BinaryAssignOp::Rem,
+            Token![&=] => BinaryAssignOp::BitOr,
+            Token![|=] => BinaryAssignOp::BitAnd,
+            Token![^=] => BinaryAssignOp::BitXor,
+            Token![>>=] => BinaryAssignOp::Shr,
+            Token![<<=] => BinaryAssignOp::Shl,
+            _ => {
+                self.add_error(
+                    &format!(
+                        "expected binary assign op, got {}",
+                        TokenKind::from(token.value)
+                    ),
+                    token.span,
+                );
+                return None;
+            }
+        };
+        Some(WithSpan::new(op, token.span))
+    }
+
     fn parse_binary_op(&mut self) -> Option<WithSpan<BinaryOp>> {
         let token = self.advance();
         let op = match &token.value.kind() {
@@ -855,7 +886,7 @@ impl Parser<'_> {
             Token![<<] => BinaryOp::Shl,
             _ => {
                 self.add_error(
-                    &format!("Unexpected {}", TokenKind::from(token.value)),
+                    &format!("expected binary op, got {}", TokenKind::from(token.value)),
                     token.span,
                 );
                 return None;
@@ -1132,40 +1163,69 @@ impl Parser<'_> {
     fn parse_stmt_expr(&mut self) -> Option<Stmt> {
         let mut left = vec![self.parse_expr(Precedence::Lowest)?];
         let mut span = left[0].span();
-        while let TokenKind::Comma = self.peek() {
-            self.expect(TokenKind::Comma)?;
+        while self.matches(Token![,]).is_some() {
             let expr = self.parse_expr(Precedence::Lowest)?;
             span = span.union(expr.span());
             left.push(expr);
         }
 
-        Some(if TokenKind::Eq == self.peek() {
-            self.expect(TokenKind::Eq)?;
-            let mut right = vec![self.parse_expr(Precedence::Lowest)?];
-            span = span.union(right[0].span());
-            while let TokenKind::Comma = self.peek() {
-                self.expect(TokenKind::Comma)?;
-                let value = self.parse_expr(Precedence::Lowest)?;
-                span = span.union(value.span());
-                right.push(value);
-            }
+        Some(match self.peek() {
+            Token![=] => {
+                self.expect(Token![=])?;
+                let mut right = vec![self.parse_expr(Precedence::Lowest)?];
+                span = span.union(right[0].span());
+                while self.matches(Token![,]).is_some() {
+                    let value = self.parse_expr(Precedence::Lowest)?;
+                    span = span.union(value.span());
+                    right.push(value);
+                }
 
-            let semi = self.expect(TokenKind::Semicolon)?;
-            Stmt::Assign(AssignStmt {
-                left,
-                right,
-                span: span.union(semi.span),
-                id: self.id(),
-            })
-        } else {
-            let semi = self.parse_optional_semi();
-            let span = semi.map(|s| span.union(s)).unwrap_or(span);
-            Stmt::Expr(ExprStmt {
-                exprs: left,
-                semi,
-                span,
-                id: self.id(),
-            })
+                let semi = self.expect(Token![;])?;
+                Stmt::Assign(AssignStmt {
+                    left,
+                    right,
+                    span: span.union(semi.span),
+                    id: self.id(),
+                })
+            }
+            Token![+=]
+            | Token![-=]
+            | Token![*=]
+            | Token![/=]
+            | TokenKind::Slash2Eq
+            | Token![%=]
+            | Token![|=]
+            | Token![&=]
+            | Token![^=]
+            | Token![>>=]
+            | Token![<<=] => {
+                let assing_op = self.parse_binary_assign_op()?;
+                let mut right = vec![self.parse_expr(Precedence::Lowest)?];
+                span = span.union(right[0].span());
+                while self.matches(Token![,]).is_some() {
+                    let value = self.parse_expr(Precedence::Lowest)?;
+                    span = span.union(value.span());
+                    right.push(value);
+                }
+                let semi = self.expect(Token![;])?;
+                Stmt::BinaryAssign(BinaryAssignStmt {
+                    left,
+                    right,
+                    span: span.union(semi.span),
+                    id: self.id(),
+                    op: assing_op.value,
+                })
+            }
+            _ => {
+                let semi = self.parse_optional_semi();
+                let span = semi.map(|s| span.union(s)).unwrap_or(span);
+                Stmt::Expr(ExprStmt {
+                    exprs: left,
+                    semi,
+                    span,
+                    id: self.id(),
+                })
+            }
         })
     }
 

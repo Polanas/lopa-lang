@@ -97,6 +97,7 @@ pub enum BinaryAssignOp {
     Sub,
     Mul,
     Div,
+    DivInt,
     Rem,
     BitXor,
     BitAnd,

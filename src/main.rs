@@ -6,11 +6,8 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer, type_check};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        enum MyEnum {
-            Z {
-                x: int,
-                y: int,
-            }
+        fn main() {
+            x,y += 1,2;
         }
     "#;
     let tokens = tokenizer::tokenize(source);

@@ -1,5 +1,3 @@
-use crate::ast;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct BytePos(pub usize);
 
