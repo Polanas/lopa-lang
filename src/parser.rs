@@ -930,22 +930,6 @@ impl Parser<'_> {
 
     fn parse_get(&mut self, left: Expr) -> Option<Expr> {
         let mark = self.parse_opt_dot_mark()?;
-        match self.peek() {
-            TokenKind::Ident => {
-
-            },
-            TokenKind::Number => {
-
-            }
-            _ => {
-                let token = self.advance();
-                self.add_error(
-                    &format!("expected ident or number, got {}", token.value.kind()),
-                    token.span,
-                );
-                return None;
-            }
-        }
         let ident = self.parse_ident()?;
         Some(if self.check(TokenKind::LeftParen) {
             let Expr::Call(CallExpr { args, span, .. }) =
@@ -1434,6 +1418,17 @@ impl Parser<'_> {
                     span: struct_token.span.union(right_paren.span),
                     id: self.id(),
                 })
+                // Item::Struct(ItemStruct {
+                //     name,
+                //     kind: StructKind::GC,
+                //     fields: Fields::Named(FieldsNamed {
+                //         span: fields_span.unwrap_or_else(Span::empty),
+                //         fields,
+                //         id: self.id(),
+                //     }),
+                //     span: struct_token.span.union(right_brace.span),
+                //     id: self.id(),
+                // })
             }
             _ => {
                 let token = self.advance();
