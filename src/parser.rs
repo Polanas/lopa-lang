@@ -930,6 +930,22 @@ impl Parser<'_> {
 
     fn parse_get(&mut self, left: Expr) -> Option<Expr> {
         let mark = self.parse_opt_dot_mark()?;
+        match self.peek() {
+            TokenKind::Ident => {
+
+            },
+            TokenKind::Number => {
+
+            }
+            _ => {
+                let token = self.advance();
+                self.add_error(
+                    &format!("expected ident or number, got {}", token.value.kind()),
+                    token.span,
+                );
+                return None;
+            }
+        }
         let ident = self.parse_ident()?;
         Some(if self.check(TokenKind::LeftParen) {
             let Expr::Call(CallExpr { args, span, .. }) =

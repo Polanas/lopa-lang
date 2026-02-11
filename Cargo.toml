@@ -13,7 +13,9 @@ mlua = { version = "0.11.5", features = ["luajit52"] }
 num-complex = "0.4.6"
 ordered-float = "5.1.0"
 paste = "1.0.15"
+proc-macro2 = "1.0.106"
 residua-uleb128 = "0.2.0"
 strum = { version = "0.27.2", features = ["derive"] }
 strum_macros = "0.27.2"
+syn = "2.0.114"
 thiserror = "2.0.17"

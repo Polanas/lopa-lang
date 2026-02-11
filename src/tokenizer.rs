@@ -86,15 +86,7 @@ impl<'a> Tokenizer<'a> {
         while let Some(ch) = self.next_char() {
             if let Some(t) = match ch {
                 ch if ch.is_whitespace() => None,
-                ch if ch.is_ascii_digit()
-                    || (ch == '.'
-                        && self
-                            .peek()
-                            .map(|ch| ch.is_ascii_digit())
-                            .unwrap_or_default()) =>
-                {
-                    Some(self.number(ch))
-                }
+                ch if ch.is_ascii_digit() => Some(self.number(ch)),
                 '$' => {
                     self.next_char();
                     self.string(true)
@@ -322,22 +314,18 @@ impl<'a> Tokenizer<'a> {
         let mut num_str = self
             .consume_while(|ch| ch.is_ascii_digit() || ch == '_')
             .into_iter()
-            .collect::<String>();
+            .collect::<String>()
+            .replace('_', "");
         num_str.insert(0, ch);
-        let mut num_str = num_str.replace('_', "");
 
-        let is_float = (self.peek() == Some(&'.')
-            && self
-                .peek_next()
-                .map(|ch| ch.is_ascii_digit())
-                .unwrap_or_default())
-            || ch == '.';
-        if is_float && self.consume_if_next(|ch| ch.is_ascii_digit()) && ch != '.' {
+        let is_float = self.peek() == Some(&'.');
+        if is_float {
+            self.next_char();
             let num_fract_str = self
                 .consume_while(|ch| ch.is_ascii_digit() || ch == '_')
                 .into_iter()
-                .collect::<String>();
-            let num_fract_str = num_fract_str.replace('_', "");
+                .collect::<String>()
+                .replace('_', "");
             num_str.push('.');
             num_str.push_str(&num_fract_str);
         }
