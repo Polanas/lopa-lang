@@ -680,6 +680,7 @@ impl_combined!(ItemImpl);
 pub struct EnumVariant {
     pub name: Ident,
     pub fields: Fields,
+    pub discriminant: Option<Expr>,
     pub span: Span,
     pub id: AstNodeId,
 }
@@ -689,7 +690,6 @@ impl_combined!(EnumVariant);
 pub struct ItemEnum {
     pub name: Ident,
     pub variants: Vec<EnumVariant>,
-    pub discriminant: Option<Expr>,
     pub span: Span,
     pub id: AstNodeId,
 }

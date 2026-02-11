@@ -5,16 +5,19 @@ use std::error::Error;
 
 use lopa_lang::{parser, position, tokenizer, type_check};
 fn main() -> Result<(), Box<dyn Error>> {
-    let source = r#"fn main() {
-        fn add() {
-
+    let source = r#"
+        enum MyEnum {
+            Z {
+                x: int,
+                y: int,
+            }
         }
-    }"#;
-    let tokens = dbg!(tokenizer::tokenize(source));
+    "#;
+    let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
     match ast {
         Ok(mut ast) => {
-            // dbg!(ast);
+            dbg!(ast);
             // let mut type_context = type_check::Context::new();
             // type_context.set_source(source);
             // type_context.check(&ast);

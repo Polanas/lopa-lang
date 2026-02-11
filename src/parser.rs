@@ -1320,6 +1320,95 @@ impl Parser<'_> {
         })
     }
 
+    fn parse_enum(&mut self) -> Option<Item> {
+        let enum_token = self.expect(Token![enum])?;
+        let name = self.parse_ident()?;
+        let mut variants = vec![];
+
+        self.expect(TokenKind::LeftBrace)?;
+        while !self.check(TokenKind::RightBrace) {
+            let name = self.parse_ident()?;
+
+            let variant = match self.peek() {
+                TokenKind::LeftBrace => {
+                    let left = self.expect(TokenKind::LeftBrace)?;
+                    let fields = self.parse_fields_named()?;
+                    let right = self.expect(TokenKind::RightBrace)?;
+
+                    EnumVariant {
+                        span: name.span().union(right.span),
+                        name,
+                        fields: Fields::Named(FieldsNamed {
+                            fields,
+                            span: left.span.union(right.span),
+                            id: self.id(),
+                        }),
+                        discriminant: None,
+                        id: self.id(),
+                    }
+                }
+                TokenKind::LeftParen => {
+                    let left = self.expect(TokenKind::LeftParen)?;
+                    let fields = self.parse_fields_unnamed()?;
+                    let right = self.expect(TokenKind::RightParen)?;
+
+                    EnumVariant {
+                        span: name.span().union(right.span),
+                        name,
+                        fields: Fields::Unnamed(FieldsUnnamed {
+                            fields,
+                            span: left.span.union(right.span),
+                            id: self.id(),
+                        }),
+                        discriminant: None,
+                        id: self.id(),
+                    }
+                }
+                Token![=] => {
+                    self.expect(Token![=])?;
+                    let expr = self.parse_expr(Precedence::Lowest)?;
+                    EnumVariant {
+                        span: name.span.union(expr.span()),
+                        name,
+                        fields: Fields::Unit,
+                        id: self.id(),
+                        discriminant: Some(expr),
+                    }
+                }
+                Token![,] => {
+                    self.expect(Token![,])?;
+                    variants.push(EnumVariant {
+                        span: name.span,
+                        name,
+                        fields: Fields::Unit,
+                        discriminant: None,
+                        id: self.id(),
+                    });
+                    continue;
+                }
+                _ => {
+                    let token = self.advance();
+                    self.add_error(
+                        &format!("expected '{{', '(' or  '=', got {}", token.value.kind(),),
+                        token.span,
+                    );
+                    return None;
+                }
+            };
+            variants.push(variant);
+
+            self.matches(Token![,]);
+        }
+        let right_brace = self.expect(TokenKind::RightBrace)?;
+
+        Some(Item::Enum(ItemEnum {
+            name,
+            variants,
+            span: enum_token.span.union(right_brace.span),
+            id: self.id(),
+        }))
+    }
+
     fn parse_struct(&mut self) -> Option<Item> {
         let struct_token = self.expect(Token![struct])?;
         let name = self.parse_ident()?;
@@ -1336,86 +1425,36 @@ impl Parser<'_> {
                 })
             }
             TokenKind::LeftBrace => {
-                self.expect(TokenKind::LeftBrace)?;
-                let mut fields = vec![];
-                let mut fields_span: Option<Span> = None;
-                while self.peek() != TokenKind::RightBrace {
-                    let name = self.parse_ident()?;
-                    self.expect(Token![:])?;
-                    let ty = self.parse_type()?;
-                    let default_value = self
-                        .matches(Token![=])
-                        .and_then(|_| self.parse_expr(Precedence::Lowest));
-                    self.matches(Token![,]);
-
-                    let span = default_value
-                        .as_ref()
-                        .map(|d| name.span.union(d.span()))
-                        .unwrap_or_else(|| name.span.union(ty.span()));
-                    fields_span = Some(fields_span.map(|s| s.union(span)).unwrap_or_else(|| span));
-                    fields.push(Field {
-                        span,
-                        default_value,
-                        name: Some(name),
-                        id: self.id(),
-                        ty,
-                    })
-                }
-                let right_brace = self.expect(TokenKind::RightBrace)?;
+                let left = self.expect(TokenKind::LeftBrace)?;
+                let fields = self.parse_fields_named()?;
+                let right = self.expect(TokenKind::RightBrace)?;
 
                 Item::Struct(ItemStruct {
                     name,
                     kind: StructKind::GC,
                     fields: Fields::Named(FieldsNamed {
-                        span: fields_span.unwrap_or_else(Span::empty),
+                        span: left.span.union(right.span),
                         fields,
                         id: self.id(),
                     }),
-                    span: struct_token.span.union(right_brace.span),
+                    span: struct_token.span.union(right.span),
                     id: self.id(),
                 })
             }
             TokenKind::LeftParen => {
-                self.expect(TokenKind::LeftParen)?;
-                let mut fields = vec![];
-                let mut fields_span: Option<Span> = None;
-                while self.peek() != TokenKind::RightParen {
-                    let ty = self.parse_type()?;
-                    let default_value = if self.peek() == TokenKind::Eq {
-                        self.expect(TokenKind::Eq)?;
-                        Some(self.parse_expr(Precedence::Lowest)?)
-                    } else {
-                        None
-                    };
-
-                    if self.peek() == TokenKind::Comma {
-                        self.expect(TokenKind::Comma)?;
-                    }
-
-                    let span = default_value
-                        .as_ref()
-                        .map(|d| ty.span())
-                        .unwrap_or_else(|| ty.span());
-                    fields_span = Some(fields_span.map(|s| s.union(span)).unwrap_or_else(|| span));
-                    fields.push(Field {
-                        ty,
-                        default_value,
-                        name: None,
-                        id: self.id(),
-                        span,
-                    });
-                }
-                let right_paren = self.expect(TokenKind::RightParen)?;
+                let left = self.expect(TokenKind::LeftParen)?;
+                let fields = self.parse_fields_unnamed()?;
+                let right = self.expect(TokenKind::RightParen)?;
                 self.expect(TokenKind::Semicolon)?;
                 Item::Struct(ItemStruct {
                     name,
                     kind: StructKind::GC,
                     fields: Fields::Unnamed(FieldsUnnamed {
                         fields,
-                        span: fields_span.unwrap_or_else(Span::empty),
+                        span: left.span.union(right.span),
                         id: self.id(),
                     }),
-                    span: struct_token.span.union(right_paren.span),
+                    span: struct_token.span.union(right.span),
                     id: self.id(),
                 })
                 // Item::Struct(ItemStruct {
@@ -1433,12 +1472,66 @@ impl Parser<'_> {
             _ => {
                 let token = self.advance();
                 self.add_error(
-                    &format!("expected {{', or ';', got {}", token.value.kind()),
+                    &format!("expected '{{', or ';', got {}", token.value.kind()),
                     token.span,
                 );
                 return None;
             }
         })
+    }
+
+    fn parse_fields_named(&mut self) -> Option<Vec<Field>> {
+        let mut fields = vec![];
+        while self.peek() != TokenKind::RightBrace {
+            let name = self.parse_ident()?;
+            self.expect(Token![:])?;
+            let ty = self.parse_type()?;
+            let default_value = self
+                .matches(Token![=])
+                .and_then(|_| self.parse_expr(Precedence::Lowest));
+            self.matches(Token![,]);
+
+            let span = default_value
+                .as_ref()
+                .map(|d| name.span.union(d.span()))
+                .unwrap_or_else(|| name.span.union(ty.span()));
+            fields.push(Field {
+                span,
+                default_value,
+                name: Some(name),
+                id: self.id(),
+                ty,
+            })
+        }
+        Some(fields)
+    }
+
+    fn parse_fields_unnamed(&mut self) -> Option<Vec<Field>> {
+        let mut fields = vec![];
+        while self.peek() != TokenKind::RightParen {
+            let ty = self.parse_type()?;
+            let default_value = if self.peek() == TokenKind::Eq {
+                self.expect(TokenKind::Eq)?;
+                Some(self.parse_expr(Precedence::Lowest)?)
+            } else {
+                None
+            };
+
+            self.matches(Token![,]);
+
+            let span = default_value
+                .as_ref()
+                .map(|d| d.span())
+                .unwrap_or_else(|| ty.span());
+            fields.push(Field {
+                ty,
+                default_value,
+                name: None,
+                id: self.id(),
+                span,
+            });
+        }
+        Some(fields)
     }
 
     fn parse_extern_fn(&mut self) -> Option<ExternDefinition> {
@@ -1868,11 +1961,12 @@ impl Parser<'_> {
 
     fn parse_item(&mut self) -> Option<Item> {
         match self.peek() {
-            TokenKind::Fn => self.parse_fn(),
-            TokenKind::Extern => self.parse_extern(),
-            TokenKind::Inline => self.parse_inline(),
-            TokenKind::Struct => self.parse_struct(),
-            TokenKind::Impl => self.parse_impl(),
+            Token![fn] => self.parse_fn(),
+            Token![extern] => self.parse_extern(),
+            Token![inline] => self.parse_inline(),
+            Token![struct] => self.parse_struct(),
+            Token![impl] => self.parse_impl(),
+            Token![enum] => self.parse_enum(),
             other => {
                 let token = self.advance();
                 self.add_error(&format!("expected item, got {}", other), token.span);

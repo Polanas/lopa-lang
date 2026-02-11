@@ -288,6 +288,7 @@ impl<'a> Tokenizer<'a> {
             "return" => Some(Token::Return),
             "use" => Some(Token::Use),
             "struct" => Some(Token::Struct),
+            "enum" => Some(Token::Enum),
             "impl" => Some(Token::Impl),
             "match" => Some(Token::Match),
             "self" => Some(Token::SelfValue),

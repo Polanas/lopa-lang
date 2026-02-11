@@ -59,6 +59,7 @@ macro_rules! Token {
     [yield]          => { $crate::token::TokenKind::Yield };
     [use]          => { $crate::token::TokenKind::Use };
     [struct]          => { $crate::token::TokenKind::Struct };
+    [enum]          => { $crate::token::TokenKind::Enum };
     [impl]          => { $crate::token::TokenKind::Impl };
     [match]          => { $crate::token::TokenKind::Match };
     [extern]      => { $crate::token::TokenKind::Extern };
@@ -161,6 +162,7 @@ pub enum TokenKind {
     Yield,
     Use,
     Struct,
+    Enum,
     Impl,
     Match,
     Extern,
@@ -259,6 +261,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Dollar => write!(f, "$"),
             TokenKind::Yield => write!(f, "yield"),
             TokenKind::Co => write!(f, "co"),
+            TokenKind::Enum => write!(f, "enum"),
         }
     }
 }
@@ -341,6 +344,7 @@ pub enum Token {
     Yield,
     Use,
     Struct,
+    Enum,
     Impl,
     Match,
     Extern,
@@ -443,6 +447,7 @@ impl From<&Token> for TokenKind {
             Token::Dollar => Self::Dollar,
             Token::Co => Self::Co,
             Token::Yield => Self::Yield,
+            Token::Enum => Self::Enum,
         }
     }
 }
