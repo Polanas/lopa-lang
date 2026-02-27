@@ -534,8 +534,8 @@ impl Parser<'_> {
     }
 
     fn parse_type(&mut self) -> Option<TypeExpr> {
-        Some(match self.peek() {
-            TokenKind::Nil => {
+        let ty = match self.peek() {
+            Token![nil] => {
                 let nil = self.expect(Token![nil])?;
                 TypeExpr::Primitive(PrimitiveType {
                     span: nil.span,
@@ -543,7 +543,7 @@ impl Parser<'_> {
                     id: self.id(),
                 })
             }
-            TokenKind::Fn => {
+            Token![fn] => {
                 let fn_token = self.expect(Token![fn])?;
                 let mut variadic_param = None;
                 self.expect(TokenKind::LeftParen)?;
@@ -587,7 +587,7 @@ impl Parser<'_> {
                 let right_paren = self.expect(TokenKind::RightParen)?;
                 let output = self.parse_output()?;
                 let span = fn_token.span.union(match &output {
-                    ReturnType::Default => right_paren.span,
+                    ReturnType::None => right_paren.span,
                     ReturnType::Type(type_exprs) => type_exprs.last().unwrap().span(),
                 });
                 TypeExpr::BareFn(BareFnType {
@@ -665,7 +665,19 @@ impl Parser<'_> {
                 );
                 return None;
             }
-        })
+        };
+        if self.matches(Token![|]).is_some() {
+            let right = self.parse_type()?;
+            let span = ty.span().union(right.span());
+            Some(TypeExpr::Union(UnionType {
+                left: ty.into(),
+                right: right.into(),
+                span,
+                id: self.id(),
+            }))
+        } else {
+            Some(ty)
+        }
     }
 
     fn parse_pat(&mut self) -> Option<Pat> {
@@ -1143,9 +1155,18 @@ impl Parser<'_> {
                     break;
                 }
             }
+            if let [
+                TypeExpr::Primitive(PrimitiveType {
+                    value: Primitive::Nil,
+                    ..
+                }),
+            ] = returns.as_slice()
+            {
+                return Some(ReturnType::None);
+            }
             ReturnType::Type(returns)
         } else {
-            ReturnType::Default
+            ReturnType::None
         };
         Some(output)
     }
@@ -1802,87 +1823,6 @@ impl Parser<'_> {
         }))
     }
 
-    // fn parse_impl_fn(&mut self, target: WithSpan<&Type>) -> Option<WithSpan<ItemFn>> {
-    //     let fn_token = self.expect(TokenKind::Fn)?;
-    //     let name = self.parse_ident()?;
-    //     self.expect(TokenKind::LeftParen)?;
-    //     let mut params = vec![];
-    //     while self.peek() != TokenKind::RightParen {
-    //         match self.peek() {
-    //             Token![self] => {
-    //                 self.expect(Token![self])?;
-    //                 if self.peek() == TokenKind::Comma {
-    //                     self.expect(TokenKind::Comma)?;
-    //                 }
-    //                 params.push(FnParam {
-    //                     kind: FnParamKind::Receiver,
-    //                     ty: target.clone().map(|t| t.clone()),
-    //                     name: WithSpan::new("self".to_string(), target.span),
-    //                     default_value: None,
-    //                 });
-    //             }
-    //             _ => {
-    //                 let ident = self.parse_ident()?;
-    //
-    //                 self.expect(TokenKind::Colon)?;
-    //                 let ty = self.parse_type()?;
-    //
-    //                 let default_value = if self.peek() == TokenKind::Eq {
-    //                     self.expect(TokenKind::Eq)?;
-    //                     Some(self.parse_expr(Precedence::Lowest)?)
-    //                 } else {
-    //                     None
-    //                 };
-    //
-    //                 if self.peek() == TokenKind::Comma {
-    //                     self.expect(TokenKind::Comma)?;
-    //                 }
-    //
-    //                 params.push(FnParam {
-    //                     kind: FnParamKind::Regular,
-    //                     ty,
-    //                     name: WithSpan::new(ident.value, ident.span),
-    //                     default_value,
-    //                 });
-    //             }
-    //         }
-    //     }
-    //     self.expect(TokenKind::RightParen)?;
-    //
-    //     let returns = if self.peek() == TokenKind::Arrow {
-    //         self.expect(TokenKind::Arrow)?;
-    //         let mut returns = vec![];
-    //         loop {
-    //             let ty = self.parse_type()?;
-    //             returns.push(ty);
-    //             if self.peek() == TokenKind::Comma {
-    //                 self.expect(TokenKind::Comma)?;
-    //             } else {
-    //                 break;
-    //             }
-    //         }
-    //         returns
-    //     } else {
-    //         vec![]
-    //     };
-    //
-    //     let body = self.parse_block()?;
-    //     Some(WithSpan::new(
-    //         ItemFn {
-    //             name: name.value,
-    //             params,
-    //             body: match body.value {
-    //                 Expr::Block(block) => WithSpan::new(block, body.span),
-    //                 _ => unreachable!(),
-    //             },
-    //             output: returns,
-    //             ty: None,
-    //         },
-    //         fn_token.span.union(body.span),
-    //     ))
-    // }
-    //
-
     fn parse_impl_fn(&mut self, target: &TypeExpr) -> Option<ImplItem> {
         let (fn_type, fn_type_span) = {
             if self.check(Token![fn]) {
@@ -1909,7 +1849,6 @@ impl Parser<'_> {
                 break;
             }
             if let Some(self_token) = self.matches(Token![self]) {
-                self.expect(Token![self])?;
                 self.matches(Token![,]);
                 params.push(FnParam::Receiver(Receiver {
                     ty: target.clone(),
@@ -1974,21 +1913,10 @@ impl Parser<'_> {
                 _ => unreachable!(),
             },
             output,
-            variadic: todo!(),
+            variadic: variadic_param,
             id: self.id(),
             span,
         }))
-        // Some(Item::Fn(ItemFn {
-        //     span,
-        //     name,
-        //     params,
-        //     body: match body {
-        //         Expr::Block(block) => block,
-        //         _ => unreachable!(),
-        //     },
-        //     output,
-        //     id: self.id(),
-        // }))
     }
 
     fn parse_impl_item(&mut self, target: &TypeExpr) -> Option<ImplItem> {

@@ -1,6 +1,6 @@
 use crate::token;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
 pub enum Primitive {
     Nil,
     Bool,

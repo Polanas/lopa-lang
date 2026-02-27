@@ -417,14 +417,14 @@ impl_combined!(PrimitiveType);
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ReturnType {
-    Default,
+    None,
     Type(Vec<TypeExpr>),
 }
 
 impl ReturnType {
     pub fn span(&self) -> Option<Span> {
         match self {
-            ReturnType::Default => None,
+            ReturnType::None => None,
             ReturnType::Type(type_exprs) => Some(
                 type_exprs
                     .iter()
@@ -474,6 +474,15 @@ pub struct SelfType {
 }
 impl_combined!(SelfType);
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct UnionType {
+    pub left: Box<TypeExpr>,
+    pub right: Box<TypeExpr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(UnionType);
+
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum TypeExpr {
@@ -485,10 +494,12 @@ impl_combined_enum! {
         Primitive(PrimitiveType),
         Paren(Box<TypeExpr>),
         Tuple(TupleType),
+        Union(UnionType),
     }
 }
 
 impl std::fmt::Display for TypeExpr {
+    //TODO: finish type displaying
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TypeExpr::Array(type_expr) => todo!(),
@@ -501,6 +512,7 @@ impl std::fmt::Display for TypeExpr {
             TypeExpr::Tuple(tuple_type) => {
                 todo!()
             }
+            TypeExpr::Union(union_type) => todo!(),
         }
     }
 }
