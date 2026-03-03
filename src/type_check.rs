@@ -324,7 +324,7 @@ impl Env {
         });
     }
 
-    fn type_item_ref(&mut self, kind: TypeItemKind, id: TypeId) -> TypeItemRef {
+    fn type_item_ref<'a>(&'a mut self, kind: TypeItemKind, id: TypeId) -> TypeItemRef<'a> {
         match kind {
             TypeItemKind::Struct => {
                 let ComplexType::Struct(strct) = self.complex_types.get_mut(&id).unwrap() else {
@@ -440,7 +440,7 @@ impl Env {
 
                 Type::Blank
             }
-            ast::TypeExpr::Receiver(_) => Type::Blank,
+            ast::TypeExpr::Receiver(_) => Type::Receiver,
             ast::TypeExpr::Primitive(primitive_type) => Type::Primitive(primitive_type.value),
             ast::TypeExpr::Paren(type_expr) => self.type_expr(type_expr),
             ast::TypeExpr::Tuple(_tuple_type) => todo!(),
@@ -613,7 +613,7 @@ impl Env {
         }
 
         let ty = self.func(func);
-        let id = self.add_type(ComplexType::Fn(ty));
+        let id = self.add_value(ComplexType::Fn(ty));
         self.types_by_ids.insert(func.id, Type::Fn(id));
     }
 
@@ -803,17 +803,59 @@ impl Env {
     }
 
     fn impl_item(&mut self, item_impl: &ast::ItemImpl) {
-        // let target = self.type_expr(&item_impl.target);
-        // for item in &item_impl.items {
-        //     match item {
-        //         ast::ImplItem::Fn(item_fn) => {}
-        //     }
-        // }
-        // match target {
-        //     Type::Struct(type_id) => todo!(),
-        //     Type::Enum(type_id) => todo!(),
-        //     _ => {}
-        // }
+        let target = self.type_expr(&item_impl.target);
+        let target_id = match target {
+            Type::Struct(type_id) => type_id,
+            Type::Enum(type_id) => type_id,
+            _ => {
+                unreachable!()
+            }
+        };
+
+        let mut complex_types = self.complex_types.clone();
+        let members = match complex_types.get_mut(&target_id).unwrap() {
+            ComplexType::Struct(s) => &mut s.members,
+            ComplexType::Enum(e) => &mut e.members,
+            _ => unreachable!(),
+        };
+
+        for ast::ImplItem::Fn(ast_func) in &item_impl.items {
+            let Member::Fn(func) = members
+                .iter_mut()
+                .find(|m| m.name() == ast_func.name.value)
+                .unwrap();
+
+            match &mut func.output {
+                ReturnType::None => {}
+                ReturnType::Type(items) => {
+                    let ast::ReturnType::Type(ast_items) = &ast_func.output else {
+                        unreachable!()
+                    };
+
+                    for (ty, ast_ty) in items.iter_mut().zip(ast_items.iter()) {
+                        self.update_type(ty, ast_ty);
+                    }
+                }
+            }
+
+            for (param, ast_param) in func.params.iter_mut().zip(ast_func.params.iter()) {
+                if let FnParam::Typed(typed) = param {
+                    let ast::FnParam::Typed(ast_typed) = ast_param else {
+                        unreachable!()
+                    };
+
+                    self.update_type(&mut typed.ty, &ast_typed.pat_type.ty);
+                }
+            }
+
+            if let Some(variadic) = &mut func.variadic {
+                let Some(ast_variadic) = &ast_func.variadic else {
+                    unreachable!()
+                };
+
+                self.update_type(&mut variadic.ty, &ast_variadic.ty);
+            }
+        }
     }
 
     fn inline_def(&mut self, item_inline: &ast::ItemInline) {
@@ -885,13 +927,19 @@ impl Env {
         }
     }
 
-    fn collect(&mut self, program: &[ast::Item]) {
+    fn collect(&mut self, program: &[ast::Item]) -> Option<()> {
         for item in program {
             self.item_def(item);
+        }
+        if !self.diagnostics.is_empty() {
+            return None;
         }
 
         for item in program {
             self.impl_def(item);
+        }
+        if !self.diagnostics.is_empty() {
+            return None;
         }
 
         loop {
@@ -906,6 +954,10 @@ impl Env {
         }
         ReceiverResolver::new(self).resolve();
         dbg!(&self.complex_types);
+        if !self.diagnostics.is_empty() {
+            return None;
+        }
+        Some(())
     }
 }
 

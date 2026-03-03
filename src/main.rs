@@ -6,12 +6,13 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer, type_check};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        enum X {
-            A {z: Z}
-        }
+        struct Vec2 {}
 
-        struct Z {y: Y}
-        struct Y {}
+        impl Vec2 {
+            fn add(self, other: Self) -> Self {
+                self
+            }
+        }
     "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);

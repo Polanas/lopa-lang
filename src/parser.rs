@@ -175,6 +175,13 @@ impl Parser<'_> {
     }
 
     fn parse_ident(&mut self) -> Option<Ident> {
+        if let Some(self_token) = self.matches(Token![self]) {
+            return Some(Ident {
+                value: "self".to_string(),
+                span: self_token.span,
+                id: self.id(),
+            });
+        }
         let WithSpan {
             value: Token::Ident(ident),
             span,
@@ -213,7 +220,7 @@ impl Parser<'_> {
 
     fn parse_interpolated_string(
         &mut self,
-        mut value: String,
+        value: String,
         span: Span,
     ) -> Option<LitInterpolatedString> {
         let mut char_start_pos;
@@ -377,7 +384,7 @@ impl Parser<'_> {
                     }),
                 }))
             }
-            TokenKind::Ident => {
+            TokenKind::Ident | Token![self] => {
                 let mut path = self.parse_path()?;
                 Some(if self.check(TokenKind::LeftBrace) {
                     self.parse_struct_init(path)?
@@ -832,6 +839,7 @@ impl Parser<'_> {
             | Token![nil]
             | Token![true]
             | Token![false]
+            | Token![self]
             | TokenKind::Ident
             | TokenKind::String => self.parse_primary(),
             Token![!] | Token![-] => self.parse_unary(),

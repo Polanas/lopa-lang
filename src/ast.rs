@@ -93,6 +93,12 @@ pub struct Ident {
 }
 impl_combined!(Ident);
 
+impl Ident {
+    pub fn is_self(&self) -> bool {
+        self.value == "self"
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct BinaryExpr {
     pub left: Box<Expr>,
