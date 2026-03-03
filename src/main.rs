@@ -6,7 +6,7 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer, type_check};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        struct S{}
+        struct X { x: X }
     "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);

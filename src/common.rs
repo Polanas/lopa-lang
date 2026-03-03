@@ -55,12 +55,6 @@ pub enum StructKind {
     Native,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
-pub enum FnParamKind {
-    Regular,
-    Receiver,
-}
-
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum UnaryOp {
     Not,

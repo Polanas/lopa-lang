@@ -549,8 +549,16 @@ impl Parser<'_> {
                 self.expect(TokenKind::LeftParen)?;
                 let mut params = vec![];
                 while !self.check(TokenKind::RightParen) {
-                    let ident = if (self.peek(), self.peek_next())
-                        == (TokenKind::Ident, TokenKind::Colon)
+                    if (self.peek(), self.peek()) == (Token![Self], Token![:]) {
+                        let receiver = self.expect(Token![Self])?;
+                        self.expect(Token![:])?;
+                        params.push(BareFnParam::Receiver(Receiver {
+                            span: receiver.span,
+                            id: self.id(),
+                        }));
+                        continue;
+                    }
+                    let ident = if (self.peek(), self.peek_next()) == (TokenKind::Ident, Token![:])
                     {
                         let ident = self.parse_ident()?;
                         self.expect(Token![:])?;
@@ -576,13 +584,12 @@ impl Parser<'_> {
                         break;
                     }
 
-                    params.push(BareFnParam {
-                        span,
-                        kind: FnParamKind::Regular,
+                    params.push(BareFnParam::Typed(BareFnParamTyped {
                         ident,
                         ty,
+                        span,
                         id: self.id(),
-                    });
+                    }));
                 }
                 let right_paren = self.expect(TokenKind::RightParen)?;
                 let output = self.parse_output()?;
@@ -1823,7 +1830,7 @@ impl Parser<'_> {
         }))
     }
 
-    fn parse_impl_fn(&mut self, target: &TypeExpr) -> Option<ImplItem> {
+    fn parse_impl_fn(&mut self) -> Option<ImplItem> {
         let (fn_type, fn_type_span) = {
             if self.check(Token![fn]) {
                 let fn_token = self.expect(Token![fn])?;
@@ -1851,7 +1858,6 @@ impl Parser<'_> {
             if let Some(self_token) = self.matches(Token![self]) {
                 self.matches(Token![,]);
                 params.push(FnParam::Receiver(Receiver {
-                    ty: target.clone(),
                     span: self_token.span,
                     id: self.id(),
                 }));
@@ -1919,8 +1925,8 @@ impl Parser<'_> {
         }))
     }
 
-    fn parse_impl_item(&mut self, target: &TypeExpr) -> Option<ImplItem> {
-        self.parse_impl_fn(target)
+    fn parse_impl_item(&mut self) -> Option<ImplItem> {
+        self.parse_impl_fn()
     }
 
     fn parse_impl(&mut self) -> Option<Item> {
@@ -1936,7 +1942,7 @@ impl Parser<'_> {
         self.expect(TokenKind::LeftBrace)?;
         let mut items = vec![];
         while !self.check(TokenKind::RightBrace) {
-            items.push(self.parse_impl_item(&target)?);
+            items.push(self.parse_impl_item()?);
         }
         let right_brace = self.expect(TokenKind::RightBrace)?;
         Some(Item::Impl(ItemImpl {

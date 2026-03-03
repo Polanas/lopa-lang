@@ -1,9 +1,10 @@
-use std::{collections::HashMap, ptr::fn_addr_eq};
+use std::collections::HashMap;
 
 use crate::{
     ast::{self, AstNodeId},
     common::{self, Primitive},
     position,
+    shared_mut::SharedMut,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -27,8 +28,7 @@ pub struct TypeId(pub usize);
 
 #[derive(Debug, Clone)]
 pub struct Union {
-    pub left: Box<Type>,
-    pub right: Box<Type>,
+    pub types: Vec<Type>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,6 +42,7 @@ pub enum Type {
     Array(Box<Type>),
     Block(Vec<Type>),
     Union(Union),
+    Receiver,
     Blank,
 }
 
@@ -99,33 +100,55 @@ pub struct Variadic {
 }
 
 #[derive(Debug, Clone)]
-pub struct FnParam {
-    pub param_kind: common::FnParamKind,
-    pub name: Option<String>,
+pub enum FnParam {
+    Receiver,
+    Typed(FnParamTyped),
+}
+
+#[derive(Debug, Clone)]
+pub struct FnParamTyped {
+    pub name: String,
     pub ty: Type,
     pub default_value: Option<Type>,
 }
 
 #[derive(Debug, Clone)]
+pub enum ReturnType {
+    None,
+    Type(Vec<Type>),
+}
+
+#[derive(Debug, Clone)]
+pub struct BareFnParam {
+    pub name: Option<String>,
+    pub ty: Type,
+}
+
+#[derive(Debug, Clone)]
 pub struct BareFn {
-    pub output: Vec<Type>,
-    pub params: Vec<FnParam>,
+    pub output: ReturnType,
+    pub params: Vec<BareFnParam>,
     pub variadic: Option<Box<Variadic>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Fn {
     pub name: String,
-    pub output: Vec<Type>,
+    pub output: ReturnType,
     pub params: Vec<FnParam>,
     pub variadic: Option<Variadic>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Discriminant {
+    pub value: Option<isize>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Variant {
     pub name: String,
     pub fields: Fields,
-    pub discriminant: Option<Type>,
+    pub discriminant: Option<Discriminant>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,21 +165,17 @@ pub enum ComplexType {
     Enum(Enum),
 }
 
-impl ComplexType {
-    fn kind(&self) -> ComplexTypeKind {
-        match self {
-            ComplexType::Struct(_) => ComplexTypeKind::Struct,
-            ComplexType::Fn(_) => ComplexTypeKind::Fn,
-            ComplexType::Enum(_) => ComplexTypeKind::Enum,
-        }
-    }
+#[derive(Debug, Clone, Copy)]
+pub enum TypeItemKind {
+    Struct,
+    Enum,
+    Trait,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ComplexTypeKind {
-    Struct,
+pub enum ValueItemKind {
     Fn,
-    Enum,
+    Static,
 }
 
 impl ComplexType {
@@ -169,14 +188,110 @@ impl ComplexType {
     }
 }
 
-#[derive(Debug, Default)]
+struct ReceiverResolver<'env> {
+    env: &'env mut Env,
+    current_item: Option<(TypeId, TypeItemKind)>,
+}
+
+impl<'env> ReceiverResolver<'env> {
+    fn new(env: &'env mut Env) -> Self {
+        Self {
+            env,
+            current_item: None,
+        }
+    }
+
+    fn update_receiver(&mut self, ty: &mut Type) {
+        let (id, item_kind) = self.current_item.unwrap();
+        match item_kind {
+            TypeItemKind::Struct => {
+                *ty = Type::Struct(id);
+            }
+            TypeItemKind::Enum => {
+                *ty = Type::Enum(id);
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve(mut self) {
+        let mut complex_types = self.env.complex_types.clone();
+        for (id, complex_type) in complex_types.iter_mut() {
+            self.current_item = Some((
+                *id,
+                match complex_type {
+                    ComplexType::Struct(_) => TypeItemKind::Struct,
+                    ComplexType::Enum(_) => TypeItemKind::Enum,
+                    _ => unreachable!(),
+                },
+            ));
+
+            match complex_type {
+                ComplexType::Struct(strct) => {
+                    self.resolve_fields(&mut strct.fields);
+                    self.resolve_members(&mut strct.members);
+                }
+                ComplexType::Enum(en) => {
+                    for variant in en.variants.iter_mut() {
+                        self.resolve_fields(&mut variant.fields);
+                    }
+                    self.resolve_members(&mut en.members);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn resolve_members(&mut self, members: &mut [Member]) {
+        for member in members {
+            match member {
+                Member::Fn(func) => {
+                    for param in func.params.iter_mut() {
+                        if let FnParam::Typed(param) = param {
+                            self.update_receiver(&mut param.ty);
+                        }
+                    }
+                    match &mut func.output {
+                        ReturnType::None => {}
+                        ReturnType::Type(items) => {
+                            for item in items.iter_mut() {
+                                self.update_receiver(item);
+                            }
+                        }
+                    }
+                    if let Some(variadic) = &mut func.variadic {
+                        self.update_receiver(&mut variadic.ty);
+                    }
+                }
+            }
+        }
+    }
+
+    fn resolve_fields(&mut self, fields: &mut Fields) {
+        match fields {
+            Fields::Unit => {}
+            Fields::Named(fields) => {
+                for field in fields.iter_mut() {
+                    self.update_receiver(&mut field.ty);
+                }
+            }
+            Fields::Unnamed(fields) => {
+                for field in fields.iter_mut() {
+                    self.update_receiver(&mut field.ty);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 struct Env {
     // fns, statics
-    values_by_names: HashMap<String, (TypeId, ComplexTypeKind)>,
-    // structs, nums, traits
-    types_by_names: HashMap<String, (TypeId, ComplexTypeKind)>,
+    value_items: HashMap<String, (TypeId, ValueItemKind)>,
+    // structs, enums, traits
+    type_items: HashMap<String, (TypeId, TypeItemKind)>,
     types_by_ids: HashMap<AstNodeId, Type>,
-    complex_types: HashMap<TypeId, ComplexType>,
+    complex_types: SharedMut<HashMap<TypeId, ComplexType>>,
     has_progress: bool,
     last_type_id: TypeId,
     diagnostics: Vec<position::Diagnostic>,
@@ -186,11 +301,11 @@ impl Env {
     fn new() -> Self {
         Self {
             types_by_ids: Default::default(),
-            complex_types: Default::default(),
+            complex_types: SharedMut::new(Default::default()),
             has_progress: Default::default(),
             last_type_id: Default::default(),
-            values_by_names: Default::default(),
-            types_by_names: Default::default(),
+            value_items: Default::default(),
+            type_items: Default::default(),
             diagnostics: Default::default(),
         }
     }
@@ -210,16 +325,33 @@ impl Env {
 
     fn add_value(&mut self, ty: ComplexType) -> TypeId {
         let id = self.type_id();
-        self.values_by_names
-            .insert(ty.name().to_owned(), (id, ty.kind()));
+        self.value_items.insert(
+            ty.name().to_owned(),
+            (
+                id,
+                match ty {
+                    ComplexType::Fn(_) => ValueItemKind::Fn,
+                    _ => unreachable!(),
+                },
+            ),
+        );
         self.complex_types.insert(id, ty);
         id
     }
 
     fn add_type(&mut self, ty: ComplexType) -> TypeId {
         let id = self.type_id();
-        self.types_by_names
-            .insert(ty.name().to_owned(), (id, ty.kind()));
+        self.type_items.insert(
+            ty.name().to_owned(),
+            (
+                id,
+                match ty {
+                    ComplexType::Struct(_) => TypeItemKind::Struct,
+                    ComplexType::Enum(_) => TypeItemKind::Enum,
+                    _ => unimplemented!(),
+                },
+            ),
+        );
         self.complex_types.insert(id, ty);
         id
     }
@@ -230,78 +362,298 @@ impl Env {
                 let inner = self.type_expr(type_expr);
                 Type::Array(inner.into())
             }
-            ast::TypeExpr::BareFn(bare_fn_type) => {
-                bare_fn_type.output
-                Type::BareFn(BareFn { output: (), params: (), variadic: () })
-            }
+            ast::TypeExpr::BareFn(bare_fn) => Type::BareFn(BareFn {
+                output: match &bare_fn.output {
+                    ast::ReturnType::None => ReturnType::None,
+                    ast::ReturnType::Type(type_exprs) => ReturnType::Type(
+                        type_exprs
+                            .iter()
+                            .map(|ty| self.type_expr(ty))
+                            .collect::<Vec<_>>(),
+                    ),
+                },
+                params: bare_fn
+                    .params
+                    .iter()
+                    .map(|p| match p {
+                        ast::BareFnParam::Receiver(_) => BareFnParam {
+                            name: None,
+                            ty: Type::Receiver,
+                        },
+                        ast::BareFnParam::Typed(param) => BareFnParam {
+                            name: param.ident.as_ref().map(|i| i.value.clone()),
+                            ty: self.type_expr(&param.ty),
+                        },
+                    })
+                    .collect::<_>(),
+                variadic: bare_fn.variadic.as_ref().map(|v| {
+                    Variadic {
+                        name: v.ident.as_ref().map(|i| i.value.clone()),
+                        ty: self.type_expr(&v.ty),
+                    }
+                    .into()
+                }),
+            }),
             ast::TypeExpr::Nilable(type_expr) => Type::Nilable(self.type_expr(type_expr).into()),
             ast::TypeExpr::Path(path) => {
                 //TODO: add proper modules support
                 let name = &path.segments[0].ident.value;
 
-                if let Some(value) = self.values_by_names.get(name.as_str()) {
-                    // Type::
+                if let Some((id, kind)) = self.type_items.get(name.as_str()) {
+                    return match kind {
+                        TypeItemKind::Struct => Type::Struct(*id),
+                        TypeItemKind::Enum => Type::Struct(*id),
+                        TypeItemKind::Trait => todo!(),
+                    };
                 }
-                todo!()
+                if let Some((id, kind)) = self.value_items.get(name.as_str()) {
+                    return match kind {
+                        ValueItemKind::Fn => Type::Fn(*id),
+                        ValueItemKind::Static => todo!(),
+                    };
+                }
+
+                Type::Blank
             }
             ast::TypeExpr::SelfType(_) => Type::Blank,
             ast::TypeExpr::Primitive(primitive_type) => Type::Primitive(primitive_type.value),
             ast::TypeExpr::Paren(type_expr) => self.type_expr(type_expr),
             ast::TypeExpr::Tuple(_tuple_type) => todo!(),
-            ast::TypeExpr::Union(union_type) => todo!(),
+            ast::TypeExpr::Union(union_type) => {
+                let mut types = vec![];
+                let mut head = &*union_type.right;
+
+                while let ast::TypeExpr::Union(ast::UnionType { left, right, .. }) = head {
+                    types.push(self.type_expr(left));
+                    head = right;
+                }
+
+                types.push(self.type_expr(head));
+                Type::Union(Union { types })
+            }
         }
     }
 
-    fn strct(&mut self, strct: &ast::ItemStruct) {
-        if self.types_by_names.contains_key(&strct.name.value) {
+    fn strct(&mut self, ast_strct: &ast::ItemStruct) {
+        let (id, _) = self.type_items.get_mut(&ast_strct.name.value).unwrap();
+        let mut complex_types = self.complex_types.clone();
+        let ComplexType::Struct(strct) = complex_types.get_mut(id).unwrap() else {
+            unreachable!();
+        };
+
+        match &mut strct.fields {
+            Fields::Unit => {}
+            Fields::Named(fields) => {
+                let ast::Fields::Named(ast_fields) = &ast_strct.fields else {
+                    unreachable!()
+                };
+                for (field, ast_field) in fields.iter_mut().zip(ast_fields.fields.iter()) {
+                    self.update_type(&mut field.ty, &ast_field.ty);
+                }
+            }
+            Fields::Unnamed(fields) => {
+                let ast::Fields::Unnamed(ast_fields) = &ast_strct.fields else {
+                    unreachable!()
+                };
+                for (field, ast_field) in fields.iter_mut().zip(ast_fields.fields.iter()) {
+                    self.update_type(&mut field.ty, &ast_field.ty);
+                }
+            }
+        }
+    }
+
+    fn update_type(&mut self, ty: &mut Type, expr: &ast::TypeExpr) {
+        if let Type::Blank = ty {
+            *ty = self.type_expr(expr);
+            if !matches!(ty, Type::Blank) {
+                self.has_progress = true;
+            }
+        }
+    }
+
+    fn strct_def(&mut self, strct: &ast::ItemStruct) {
+        if self.type_items.contains_key(&strct.name.value) {
             self.add_error(
                 &format!(
-                    "The struct named '{}' is added multiple times",
+                    "struct named '{}' is defined multiple times",
                     &strct.name.value
                 ),
                 strct.span,
             );
-        } else {
-            let ty = match &strct.fields {
-                ast::Fields::Unit => ComplexType::Struct(Struct {
-                    name: strct.name.value.clone(),
-                    fields: Fields::Unit,
-                    members: Default::default(),
+            return;
+        }
+        let fields = self.fields_def(&strct.fields);
+        let ty = ComplexType::Struct(Struct {
+            name: strct.name.value.clone(),
+            fields,
+            members: Default::default(),
+        });
+        let id = self.add_type(ty);
+        self.types_by_ids.insert(strct.id, Type::Struct(id));
+    }
+
+    fn fields_def(&mut self, fields: &ast::Fields) -> Fields {
+        match &fields {
+            ast::Fields::Unit => Fields::Unit,
+            ast::Fields::Named(fields_named) => {
+                let mut fields = Vec::new();
+                for field in &fields_named.fields {
+                    let name = field.name.as_ref().unwrap().value.clone();
+                    fields.push(Field {
+                        ty: self.type_expr(&field.ty),
+                        default_value: field.default_value.as_ref().map(|_| Type::Blank),
+                        name: Some(name.clone()),
+                    });
+                }
+                Fields::Named(fields)
+            }
+            ast::Fields::Unnamed(fields_unnamed) => {
+                let mut fields = Vec::new();
+                for field in &fields_unnamed.fields {
+                    fields.push(Field {
+                        ty: self.type_expr(&field.ty),
+                        default_value: field.default_value.as_ref().map(|_| Type::Blank),
+                        name: None,
+                    });
+                }
+                Fields::Unnamed(fields)
+            }
+        }
+    }
+
+    fn func_def(&mut self, func: &ast::ItemFn) {
+        if self.value_items.contains_key(&func.name.value) {
+            self.add_error(
+                &format!(
+                    "function named '{}' is defined multiple times",
+                    &func.name.value
+                ),
+                func.span,
+            );
+            return;
+        }
+
+        let output = match &func.output {
+            ast::ReturnType::None => ReturnType::None,
+            ast::ReturnType::Type(type_exprs) => {
+                let mut types = vec![];
+                for type_expr in type_exprs.iter() {
+                    types.push(self.type_expr(type_expr));
+                }
+                ReturnType::Type(types)
+            }
+        };
+        let mut params = vec![];
+        for param in func.params.iter() {
+            params.push(match param {
+                ast::FnParam::Receiver(_) => FnParam::Receiver,
+                ast::FnParam::Typed(param) => FnParam::Typed(FnParamTyped {
+                    //TODO: check patterns accordingly
+                    name: match &*param.pat_type.pat {
+                        ast::Pat::Ident(pat_ident) => pat_ident.value.value.clone(),
+                        ast::Pat::Paren(pat_paren) => unreachable!(),
+                        ast::Pat::Path(path) => unreachable!(),
+                    },
+                    ty: self.type_expr(&param.pat_type.ty),
+                    default_value: param.default_value.as_ref().map(|_| Type::Blank),
                 }),
-                ast::Fields::Named(fields_named) => {
-                    let mut fields = Vec::new();
-                    for field in &fields_named.fields {
-                        let name = field.name.as_ref().unwrap().value.clone();
-                        fields.push(Field {
-                            ty: self.type_expr(&field.ty),
-                            default_value: field.default_value.as_ref().map(|_| Type::Blank),
-                            name: Some(name.clone()),
-                        });
-                    }
-                    ComplexType::Struct(Struct {
-                        name: strct.name.value.clone(),
-                        fields: Fields::Named(fields),
-                        members: Default::default(),
-                    })
+            });
+        }
+        let ty = ComplexType::Fn(Fn {
+            name: func.name.value.clone(),
+            output,
+            params,
+            variadic: func.variadic.as_ref().map(|v| Variadic {
+                name: v.ident.as_ref().map(|i| i.value.clone()),
+                ty: self.type_expr(&v.ty),
+            }),
+        });
+        let id = self.add_type(ty);
+        self.types_by_ids.insert(func.id, Type::Fn(id));
+    }
+
+    fn func(&mut self, ast_func: &ast::ItemFn) {
+        let (id, _) = self.value_items.get_mut(&ast_func.name.value).unwrap();
+        let mut complex_types = self.complex_types.clone();
+        let ComplexType::Fn(func) = complex_types.get_mut(id).unwrap() else {
+            unreachable!()
+        };
+
+        match &mut func.output {
+            ReturnType::None => {}
+            ReturnType::Type(items) => {
+                let ast::ReturnType::Type(ast_items) = &ast_func.output else {
+                    unreachable!()
+                };
+
+                for (ty, ast_ty) in items.iter_mut().zip(ast_items.iter()) {
+                    self.update_type(ty, ast_ty);
                 }
-                ast::Fields::Unnamed(fields_unnamed) => {
-                    let mut fields = Vec::new();
-                    for field in &fields_unnamed.fields {
-                        fields.push(Field {
-                            ty: self.type_expr(&field.ty),
-                            default_value: field.default_value.as_ref().map(|_| Type::Blank),
-                            name: None,
-                        });
-                    }
-                    ComplexType::Struct(Struct {
-                        name: strct.name.value.clone(),
-                        fields: Fields::Named(fields),
-                        members: Default::default(),
-                    })
-                }
+            }
+        }
+
+        for (param, ast_param) in func.params.iter_mut().zip(ast_func.params.iter()) {
+            if let FnParam::Typed(typed) = param {
+                let ast::FnParam::Typed(ast_typed) = ast_param else {
+                    unreachable!()
+                };
+
+                self.update_type(&mut typed.ty, &ast_typed.pat_type.ty);
+            }
+        }
+
+        if let Some(variadic) = &mut func.variadic {
+            let Some(ast_variadic) = &ast_func.variadic else {
+                unreachable!()
             };
-            let id = self.add_type(ty);
-            self.types_by_ids.insert(strct.id, Type::Struct(id));
+
+            self.update_type(&mut variadic.ty, &ast_variadic.ty);
+        }
+    }
+
+    fn enum_def(&mut self, en: &ast::ItemEnum) {
+        if self.type_items.contains_key(&en.name.value) {
+            self.add_error(
+                &format!("en named '{}' is defined multiple times", &en.name.value),
+                en.span,
+            );
+            return;
+        }
+        let mut variants = vec![];
+        for variant in en.variants.iter() {
+            let fields = self.fields_def(&variant.fields);
+            variants.push(Variant {
+                name: variant.name.value.clone(),
+                fields,
+                discriminant: variant
+                    .discriminant
+                    .as_ref()
+                    .map(|_| Discriminant::default()),
+            })
+        }
+        let ty = ComplexType::Enum(Enum {
+            name: en.name.value.clone(),
+            variants,
+            members: Default::default(),
+        });
+        let id = self.add_type(ty);
+        self.types_by_ids.insert(en.id, Type::Enum(id));
+    }
+
+    fn item_def(&mut self, item: &ast::Item) {
+        match item {
+            ast::Item::Struct(item_struct) => {
+                self.strct_def(item_struct);
+            }
+            ast::Item::Fn(item_fn) => {
+                self.func_def(item_fn);
+            }
+            ast::Item::Enum(item_enum) => {
+                self.enum_def(item_enum);
+            }
+            ast::Item::Impl(item_impl) => todo!(),
+            ast::Item::Inline(item_inline) => todo!(),
+            ast::Item::Extern(item_extern) => todo!(),
         }
     }
 
@@ -320,10 +672,20 @@ impl Env {
 
     fn collect(&mut self, program: &[ast::Item]) {
         for item in program {
-            self.item(item);
+            self.item_def(item);
         }
-        // loop {
-        // }
+
+        loop {
+            self.has_progress = false;
+            for item in program {
+                self.item(item);
+            }
+
+            if !self.has_progress {
+                break;
+            }
+        }
+        ReceiverResolver::new(self).resolve();
     }
 }
 
@@ -338,7 +700,7 @@ impl<'a> Context<'a> {
         Self {
             diagnostics: Default::default(),
             source: Default::default(),
-            env: Default::default(),
+            env: Env::new(),
         }
     }
 

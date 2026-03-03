@@ -525,7 +525,6 @@ impl TypeExpr {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Receiver {
-    pub ty: TypeExpr,
     pub span: Span,
     pub id: AstNodeId,
 }
@@ -892,11 +891,18 @@ pub struct BareVariadic {
 impl_combined!(BareVariadic);
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct BareFnParam {
-    pub kind: common::FnParamKind,
+pub struct BareFnParamTyped {
     pub ident: Option<Ident>,
     pub ty: TypeExpr,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(BareFnParam);
+impl_combined!(BareFnParamTyped);
+
+impl_combined_enum! {
+    #[derive(Debug, PartialEq, Clone)]
+    pub enum BareFnParam {
+        Receiver(Receiver),
+        Typed(BareFnParamTyped),
+    }
+}
