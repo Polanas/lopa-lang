@@ -607,7 +607,7 @@ impl Parser<'_> {
             }
             Token![Self] => {
                 let self_type = self.expect(Token![Self])?;
-                TypeExpr::SelfType(SelfType {
+                TypeExpr::Receiver(Receiver {
                     span: self_type.span,
                     id: self.id(),
                 })
@@ -1731,7 +1731,7 @@ impl Parser<'_> {
             let ty = self.parse_type()?;
             self.matches(Token![,]);
             if let Some(variadic) = &variadic {
-                variadic_param = Some(BareVariadic {
+                variadic_param = Some(Variadic {
                     ident: Some(ident),
                     span: variadic.span.union(ty.span()),
                     ty: ty.into(),
@@ -1775,6 +1775,7 @@ impl Parser<'_> {
             id: self.id(),
             span,
             output,
+            variadic: variadic_param,
         })
     }
 

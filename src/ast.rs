@@ -2,6 +2,7 @@ use crate::{
     common::{self, *},
     position::{Span, Spanned},
 };
+use itertools::Itertools;
 use paste::paste;
 
 macro_rules! impl_spanned {
@@ -468,13 +469,6 @@ pub struct TupleType {
 impl_combined!(TupleType);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct SelfType {
-    pub span: Span,
-    pub id: AstNodeId,
-}
-impl_combined!(SelfType);
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct UnionType {
     pub left: Box<TypeExpr>,
     pub right: Box<TypeExpr>,
@@ -490,7 +484,7 @@ impl_combined_enum! {
         BareFn(BareFnType),
         Nilable(Box<TypeExpr>),
         Path(Path),
-        SelfType(SelfType),
+        Receiver(Receiver),
         Primitive(PrimitiveType),
         Paren(Box<TypeExpr>),
         Tuple(TupleType),
@@ -502,17 +496,57 @@ impl std::fmt::Display for TypeExpr {
     //TODO: finish type displaying
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypeExpr::Array(type_expr) => todo!(),
-            TypeExpr::BareFn(bare_fn_type) => todo!(),
-            TypeExpr::Nilable(type_expr) => write!(f, "{type_expr}"),
-            TypeExpr::Path(path) => todo!(),
-            TypeExpr::SelfType(self_type) => write!(f, "Self"),
-            TypeExpr::Primitive(primitive_type) => write!(f, "{}", primitive_type.value),
-            TypeExpr::Paren(type_expr) => todo!(),
-            TypeExpr::Tuple(tuple_type) => {
-                todo!()
+            TypeExpr::Array(type_expr) => write!(f, "[{type_expr}]"),
+            TypeExpr::BareFn(bare_fn_type) => {
+                let params = bare_fn_type
+                    .params
+                    .iter()
+                    .map(|p| match p {
+                        BareFnParam::Receiver(_) => String::from("self"),
+                        BareFnParam::Typed(typed) => {
+                            if let Some(name) = &typed.ident {
+                                format!("{}: {}", &name.value, typed.ty)
+                            } else {
+                                format!("{}", typed.ty)
+                            }
+                        }
+                    })
+                    .join(", ");
+                let output = match &bare_fn_type.output {
+                    ReturnType::None => None,
+                    ReturnType::Type(type_exprs) => Some(type_exprs.iter().join(", ")),
+                };
+                let returns_none = match &bare_fn_type.output {
+                    ReturnType::None => true,
+                    ReturnType::Type(type_exprs) => matches!(
+                        type_exprs.as_slice(),
+                        [TypeExpr::Primitive(PrimitiveType {
+                            value: Primitive::Nil,
+                            ..
+                        })]
+                    ),
+                };
+                if let Some(output) = output
+                    && !returns_none
+                {
+                    write!(f, "fn({params}) -> {output}")
+                } else {
+                    write!(f, "fn({params})")
+                }
             }
-            TypeExpr::Union(union_type) => todo!(),
+            TypeExpr::Nilable(type_expr) => write!(f, "{type_expr}"),
+            TypeExpr::Path(path) => write!(
+                f,
+                "{}",
+                path.segments.iter().map(|s| &s.ident.value).join("::")
+            ),
+            TypeExpr::Receiver(_) => write!(f, "Self"),
+            TypeExpr::Primitive(primitive_type) => write!(f, "{}", primitive_type.value),
+            TypeExpr::Paren(type_expr) => write!(f, "{type_expr}"),
+            TypeExpr::Union(union_type) => write!(f, "{} | {}", union_type.left, union_type.right),
+            TypeExpr::Tuple(_tuple_type) => {
+                unimplemented!()
+            }
         }
     }
 }
@@ -592,6 +626,7 @@ pub struct InlineFn {
     pub output: ReturnType,
     pub body: LitString,
     pub id: AstNodeId,
+    pub variadic: Option<Variadic>,
     pub span: Span,
 }
 impl_combined!(InlineFn);
