@@ -203,14 +203,16 @@ impl<'env> ReceiverResolver<'env> {
 
     fn update_receiver(&mut self, ty: &mut Type) {
         let (id, item_kind) = self.current_item.unwrap();
-        match item_kind {
-            TypeItemKind::Struct => {
-                *ty = Type::Struct(id);
+        if let Type::Receiver = ty {
+            match item_kind {
+                TypeItemKind::Struct => {
+                    *ty = Type::Struct(id);
+                }
+                TypeItemKind::Enum => {
+                    *ty = Type::Enum(id);
+                }
+                _ => {}
             }
-            TypeItemKind::Enum => {
-                *ty = Type::Enum(id);
-            }
-            _ => {}
         }
     }
 
@@ -457,7 +459,7 @@ impl Env {
         }
     }
 
-    fn en(&mut self, ast_enum: &ast::ItemEnum) {
+    fn enum_item(&mut self, ast_enum: &ast::ItemEnum) {
         let (id, _) = self.type_items.get_mut(&ast_enum.name.value).unwrap();
         let mut complex_types = self.complex_types.clone();
         let ComplexType::Enum(en) = complex_types.get_mut(id).unwrap() else {
@@ -469,7 +471,7 @@ impl Env {
         }
     }
 
-    fn strct(&mut self, ast_strct: &ast::ItemStruct) {
+    fn struct_item(&mut self, ast_strct: &ast::ItemStruct) {
         let (id, _) = self.type_items.get_mut(&ast_strct.name.value).unwrap();
         let mut complex_types = self.complex_types.clone();
         let ComplexType::Struct(strct) = complex_types.get_mut(id).unwrap() else {
@@ -510,7 +512,7 @@ impl Env {
         }
     }
 
-    fn strct_def(&mut self, strct: &ast::ItemStruct) {
+    fn struct_def(&mut self, strct: &ast::ItemStruct) {
         if self.type_items.contains_key(&strct.name.value) {
             self.add_error(
                 &format!(
@@ -598,7 +600,7 @@ impl Env {
         Some(Member::Fn(ty))
     }
 
-    fn func_def(&mut self, func: &ast::ItemFn) {
+    fn fn_def(&mut self, func: &ast::ItemFn) {
         if self.value_items.contains_key(&func.name.value) {
             self.add_error(
                 &format!(
@@ -691,7 +693,7 @@ impl Env {
         }
     }
 
-    fn global_func(&mut self, ast_func: &ast::ItemFn) {
+    fn fn_item(&mut self, ast_func: &ast::ItemFn) {
         let (id, _) = self.value_items.get_mut(&ast_func.name.value).unwrap();
         let mut complex_types = self.complex_types.clone();
         let ComplexType::Fn(func) = complex_types.get_mut(id).unwrap() else {
@@ -727,6 +729,47 @@ impl Env {
             };
 
             self.update_type(&mut variadic.ty, &ast_variadic.ty);
+        }
+    }
+
+    fn inline_item(&mut self, inline_item: &ast::ItemInline) {
+        for def in &inline_item.defs {
+            let (id, _) = self.value_items.get_mut(&def.name.value).unwrap();
+            let mut complex_types = self.complex_types.clone();
+            let ComplexType::Fn(func) = complex_types.get_mut(id).unwrap() else {
+                unreachable!()
+            };
+
+            match &mut func.output {
+                ReturnType::None => {}
+                ReturnType::Type(items) => {
+                    let ast::ReturnType::Type(ast_items) = &def.output else {
+                        unreachable!()
+                    };
+
+                    for (ty, ast_ty) in items.iter_mut().zip(ast_items.iter()) {
+                        self.update_type(ty, ast_ty);
+                    }
+                }
+            }
+
+            for (param, ast_param) in func.params.iter_mut().zip(def.params.iter()) {
+                if let FnParam::Typed(typed) = param {
+                    let ast::FnParam::Typed(ast_typed) = ast_param else {
+                        unreachable!()
+                    };
+
+                    self.update_type(&mut typed.ty, &ast_typed.pat_type.ty);
+                }
+            }
+
+            if let Some(variadic) = &mut func.variadic {
+                let Some(ast_variadic) = &def.variadic else {
+                    unreachable!()
+                };
+
+                self.update_type(&mut variadic.ty, &ast_variadic.ty);
+            }
         }
     }
 
@@ -785,13 +828,16 @@ impl Env {
                 );
                 return;
             }
+            let ty = self.inline_func(def);
+            let id = self.add_type(ComplexType::Fn(ty));
+            self.types_by_ids.insert(def.id, Type::Fn(id));
         }
     }
 
     fn item_def(&mut self, item: &ast::Item) {
         match item {
-            ast::Item::Struct(item_struct) => self.strct_def(item_struct),
-            ast::Item::Fn(item_fn) => self.func_def(item_fn),
+            ast::Item::Struct(item_struct) => self.struct_def(item_struct),
+            ast::Item::Fn(item_fn) => self.fn_def(item_fn),
             ast::Item::Enum(item_enum) => self.enum_def(item_enum),
             ast::Item::Inline(item_inline) => self.inline_def(item_inline),
             _ => {}
@@ -830,12 +876,12 @@ impl Env {
 
     fn item(&mut self, item: &ast::Item) {
         match item {
-            ast::Item::Struct(item_struct) => self.strct(item_struct),
-            ast::Item::Fn(item_fn) => {}
-            ast::Item::Extern(item_extern) => {}
-            ast::Item::Inline(item_inline) => {}
-            ast::Item::Enum(item_enum) => self.en(item_enum),
+            ast::Item::Struct(item_struct) => self.struct_item(item_struct),
+            ast::Item::Fn(item_fn) => self.fn_item(item_fn),
+            ast::Item::Enum(item_enum) => self.enum_item(item_enum),
             ast::Item::Impl(item_impl) => self.impl_item(item_impl),
+            ast::Item::Inline(item_inline) => self.inline_item(item_inline),
+            ast::Item::Extern(item_extern) => {}
         }
     }
 
@@ -859,6 +905,7 @@ impl Env {
             }
         }
         ReceiverResolver::new(self).resolve();
+        dbg!(&self.complex_types);
     }
 }
 
