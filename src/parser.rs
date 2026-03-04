@@ -540,6 +540,69 @@ impl Parser<'_> {
         }
     }
 
+    fn parse_attribs(&mut self) -> Option<Vec<Attrib>> {
+        let mut attribs = vec![];
+        while self.matches(Token![#]).is_some() {
+            self.expect(TokenKind::LeftBracket)?;
+            loop {
+                let path = self.parse_path()?;
+                if let [
+                    PathSegment {
+                        ident: Ident { value, .. },
+                        ..
+                    },
+                ] = path.segments.as_slice()
+                    && value == "operator"
+                {
+                    self.expect(TokenKind::LeftParen)?;
+                    if let Some(op) = self.parse_attrib_op() {
+                        let right = self.expect(TokenKind::RightParen)?;
+                        attribs.push(Attrib::Operator(OperatorAttrib {
+                            op,
+                            id: self.id(),
+                            span: path.span.union(right.span),
+                        }));
+                        if self.matches(TokenKind::RightBracket).is_some() {
+                            break;
+                        }
+                        continue;
+                    }
+
+                    let token = self.advance();
+                    self.add_error(
+                        &format!("expected binary operator, got {}", token.value.kind()),
+                        token.span,
+                    );
+                    return None;
+                }
+                let call_expr = if !self.check(TokenKind::LeftParen) {
+                    CallExpr {
+                        span: path.span,
+                        func: Expr::Path(path).into(),
+                        args: Default::default(),
+                        id: self.id(),
+                    }
+                } else {
+                    let Expr::Call(call_expr) = self.parse_call(Expr::Path(path))? else {
+                        unreachable!();
+                    };
+                    call_expr
+                };
+                attribs.push(Attrib::Item(ItemAttrib {
+                    span: call_expr.span,
+                    id: self.id(),
+                    expr: call_expr,
+                }));
+
+                self.matches(Token![,]);
+                if self.matches(TokenKind::RightBracket).is_some() {
+                    break;
+                }
+            }
+        }
+        Some(attribs)
+    }
+
     fn parse_type(&mut self) -> Option<TypeExpr> {
         let ty = match self.peek() {
             Token![nil] => {
@@ -745,20 +808,24 @@ impl Parser<'_> {
                 None
             };
             self.matches(Token![,]);
-            params.push(FnParam::Typed(FnParamTyped {
-                span: default_value
-                    .as_ref()
-                    .map(|d| pat.span().union(d.span()))
-                    .unwrap_or_else(|| pat.span().union(ty.span())),
-                pat_type: PatType {
-                    span: pat.span().union(ty.span()),
-                    pat: pat.into(),
-                    ty: ty.into(),
+            params.push(FnParam::Typed(
+                FnParamTyped {
+                    span: default_value
+                        .as_ref()
+                        .map(|d| pat.span().union(d.span()))
+                        .unwrap_or_else(|| pat.span().union(ty.span())),
+                    pat_type: PatType {
+                        span: pat.span().union(ty.span()),
+                        pat: pat.into(),
+                        ty: ty.into(),
+                        id: self.id(),
+                    },
+                    default_value,
                     id: self.id(),
-                },
-                default_value,
-                id: self.id(),
-            }));
+                    attribs: Default::default(),
+                }
+                .into(),
+            ));
         }
         self.expect(Token![|])?;
         let output = self.parse_output()?;
@@ -889,6 +956,53 @@ impl Parser<'_> {
         Some(WithSpan::new(op, token.span))
     }
 
+    fn parse_attrib_op(&mut self) -> Option<AttribOp> {
+        let token = self.advance();
+        let op = match &token.value.kind() {
+            Token![or] => AttribOp::Binary(BinaryOp::Or),
+            Token![and] => AttribOp::Binary(BinaryOp::And),
+            Token![else] => AttribOp::Binary(BinaryOp::Else),
+            Token![!=] => AttribOp::Binary(BinaryOp::NotEqual),
+            Token![==] => AttribOp::Binary(BinaryOp::Equal),
+            Token![<] => AttribOp::Binary(BinaryOp::Less),
+            Token![<=] => AttribOp::Binary(BinaryOp::LessEqual),
+            Token![>] => AttribOp::Binary(BinaryOp::Greater),
+            Token![>=] => AttribOp::Binary(BinaryOp::GreaterEqual),
+            Token![+] => AttribOp::Binary(BinaryOp::Add),
+            Token![-] => AttribOp::Binary(BinaryOp::Sub),
+            Token![*] => AttribOp::Binary(BinaryOp::Mult),
+            Token![/] => AttribOp::Binary(BinaryOp::Div),
+            Token![%] => AttribOp::Binary(BinaryOp::Rem),
+            Token![|] => AttribOp::Binary(BinaryOp::BitOr),
+            Token![&] => AttribOp::Binary(BinaryOp::BitAnd),
+            Token![^] => AttribOp::Binary(BinaryOp::BitXor),
+            Token![>>] => AttribOp::Binary(BinaryOp::Shr),
+            Token![<<] => AttribOp::Binary(BinaryOp::Shl),
+            TokenKind::Slash2 => AttribOp::Binary(BinaryOp::DivInt),
+
+            Token![+=] => AttribOp::Assign(BinaryAssignOp::Add),
+            Token![-=] => AttribOp::Assign(BinaryAssignOp::Sub),
+            Token![*=] => AttribOp::Assign(BinaryAssignOp::Mul),
+            Token![/=] => AttribOp::Assign(BinaryAssignOp::Div),
+            TokenKind::Slash2Eq => AttribOp::Assign(BinaryAssignOp::DivInt),
+            Token![%=] => AttribOp::Assign(BinaryAssignOp::Rem),
+            Token![&=] => AttribOp::Assign(BinaryAssignOp::BitOr),
+            Token![|=] => AttribOp::Assign(BinaryAssignOp::BitAnd),
+            Token![^=] => AttribOp::Assign(BinaryAssignOp::BitXor),
+            Token![>>=] => AttribOp::Assign(BinaryAssignOp::Shr),
+            Token![<<=] => AttribOp::Assign(BinaryAssignOp::Shl),
+            _ => {
+                self.add_error(
+                    &format!("expected binary op, got {}", TokenKind::from(token.value)),
+                    token.span,
+                );
+                return None;
+            }
+        };
+
+        Some(op)
+    }
+
     fn parse_binary_op(&mut self) -> Option<WithSpan<BinaryOp>> {
         let token = self.advance();
         let op = match &token.value.kind() {
@@ -911,6 +1025,7 @@ impl Parser<'_> {
             Token![^] => BinaryOp::BitXor,
             Token![>>] => BinaryOp::Shr,
             Token![<<] => BinaryOp::Shl,
+            TokenKind::Slash2 => BinaryOp::DivInt,
             _ => {
                 self.add_error(
                     &format!("expected binary op, got {}", TokenKind::from(token.value)),
@@ -1070,7 +1185,7 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_fn(&mut self) -> Option<Item> {
+    fn parse_fn(&mut self, fn_attribs: Vec<Attrib>) -> Option<Item> {
         let (fn_type, fn_type_span) = {
             if self.check(Token![fn]) {
                 let fn_token = self.expect(Token![fn])?;
@@ -1096,6 +1211,7 @@ impl Parser<'_> {
                 });
                 break;
             }
+            let attribs = self.parse_attribs()?;
             let pat = self.parse_pat()?;
 
             self.expect(Token![:])?;
@@ -1124,20 +1240,24 @@ impl Parser<'_> {
 
             self.matches(Token![,]);
 
-            params.push(FnParam::Typed(FnParamTyped {
-                span: default_value
-                    .as_ref()
-                    .map(|d| pat.span().union(d.span()))
-                    .unwrap_or_else(|| pat.span().union(ty.span())),
-                pat_type: PatType {
-                    span: pat.span().union(ty.span()),
-                    pat: pat.into(),
-                    ty: ty.into(),
+            params.push(FnParam::Typed(
+                FnParamTyped {
+                    span: default_value
+                        .as_ref()
+                        .map(|d| pat.span().union(d.span()))
+                        .unwrap_or_else(|| pat.span().union(ty.span())),
+                    pat_type: PatType {
+                        span: pat.span().union(ty.span()),
+                        pat: pat.into(),
+                        ty: ty.into(),
+                        id: self.id(),
+                    },
+                    default_value,
                     id: self.id(),
-                },
-                default_value,
-                id: self.id(),
-            }));
+                    attribs,
+                }
+                .into(),
+            ));
         }
         self.expect(TokenKind::RightParen)?;
 
@@ -1157,6 +1277,7 @@ impl Parser<'_> {
             id: self.id(),
             variadic: variadic_param,
             fn_type,
+            attribs: fn_attribs,
         }))
     }
 
@@ -1416,19 +1537,20 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_enum(&mut self) -> Option<Item> {
+    fn parse_enum(&mut self, enum_attribs: Vec<Attrib>) -> Option<Item> {
         let enum_token = self.expect(Token![enum])?;
         let name = self.parse_ident()?;
         let mut variants = vec![];
 
         self.expect(TokenKind::LeftBrace)?;
         while !self.check(TokenKind::RightBrace) {
+            let attribs = self.parse_attribs()?;
             let name = self.parse_ident()?;
 
             let variant = match self.peek() {
                 TokenKind::LeftBrace => {
                     let left = self.expect(TokenKind::LeftBrace)?;
-                    let fields = self.parse_fields_named()?;
+                    let fields = self.parse_fields_named(TokenKind::RightBrace)?;
                     let right = self.expect(TokenKind::RightBrace)?;
 
                     EnumVariant {
@@ -1441,6 +1563,7 @@ impl Parser<'_> {
                         }),
                         discriminant: None,
                         id: self.id(),
+                        attribs,
                     }
                 }
                 TokenKind::LeftParen => {
@@ -1458,6 +1581,7 @@ impl Parser<'_> {
                         }),
                         discriminant: None,
                         id: self.id(),
+                        attribs,
                     }
                 }
                 Token![=] => {
@@ -1469,6 +1593,7 @@ impl Parser<'_> {
                         fields: Fields::Unit,
                         id: self.id(),
                         discriminant: Some(expr),
+                        attribs,
                     }
                 }
                 Token![,] => {
@@ -1479,6 +1604,7 @@ impl Parser<'_> {
                         fields: Fields::Unit,
                         discriminant: None,
                         id: self.id(),
+                        attribs,
                     });
                     continue;
                 }
@@ -1502,10 +1628,11 @@ impl Parser<'_> {
             variants,
             span: enum_token.span.union(right_brace.span),
             id: self.id(),
+            attribs: enum_attribs,
         }))
     }
 
-    fn parse_struct(&mut self) -> Option<Item> {
+    fn parse_struct(&mut self, struct_attribs: Vec<Attrib>) -> Option<Item> {
         let struct_token = self.expect(Token![struct])?;
         let name = self.parse_ident()?;
 
@@ -1518,11 +1645,12 @@ impl Parser<'_> {
                     name,
                     span: struct_token.span.union(semi.span),
                     id: self.id(),
+                    attribs: struct_attribs,
                 })
             }
             TokenKind::LeftBrace => {
                 let left = self.expect(TokenKind::LeftBrace)?;
-                let fields = self.parse_fields_named()?;
+                let fields = self.parse_fields_named(TokenKind::RightBrace)?;
                 let right = self.expect(TokenKind::RightBrace)?;
 
                 Item::Struct(ItemStruct {
@@ -1535,6 +1663,7 @@ impl Parser<'_> {
                     }),
                     span: struct_token.span.union(right.span),
                     id: self.id(),
+                    attribs: struct_attribs,
                 })
             }
             TokenKind::LeftParen => {
@@ -1552,18 +1681,8 @@ impl Parser<'_> {
                     }),
                     span: struct_token.span.union(right.span),
                     id: self.id(),
+                    attribs: struct_attribs,
                 })
-                // Item::Struct(ItemStruct {
-                //     name,
-                //     kind: StructKind::GC,
-                //     fields: Fields::Named(FieldsNamed {
-                //         span: fields_span.unwrap_or_else(Span::empty),
-                //         fields,
-                //         id: self.id(),
-                //     }),
-                //     span: struct_token.span.union(right_brace.span),
-                //     id: self.id(),
-                // })
             }
             _ => {
                 let token = self.advance();
@@ -1576,9 +1695,10 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_fields_named(&mut self) -> Option<Vec<Field>> {
+    fn parse_fields_named(&mut self, end_token: TokenKind) -> Option<Vec<Field>> {
         let mut fields = vec![];
-        while self.peek() != TokenKind::RightBrace {
+        while self.peek() != end_token {
+            let attribs = self.parse_attribs()?;
             let name = self.parse_ident()?;
             self.expect(Token![:])?;
             let ty = self.parse_type()?;
@@ -1597,6 +1717,7 @@ impl Parser<'_> {
                 name: Some(name),
                 id: self.id(),
                 ty,
+                attribs,
             })
         }
         Some(fields)
@@ -1605,6 +1726,7 @@ impl Parser<'_> {
     fn parse_fields_unnamed(&mut self) -> Option<Vec<Field>> {
         let mut fields = vec![];
         while self.peek() != TokenKind::RightParen {
+            let attribs = self.parse_attribs()?;
             let ty = self.parse_type()?;
             let default_value = if self.peek() == TokenKind::Eq {
                 self.expect(TokenKind::Eq)?;
@@ -1625,18 +1747,31 @@ impl Parser<'_> {
                 name: None,
                 id: self.id(),
                 span,
+                attribs,
             });
         }
         Some(fields)
     }
 
     fn parse_extern_fn(&mut self) -> Option<ExternDefinition> {
+        let fn_attribs = self.parse_attribs()?;
         let fn_token = self.expect(Token![fn])?;
         let mut variadic_param = None;
         let name = self.parse_ident()?;
         self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
+            if let Some(variadic) = self.matches(Token![...]) {
+                let ty = self.parse_type()?;
+                variadic_param = Some(Variadic {
+                    ident: None,
+                    span: variadic.span.union(ty.span()),
+                    ty: ty.into(),
+                    id: self.id(),
+                });
+                break;
+            }
+            let attribs = self.parse_attribs()?;
             let ident = self.parse_ident()?;
             let ident_span = ident.span;
 
@@ -1644,9 +1779,8 @@ impl Parser<'_> {
 
             let variadic = self.matches(Token![...]);
             let ty = self.parse_type()?;
-            self.matches(Token![,]);
             if let Some(variadic) = &variadic {
-                variadic_param = Some(BareVariadic {
+                variadic_param = Some(Variadic {
                     ident: Some(ident),
                     span: variadic.span.union(ty.span()),
                     ty: ty.into(),
@@ -1654,23 +1788,28 @@ impl Parser<'_> {
                 });
                 break;
             }
+            self.matches(Token![,]);
 
-            params.push(FnParam::Typed(FnParamTyped {
-                span: ident_span.union(ty.span()),
-                pat_type: PatType {
-                    pat: Pat::Ident(PatIdent {
-                        id: self.id(),
+            params.push(FnParam::Typed(
+                FnParamTyped {
+                    span: ident_span.union(ty.span()),
+                    pat_type: PatType {
+                        pat: Pat::Ident(PatIdent {
+                            id: self.id(),
+                            span: ident_span,
+                            value: ident,
+                        })
+                        .into(),
                         span: ident_span,
-                        value: ident,
-                    })
-                    .into(),
-                    span: ident_span,
-                    ty: ty.into(),
+                        ty: ty.into(),
+                        id: self.id(),
+                    },
+                    default_value: None,
                     id: self.id(),
-                },
-                default_value: None,
-                id: self.id(),
-            }));
+                    attribs,
+                }
+                .into(),
+            ));
         }
         self.expect(TokenKind::RightParen)?;
 
@@ -1684,6 +1823,7 @@ impl Parser<'_> {
             output,
             id: self.id(),
             span,
+            variadic: variadic_param,
         }))
     }
 
@@ -1701,6 +1841,7 @@ impl Parser<'_> {
         self.expect(TokenKind::RightParen)?;
 
         let mut defs = vec![];
+        let attribs = self.parse_attribs()?;
         let span = if self.check(TokenKind::Fn) {
             let def = self.parse_inline_fn()?;
             let span = inline_token.span.union(def.span());
@@ -1720,6 +1861,7 @@ impl Parser<'_> {
             defs,
             id: self.id(),
             span,
+            attribs,
         }))
     }
 
@@ -1730,6 +1872,17 @@ impl Parser<'_> {
         self.expect(TokenKind::LeftParen)?;
         let mut params = vec![];
         while self.peek() != TokenKind::RightParen {
+            if let Some(variadic) = self.matches(Token![...]) {
+                let ty = self.parse_type()?;
+                variadic_param = Some(Variadic {
+                    ident: None,
+                    span: variadic.span.union(ty.span()),
+                    ty: ty.into(),
+                    id: self.id(),
+                });
+                break;
+            }
+            let attribs = self.parse_attribs()?;
             let ident = self.parse_ident()?;
             let ident_span = ident.span;
 
@@ -1748,22 +1901,26 @@ impl Parser<'_> {
                 break;
             }
 
-            params.push(FnParam::Typed(FnParamTyped {
-                span: ident_span.union(ty.span()),
-                pat_type: PatType {
-                    pat: Pat::Ident(PatIdent {
-                        id: self.id(),
+            params.push(FnParam::Typed(
+                FnParamTyped {
+                    span: ident_span.union(ty.span()),
+                    pat_type: PatType {
+                        pat: Pat::Ident(PatIdent {
+                            id: self.id(),
+                            span: ident_span,
+                            value: ident,
+                        })
+                        .into(),
                         span: ident_span,
-                        value: ident,
-                    })
-                    .into(),
-                    span: ident_span,
-                    ty: ty.into(),
+                        ty: ty.into(),
+                        id: self.id(),
+                    },
+                    default_value: None,
                     id: self.id(),
-                },
-                default_value: None,
-                id: self.id(),
-            }));
+                    attribs,
+                }
+                .into(),
+            ));
         }
         self.expect(TokenKind::RightParen)?;
 
@@ -1840,6 +1997,7 @@ impl Parser<'_> {
     }
 
     fn parse_impl_fn(&mut self) -> Option<ImplItem> {
+        let fn_attribs = self.parse_attribs()?;
         let (fn_type, fn_type_span) = {
             if self.check(Token![fn]) {
                 let fn_token = self.expect(Token![fn])?;
@@ -1872,6 +2030,7 @@ impl Parser<'_> {
                 }));
                 continue;
             }
+            let attribs = self.parse_attribs()?;
             let pat = self.parse_pat()?;
             self.expect(Token![:])?;
 
@@ -1899,20 +2058,24 @@ impl Parser<'_> {
 
             self.matches(Token![,]);
 
-            params.push(FnParam::Typed(FnParamTyped {
-                span: default_value
-                    .as_ref()
-                    .map(|d| pat.span().union(d.span()))
-                    .unwrap_or_else(|| pat.span().union(ty.span())),
-                pat_type: PatType {
-                    span: pat.span().union(ty.span()),
-                    pat: pat.into(),
-                    ty: ty.into(),
+            params.push(FnParam::Typed(
+                FnParamTyped {
+                    span: default_value
+                        .as_ref()
+                        .map(|d| pat.span().union(d.span()))
+                        .unwrap_or_else(|| pat.span().union(ty.span())),
+                    pat_type: PatType {
+                        span: pat.span().union(ty.span()),
+                        pat: pat.into(),
+                        ty: ty.into(),
+                        id: self.id(),
+                    },
+                    default_value,
                     id: self.id(),
-                },
-                default_value,
-                id: self.id(),
-            }));
+                    attribs,
+                }
+                .into(),
+            ));
         }
         self.expect(TokenKind::RightParen)?;
 
@@ -1931,6 +2094,7 @@ impl Parser<'_> {
             variadic: variadic_param,
             id: self.id(),
             span,
+            attribs: fn_attribs,
         }))
     }
 
@@ -1963,13 +2127,14 @@ impl Parser<'_> {
     }
 
     fn parse_item(&mut self) -> Option<Item> {
+        let attribs = self.parse_attribs()?;
         match self.peek() {
-            Token![fn] => self.parse_fn(),
+            Token![fn] => self.parse_fn(attribs),
+            Token![struct] => self.parse_struct(attribs),
+            Token![enum] => self.parse_enum(attribs),
+            Token![impl] => self.parse_impl(),
             Token![extern] => self.parse_extern(),
             Token![inline] => self.parse_inline(),
-            Token![struct] => self.parse_struct(),
-            Token![impl] => self.parse_impl(),
-            Token![enum] => self.parse_enum(),
             other => {
                 let token = self.advance();
                 self.add_error(&format!("expected item, got {}", other), token.span);

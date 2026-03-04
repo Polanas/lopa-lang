@@ -17,5 +17,5 @@ proc-macro2 = "1.0.106"
 residua-uleb128 = "0.2.0"
 strum = { version = "0.27.2", features = ["derive"] }
 strum_macros = "0.27.2"
-syn = "2.0.114"
+syn = {version ="2.0.114", features = ["full", "extra-traits"]}
 thiserror = "2.0.17"

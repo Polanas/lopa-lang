@@ -571,6 +571,14 @@ pub struct Receiver {
 impl_combined!(Receiver);
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct FnParamReceiver {
+    pub attribs: Vec<Attrib>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(FnParamReceiver);
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct PatType {
     pub pat: Box<Pat>,
     pub ty: Box<TypeExpr>,
@@ -583,6 +591,7 @@ impl_combined!(PatType);
 pub struct FnParamTyped {
     pub pat_type: PatType,
     pub default_value: Option<Expr>,
+    pub attribs: Vec<Attrib>,
     pub span: Span,
     pub id: AstNodeId,
 }
@@ -592,7 +601,7 @@ impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum FnParam {
         Receiver(Receiver),
-        Typed(FnParamTyped),
+        Typed(Box<FnParamTyped>),
     }
 }
 
@@ -610,6 +619,7 @@ pub struct ItemFn {
     pub body: BlockExpr,
     pub output: ReturnType,
     pub variadic: Option<Variadic>,
+    pub attribs: Vec<Attrib>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -620,6 +630,7 @@ pub struct ExternFn {
     pub name: Ident,
     pub params: Vec<FnParam>,
     pub output: ReturnType,
+    pub variadic: Option<Variadic>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -636,6 +647,36 @@ pub struct InlineFn {
     pub span: Span,
 }
 impl_combined!(InlineFn);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AttribOp {
+    Binary(common::BinaryOp),
+    Assign(common::BinaryAssignOp),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct OperatorAttrib {
+    pub op: AttribOp,
+    pub id: AstNodeId,
+    pub span: Span,
+}
+impl_combined!(OperatorAttrib);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ItemAttrib {
+    pub expr: CallExpr,
+    pub id: AstNodeId,
+    pub span: Span,
+}
+impl_combined!(ItemAttrib);
+
+impl_combined_enum! {
+    #[derive(Debug, PartialEq, Clone)]
+    pub enum Attrib {
+        Operator(OperatorAttrib),
+        Item(ItemAttrib),
+    }
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ExternKind {
@@ -655,6 +696,7 @@ impl_combined!(ItemExtern);
 #[derive(Debug, PartialEq, Clone)]
 pub struct ItemInline {
     pub defs: Vec<InlineFn>,
+    pub attribs: Vec<Attrib>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -665,6 +707,7 @@ pub struct Field {
     pub ty: TypeExpr,
     pub default_value: Option<Expr>,
     pub name: Option<Ident>,
+    pub attribs: Vec<Attrib>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -709,6 +752,7 @@ pub struct ItemStruct {
     pub fields: Fields,
     pub span: Span,
     pub id: AstNodeId,
+    pub attribs: Vec<Attrib>,
 }
 impl_combined!(ItemStruct);
 
@@ -733,6 +777,7 @@ pub struct EnumVariant {
     pub name: Ident,
     pub fields: Fields,
     pub discriminant: Option<Expr>,
+    pub attribs: Vec<Attrib>,
     pub span: Span,
     pub id: AstNodeId,
 }
@@ -742,6 +787,7 @@ impl_combined!(EnumVariant);
 pub struct ItemEnum {
     pub name: Ident,
     pub variants: Vec<EnumVariant>,
+    pub attribs: Vec<Attrib>,
     pub span: Span,
     pub id: AstNodeId,
 }
@@ -845,73 +891,6 @@ impl_combined_enum! {
         Empty(EmptyStmt),
     }
 }
-
-// #[derive(Clone, Debug, PartialEq)]
-// pub struct AstType {
-//     pub kind: TypeKind,
-//     pub nilable: bool,
-// }
-//
-// #[derive(Clone, Debug, PartialEq)]
-// pub enum Type {
-//     Ast(AstType),
-//     Checked(types::Type),
-// }
-//
-// impl std::fmt::Display for Type {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Type::Ast(ast) => write!(f, "{}{}", ast.kind, if self.nilable() { "?" } else { "" }),
-//             Type::Checked(checked) => write!(f, "{checked}"),
-//         }
-//     }
-// }
-//
-// impl Type {
-//     pub fn nilable(&self) -> bool {
-//         match self {
-//             Type::Ast(ast) => ast.nilable,
-//             Type::Checked(checked) => checked.nilable,
-//         }
-//     }
-// }
-//
-// impl From<types::TypeKind> for Type {
-//     fn from(value: types::TypeKind) -> Self {
-//         Self::Checked(value.into())
-//     }
-// }
-//
-// impl From<types::Type> for Type {
-//     fn from(value: types::Type) -> Self {
-//         Self::Checked(value)
-//     }
-// }
-//
-// impl Type {
-//     pub fn checked(&self) -> Option<&types::Type> {
-//         match self {
-//             Type::Checked(checked) => Some(checked),
-//             _ => None,
-//         }
-//     }
-// }
-//
-// impl AstType {
-//     pub fn non_nilable(kind: TypeKind) -> Self {
-//         Self {
-//             kind,
-//             nilable: false,
-//         }
-//     }
-//
-//     pub fn nilable(kind: TypeKind) -> Self {
-//         Self {
-//             kind,
-//             nilable: true,
-//         }
-//     }
-// }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Variadic {
