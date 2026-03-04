@@ -252,7 +252,6 @@ impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum LitExpr {
         Nil(LitNil),
-        Unit(LitUnit),
         Int(LitInt),
         Float(LitFloat),
         Bool(LitBool),

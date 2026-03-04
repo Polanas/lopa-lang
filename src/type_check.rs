@@ -1065,6 +1065,31 @@ impl Env {
     }
 }
 
+// #[derive(Debug, PartialEq, Clone)]
+// pub enum LitExpr {
+//     Nil(LitNil),
+//     Unit(LitUnit),
+//     Int(LitInt),
+//     Float(LitFloat),
+//     Bool(LitBool),
+//     String(LitString),
+// }
+
+#[derive(Debug, Clone)]
+pub enum Expr {
+    Lit(LitExpr),
+}
+
+#[derive(Debug, Clone)]
+pub struct ExprStmt {
+    pub exprs: Vec<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Stmt {
+    Expr(ExprStmt),
+}
+
 pub struct Context<'a> {
     diagnostics: Vec<position::Diagnostic>,
     env: Env,

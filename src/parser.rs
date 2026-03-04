@@ -464,20 +464,15 @@ impl Parser<'_> {
     }
 
     fn parse_parens(&mut self) -> Option<Expr> {
-        let left = self.expect(TokenKind::LeftParen)?;
+        self.expect(TokenKind::LeftParen)?;
         let mut exprs = vec![];
         while !self.check(TokenKind::RightParen) {
             let expr = self.parse_expr(Precedence::Lowest)?;
             self.matches(Token![,]);
             exprs.push(expr);
         }
-        let right = self.expect(TokenKind::RightParen)?;
-        Some(if exprs.is_empty() {
-            Expr::Lit(LitExpr::Unit(LitUnit {
-                span: left.span.union(right.span),
-                id: self.id(),
-            }))
-        } else if exprs.len() == 1 {
+        self.expect(TokenKind::RightParen)?;
+        Some(if exprs.len() == 1 {
             let expr = exprs.remove(0);
             Expr::Group(GroupExpr {
                 span: expr.span(),
