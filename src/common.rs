@@ -1,6 +1,6 @@
 use crate::token;
 
-#[derive(Clone, Debug, PartialEq, Eq, Copy)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy, PartialOrd, Ord)]
 pub enum Primitive {
     Nil,
     Bool,
@@ -8,6 +8,12 @@ pub enum Primitive {
     Float,
     String,
     Any,
+}
+
+impl Primitive {
+    pub fn is_number(&self) -> bool {
+        matches!(self, Self::Int | Self::Float)
+    }
 }
 
 impl std::fmt::Display for Primitive {
@@ -60,6 +66,13 @@ pub enum UnaryOp {
     Not,
     Negate,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BinaryOrAssignOp {
+    Binary(BinaryOp),
+    Assign(BinaryAssignOp),
+}
+
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BinaryOp {

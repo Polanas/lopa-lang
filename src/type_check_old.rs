@@ -253,7 +253,7 @@ pub struct Definitions {
 }
 
 #[derive(Debug)]
-struct FnContext {
+struct nContext {
     pub params: Vec<ast::FnParam>,
     pub body: ast::Expr,
     pub returns: Vec<Type>,

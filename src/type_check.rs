@@ -3,10 +3,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use itertools::Itertools;
+
 use crate::{
     ast::{self, AstNodeId},
-    common::{self, Primitive},
-    position::{self, Spanned},
+    common::{self, BinaryOrAssignOp, Primitive},
+    position::{self, Spanned, WithSpan},
     shared_mut::SharedMut,
 };
 
@@ -21,6 +23,8 @@ pub struct Path {
     Default,
     Copy,
     PartialEq,
+    PartialOrd,
+    Ord,
     Eq,
     Hash,
     derive_more::Add,
@@ -29,19 +33,19 @@ pub struct Path {
 )]
 pub struct TypeId(pub usize);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Union {
     pub types: Vec<Type>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Type {
     Primitive(Primitive),
     Nilable(Box<Type>),
     Struct(TypeId),
     Fn(TypeId),
-    BareFn(BareFn),
     Enum(TypeId),
+    BareFn(BareFn),
     Array(Box<Type>),
     Block(Vec<Type>),
     Union(Union),
@@ -50,13 +54,24 @@ pub enum Type {
 }
 
 impl Type {
+    pub fn is_number(&self) -> bool {
+        matches!(self, Type::Primitive(p) if p.is_number())
+    }
+
     pub fn is_nilable(&self) -> bool {
         matches!(self, Self::Nilable(_))
     }
 
-    pub fn unwrap_nil(self) -> Self {
+    pub fn unwrap_nil_ref(&self) -> &Self {
         match self {
-            Self::Nilable(inner) => *inner,
+            Self::Nilable(inner) => inner,
+            other => other,
+        }
+    }
+
+    pub fn unwrap_nil_mut(&mut self) -> &mut Self {
+        match self {
+            Self::Nilable(inner) => inner,
             other => other,
         }
     }
@@ -77,15 +92,44 @@ pub enum Fields {
 }
 
 #[derive(Debug, Clone)]
+pub struct MemberFn {
+    value: Fn,
+    op: Option<BinaryOrAssignOp>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Member {
-    Fn(Fn),
+    Fn(MemberFn),
 }
 
 impl Member {
     pub fn name(&self) -> &str {
         match self {
-            Member::Fn(f) => &f.name,
+            Member::Fn(f) => &f.value.name,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Members {
+    pub value: Vec<Member>,
+}
+
+impl Members {
+    pub fn op_member(&self, op: BinaryOrAssignOp) -> Option<&Member> {
+        for member in &self.value {
+            match member {
+                Member::Fn(member_fn) => {
+                    if let Some(member_op) = member_fn.op
+                        && member_op == op
+                    {
+                        return Some(member);
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -96,7 +140,7 @@ pub struct Struct {
     pub members: Vec<Member>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Variadic {
     pub name: Option<String>,
     pub ty: Type,
@@ -115,19 +159,19 @@ pub struct FnParamTyped {
     pub default_value: Option<Type>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ReturnType {
     None,
     Type(Vec<Type>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BareFnParam {
     pub name: Option<String>,
     pub ty: Type,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BareFn {
     pub output: ReturnType,
     pub params: Vec<BareFnParam>,
@@ -227,7 +271,7 @@ impl<'env> ReceiverResolver<'env> {
                 match complex_type {
                     ComplexType::Struct(_) => TypeItemKind::Struct,
                     ComplexType::Enum(_) => TypeItemKind::Enum,
-                    _ => unreachable!(),
+                    _ => continue,
                 },
             ));
 
@@ -251,12 +295,12 @@ impl<'env> ReceiverResolver<'env> {
         for member in members {
             match member {
                 Member::Fn(func) => {
-                    for param in func.params.iter_mut() {
+                    for param in func.value.params.iter_mut() {
                         if let FnParam::Typed(param) = param {
                             self.update_receiver(&mut param.ty);
                         }
                     }
-                    match &mut func.output {
+                    match &mut func.value.output {
                         ReturnType::None => {}
                         ReturnType::Type(items) => {
                             for item in items.iter_mut() {
@@ -264,7 +308,7 @@ impl<'env> ReceiverResolver<'env> {
                             }
                         }
                     }
-                    if let Some(variadic) = &mut func.variadic {
+                    if let Some(variadic) = &mut func.value.variadic {
                         self.update_receiver(&mut variadic.ty);
                     }
                 }
@@ -413,8 +457,18 @@ impl<'env> DefsResolver<'env> {
             return None;
         }
 
-        let ty = self.func(func);
-        Some(Member::Fn(ty))
+        let op = func.attribs.iter().find_map(|a| {
+            if let ast::Attrib::Operator(op) = a {
+                Some(op.op)
+            } else {
+                None
+            }
+        });
+        let func = self.func(func);
+        Some(Member::Fn(MemberFn {
+            value: func,
+            op: op.clone(),
+        }))
     }
 
     fn struct_def(&mut self, strct: &ast::ItemStruct) -> Option<()> {
@@ -574,13 +628,13 @@ impl<'env> DefsResolver<'env> {
                     }
                 })
                 .collect::<Option<Vec<_>>>()?;
-            match self.type_item_ref(item_kind, target_id) {
-                TypeItemRef::Struct(s) => s.members.extend(members),
-                TypeItemRef::Enum(e) => e.members.extend(members),
+            match self.type_item_mut(item_kind, target_id) {
+                TypeItemMut::Struct(s) => s.members.extend(members),
+                TypeItemMut::Enum(e) => e.members.extend(members),
             }
             Some(())
         } else {
-            None
+            Some(())
         }
     }
 
@@ -654,7 +708,9 @@ impl<'env> BlankResolver<'env> {
     }
 
     fn enum_item(&mut self, ast_enum: &ast::ItemEnum) -> Option<()> {
-        let (id, _) = self.env.type_items.get_mut(&ast_enum.name.value).unwrap();
+        let Type::Enum(id) = self.env.type_items.get_mut(&ast_enum.name.value).unwrap() else {
+            unreachable!();
+        };
         let mut complex_types = self.env.complex_types.clone();
         let ComplexType::Enum(en) = complex_types.get_mut(id).unwrap() else {
             unreachable!();
@@ -668,7 +724,9 @@ impl<'env> BlankResolver<'env> {
     }
 
     fn struct_item(&mut self, ast_strct: &ast::ItemStruct) -> Option<()> {
-        let (id, _) = self.env.type_items.get_mut(&ast_strct.name.value).unwrap();
+        let Type::Struct(id) = self.env.type_items.get_mut(&ast_strct.name.value).unwrap() else {
+            unreachable!()
+        };
         let mut complex_types = self.env.complex_types.clone();
         let ComplexType::Struct(strct) = complex_types.get_mut(id).unwrap() else {
             unreachable!();
@@ -679,7 +737,9 @@ impl<'env> BlankResolver<'env> {
     }
 
     fn fn_item(&mut self, ast_func: &ast::ItemFn) -> Option<()> {
-        let (id, _) = self.env.value_items.get_mut(&ast_func.name.value).unwrap();
+        let Type::Fn(id) = self.env.value_items.get_mut(&ast_func.name.value).unwrap() else {
+            unreachable!()
+        };
         let mut complex_types = self.env.complex_types.clone();
         let ComplexType::Fn(func) = complex_types.get_mut(id).unwrap() else {
             unreachable!()
@@ -721,7 +781,9 @@ impl<'env> BlankResolver<'env> {
     fn extern_item(&mut self, extern_item: &ast::ItemExtern) -> Option<()> {
         for def in &extern_item.defs {
             let ast::ExternDefinition::Fn(def) = def;
-            let (id, _) = self.env.value_items.get_mut(&def.name.value).unwrap();
+            let Type::Fn(id) = self.env.value_items.get_mut(&def.name.value).unwrap() else {
+                unreachable!()
+            };
             let mut complex_types = self.env.complex_types.clone();
             let ComplexType::Fn(func) = complex_types.get_mut(id).unwrap() else {
                 unreachable!()
@@ -763,7 +825,9 @@ impl<'env> BlankResolver<'env> {
 
     fn inline_item(&mut self, inline_item: &ast::ItemInline) -> Option<()> {
         for def in &inline_item.defs {
-            let (id, _) = self.env.value_items.get_mut(&def.name.value).unwrap();
+            let Type::Fn(id) = self.env.value_items.get_mut(&def.name.value).unwrap() else {
+                unreachable!()
+            };
             let mut complex_types = self.env.complex_types.clone();
             let ComplexType::Fn(func) = complex_types.get_mut(id).unwrap() else {
                 unreachable!()
@@ -826,7 +890,7 @@ impl<'env> BlankResolver<'env> {
                 .find(|m| m.name() == ast_func.name.value)
                 .unwrap();
 
-            match &mut func.output {
+            match &mut func.value.output {
                 ReturnType::None => {}
                 ReturnType::Type(items) => {
                     let ast::ReturnType::Type(ast_items) = &ast_func.output else {
@@ -839,7 +903,7 @@ impl<'env> BlankResolver<'env> {
                 }
             }
 
-            for (param, ast_param) in func.params.iter_mut().zip(ast_func.params.iter()) {
+            for (param, ast_param) in func.value.params.iter_mut().zip(ast_func.params.iter()) {
                 if let FnParam::Typed(typed) = param {
                     let ast::FnParam::Typed(ast_typed) = ast_param else {
                         unreachable!()
@@ -849,7 +913,7 @@ impl<'env> BlankResolver<'env> {
                 }
             }
 
-            if let Some(variadic) = &mut func.variadic {
+            if let Some(variadic) = &mut func.value.variadic {
                 let Some(ast_variadic) = &ast_func.variadic else {
                     unreachable!()
                 };
@@ -886,7 +950,15 @@ impl<'env> BlankResolver<'env> {
     }
 }
 
+enum ValueItemRef<'a> {
+    Fn(&'a Fn),
+}
+
 enum TypeItemRef<'a> {
+    Struct(&'a Struct),
+    Enum(&'a Enum),
+}
+enum TypeItemMut<'a> {
     Struct(&'a mut Struct),
     Enum(&'a mut Enum),
 }
@@ -894,9 +966,9 @@ enum TypeItemRef<'a> {
 #[derive(Debug)]
 struct Env {
     // fns, statics
-    value_items: HashMap<String, (TypeId, ValueItemKind)>,
+    value_items: HashMap<String, Type>,
     // structs, enums, traits
-    type_items: HashMap<String, (TypeId, TypeItemKind)>,
+    type_items: HashMap<String, Type>,
     types_by_ids: HashMap<AstNodeId, Type>,
     complex_types: SharedMut<HashMap<TypeId, ComplexType>>,
     last_type_id: TypeId,
@@ -922,19 +994,48 @@ impl Env {
         });
     }
 
-    fn type_item_ref<'a>(&'a mut self, kind: TypeItemKind, id: TypeId) -> TypeItemRef<'a> {
+    fn value_item_ref<'a>(&'a self, kind: ValueItemKind, id: TypeId) -> ValueItemRef<'a> {
+        match kind {
+            ValueItemKind::Fn => {
+                let ComplexType::Fn(func) = self.complex_types.get(&id).unwrap() else {
+                    unreachable!()
+                };
+                ValueItemRef::Fn(func)
+            }
+            ValueItemKind::Static => todo!(),
+        }
+    }
+
+    fn type_item_ref<'a>(&'a self, kind: TypeItemKind, id: TypeId) -> TypeItemRef<'a> {
         match kind {
             TypeItemKind::Struct => {
-                let ComplexType::Struct(strct) = self.complex_types.get_mut(&id).unwrap() else {
+                let ComplexType::Struct(strct) = self.complex_types.get(&id).unwrap() else {
                     unreachable!()
                 };
                 TypeItemRef::Struct(strct)
             }
             TypeItemKind::Enum => {
-                let ComplexType::Enum(en) = self.complex_types.get_mut(&id).unwrap() else {
+                let ComplexType::Enum(en) = self.complex_types.get(&id).unwrap() else {
                     unreachable!()
                 };
                 TypeItemRef::Enum(en)
+            }
+            TypeItemKind::Trait => unimplemented!(),
+        }
+    }
+    fn type_item_mut<'a>(&'a mut self, kind: TypeItemKind, id: TypeId) -> TypeItemMut<'a> {
+        match kind {
+            TypeItemKind::Struct => {
+                let ComplexType::Struct(strct) = self.complex_types.get_mut(&id).unwrap() else {
+                    unreachable!()
+                };
+                TypeItemMut::Struct(strct)
+            }
+            TypeItemKind::Enum => {
+                let ComplexType::Enum(en) = self.complex_types.get_mut(&id).unwrap() else {
+                    unreachable!()
+                };
+                TypeItemMut::Enum(en)
             }
             TypeItemKind::Trait => unimplemented!(),
         }
@@ -950,13 +1051,10 @@ impl Env {
         let id = self.type_id();
         self.value_items.insert(
             ty.name().to_owned(),
-            (
-                id,
-                match ty {
-                    ComplexType::Fn(_) => ValueItemKind::Fn,
-                    _ => unreachable!(),
-                },
-            ),
+            match &ty {
+                ComplexType::Fn(_) => Type::Fn(id),
+                _ => unreachable!(),
+            },
         );
         self.complex_types.insert(id, ty);
         id
@@ -966,14 +1064,11 @@ impl Env {
         let id = self.type_id();
         self.type_items.insert(
             ty.name().to_owned(),
-            (
-                id,
-                match ty {
-                    ComplexType::Struct(_) => TypeItemKind::Struct,
-                    ComplexType::Enum(_) => TypeItemKind::Enum,
-                    _ => unimplemented!(),
-                },
-            ),
+            match &ty {
+                ComplexType::Struct(_) => Type::Struct(id),
+                ComplexType::Enum(_) => Type::Enum(id),
+                _ => unreachable!(),
+            },
         );
         self.complex_types.insert(id, ty);
         id
@@ -1022,18 +1117,11 @@ impl Env {
                 //TODO: add proper modules support
                 let name = &path.segments[0].ident.value;
 
-                if let Some((id, kind)) = self.type_items.get(name.as_str()) {
-                    return match kind {
-                        TypeItemKind::Struct => Type::Struct(*id),
-                        TypeItemKind::Enum => Type::Struct(*id),
-                        TypeItemKind::Trait => todo!(),
-                    };
+                if let Some(ty) = self.type_items.get(name.as_str()) {
+                    return ty.clone();
                 }
-                if let Some((id, kind)) = self.value_items.get(name.as_str()) {
-                    return match kind {
-                        ValueItemKind::Fn => Type::Fn(*id),
-                        ValueItemKind::Static => todo!(),
-                    };
+                if let Some(ty) = self.value_items.get(name.as_str()) {
+                    return ty.clone();
                 }
 
                 Type::Blank
@@ -1059,40 +1147,114 @@ impl Env {
 
     fn collect(&mut self, program: &[ast::Item]) -> Option<()> {
         DefsResolver::new(self).resolve(program)?;
+        println!("resolving defs finished");
         ReceiverResolver::new(self).resolve();
+        println!("resolving receiver finished");
         BlankResolver::new(self).resolve(program)?;
+        println!("resolving blanks finished");
         Some(())
     }
 }
 
-// #[derive(Debug, PartialEq, Clone)]
-// pub enum LitExpr {
-//     Nil(LitNil),
-//     Unit(LitUnit),
-//     Int(LitInt),
-//     Float(LitFloat),
-//     Bool(LitBool),
-//     String(LitString),
-// }
+trait GetType {
+    fn get_type(&self) -> &Type;
+}
 
-#[derive(Debug, Clone)]
-pub enum Expr {
-    Lit(LitExpr),
+macro_rules! impl_get_type {
+    ($ident:ident) => {
+        impl GetType for $ident {
+            fn get_type(&self) -> &Type {
+                &self.ty
+            }
+        }
+    };
+}
+
+macro_rules! impl_get_type_enum {
+    (
+        $( #[$meta:meta] )*
+        $vis:vis enum $name:ident {
+            $($variant:ident $(($ty:ty))?,)*
+        }
+    ) => {
+        $( #[$meta] )*
+        $vis enum $name {
+            $($variant $(($ty))?,)*
+        }
+
+        #[allow(non_snake_case)]
+        impl GetType for $ident {
+            fn get_type(&self) -> &Type {
+                match self {
+                    $($name::$variant (paste!{[<_ $name>]}) => {
+                        paste!{[<_ $name>]}.get_type()
+                    },)*
+                }
+
+            }
+        }
+    };
 }
 
 #[derive(Debug, Clone)]
-pub struct ExprStmt {
-    pub exprs: Vec<Expr>,
+pub struct PathExpr {
+    pub ty: Type,
 }
+impl_get_type!(PathExpr);
 
 #[derive(Debug, Clone)]
-pub enum Stmt {
-    Expr(ExprStmt),
+pub struct PrimitiveExpr {
+    pub ty: Type,
+}
+impl_get_type!(PrimitiveExpr);
+
+#[derive(Default, Debug)]
+struct Scope {
+    locals: HashMap<String, Type>,
+}
+
+#[derive(Default, Debug)]
+struct Scopes {
+    scopes: Vec<Scope>,
+}
+
+impl Scopes {
+    fn push_scope(&mut self) {
+        self.scopes.push(Scope::default());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn scope(&self) -> &Scope {
+        &self.scopes[self.scopes.len() - 1]
+    }
+
+    fn scope_mut(&mut self) -> &mut Scope {
+        let len = self.scopes.len();
+        &mut self.scopes[len - 1]
+    }
+
+    fn insert_local(&mut self, name: &str, ty: Type) {
+        self.scope_mut().locals.insert(name.to_owned(), ty);
+    }
+
+    fn local(&self, name: &str) -> Option<&Type> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(ty) = scope.locals.get(name) {
+                return Some(ty);
+            }
+        }
+        None
+    }
 }
 
 pub struct Context<'a> {
     diagnostics: Vec<position::Diagnostic>,
     env: Env,
+    scopes: Scopes,
+    current_fn: Option<TypeId>,
     source: Option<&'a str>,
 }
 
@@ -1102,14 +1264,9 @@ impl<'a> Context<'a> {
             diagnostics: Default::default(),
             source: Default::default(),
             env: Env::new(),
+            current_fn: None,
+            scopes: Default::default(),
         }
-    }
-
-    fn add_error(&mut self, message: &str, span: position::Span) {
-        self.diagnostics.push(position::Diagnostic {
-            span,
-            message: message.to_owned(),
-        });
     }
 
     pub fn set_source(&mut self, source: &'a str) {
@@ -1120,10 +1277,315 @@ impl<'a> Context<'a> {
         self.source.as_ref().unwrap()
     }
 
-    pub fn check(&mut self, program: &[ast::Item]) {
+    fn add_error(&mut self, message: &str, span: position::Span) {
+        self.diagnostics.push(position::Diagnostic {
+            span,
+            message: message.to_owned(),
+        });
+    }
+
+    //is `left = right` possible?
+    fn can_assing_type(&self, left: &mut Type, right: &mut Type) -> bool {
+        match (left.is_nilable(), right.is_nilable()) {
+            //T? = T?
+            (true, true) => self.can_assing_type(left.unwrap_nil_mut(), right.unwrap_nil_mut()),
+            //T? = T
+            (true, false) => {
+                matches!(right, Type::Primitive(Primitive::Nil))
+                    || self.can_assing_type(left.unwrap_nil_mut(), right)
+            }
+            //T = T?
+            (false, true) => false,
+            //T = T
+            (false, false) => {
+                match (left, right) {
+                    (Type::Primitive(Primitive::Nil), _) => true,
+                    (Type::Primitive(left), Type::Primitive(right)) => match (left, right) {
+                        //TODO: consider adding as casts to ensure safety and limit possiblities of
+                        //hidden crashes
+                        (Primitive::Any, _) | (_, Primitive::Any) => true,
+                        (left, right) if left.is_number() && right.is_number() => true,
+                        (left, right) => left == right,
+                    },
+                    (Type::Struct(left), Type::Struct(right)) => left == right,
+                    // (Type::Fn(left), Type::Fn(right)) => left == right,
+                    (Type::Array(left), Type::Array(right)) => self.can_assing_type(left, right),
+                    (Type::Union(left), Type::Union(right)) => {
+                        left.types.sort();
+                        right.types.sort();
+                        left.types
+                            .iter_mut()
+                            .zip(right.types.iter_mut())
+                            .all(|(l, r)| self.can_assing_type(l, r))
+                    }
+                    (left, right) => {
+                        false
+                    }
+                }
+            }
+        }
+    }
+
+    fn display_type(&self, ty: &Type) -> String {
+        match ty {
+            Type::Primitive(primitive) => format!("{primitive}"),
+            Type::Nilable(ty) => format!("{}?", self.display_type(ty)),
+            Type::Struct(type_id) => {
+                let TypeItemRef::Struct(strct) =
+                    self.env.type_item_ref(TypeItemKind::Struct, *type_id)
+                else {
+                    unreachable!();
+                };
+                strct.name.clone()
+            }
+            Type::Fn(type_id) => {
+                let ValueItemRef::Fn(func) = self.env.value_item_ref(ValueItemKind::Fn, *type_id);
+                let params = func
+                    .params
+                    .iter()
+                    .map(|p| match p {
+                        FnParam::Receiver => unreachable!(),
+                        FnParam::Typed(typed) => {
+                            format!("{}: {}", &typed.name, self.display_type(&typed.ty))
+                        }
+                    })
+                    .join(", ");
+                let output = match &func.output {
+                    ReturnType::None => None,
+                    ReturnType::Type(types) => {
+                        Some(types.iter().map(|t| self.display_type(t)).join(", "))
+                    }
+                };
+                let returns_none = match &func.output {
+                    ReturnType::None => true,
+                    ReturnType::Type(type_exprs) => {
+                        matches!(type_exprs.as_slice(), [Type::Primitive(Primitive::Nil)])
+                    }
+                };
+                //TODO: what about inline / extern / etc?
+                if let Some(output) = output
+                    && !returns_none
+                {
+                    format!("fn {}({params}) -> {output}", &func.name)
+                } else {
+                    format!("fn {}({params})", &func.name)
+                }
+            }
+            Type::Enum(type_id) => {
+                let TypeItemRef::Enum(en) = self.env.type_item_ref(TypeItemKind::Enum, *type_id)
+                else {
+                    unreachable!();
+                };
+                en.name.clone()
+            }
+            Type::BareFn(bare_fn) => {
+                let params = bare_fn
+                    .params
+                    .iter()
+                    .map(|param| {
+                        if let Some(name) = &param.name {
+                            format!("{}: {}", &name, self.display_type(&param.ty))
+                        } else {
+                            self.display_type(&param.ty)
+                        }
+                    })
+                    .join(", ");
+                let output = match &bare_fn.output {
+                    ReturnType::None => None,
+                    ReturnType::Type(types) => {
+                        Some(types.iter().map(|t| self.display_type(t)).join(", "))
+                    }
+                };
+                let returns_none = match &bare_fn.output {
+                    ReturnType::None => true,
+                    ReturnType::Type(type_exprs) => {
+                        matches!(type_exprs.as_slice(), [Type::Primitive(Primitive::Nil)])
+                    }
+                };
+                if let Some(output) = output
+                    && !returns_none
+                {
+                    format!("fn({params}) -> {output}")
+                } else {
+                    format!("fn({params})")
+                }
+            }
+            Type::Array(ty) => format!("[{}]", self.display_type(ty)),
+            Type::Block(items) => format!(
+                "{{ {} }}",
+                items.iter().map(|t| self.display_type(t)).join(", ")
+            ),
+            Type::Union(union) => union
+                .types
+                .iter()
+                .map(|t| self.display_type(t))
+                .join(" |")
+                .to_string(),
+            Type::Receiver => unreachable!(),
+            Type::Blank => unreachable!(),
+        }
+    }
+
+    fn source_substr(&self, range: position::Span) -> &str {
+        let (start, end) = (range.start.0, range.end.0);
+        if start == end {
+            if start == 0 {
+                &self.source()[0..1]
+            } else {
+                &self.source()[(range.start.0 - 1)..(range.end.0)]
+            }
+        } else {
+            &self.source()[(range.start.0)..(range.end.0)]
+        }
+    }
+
+    fn expr(&mut self, expr: &ast::Expr, mut expected: Option<&mut Type>) -> Option<Type> {
+        let mut ty = match &expr {
+            ast::Expr::Lit(lit_expr) => match lit_expr {
+                ast::LitExpr::Nil(_) => Type::Primitive(Primitive::Nil),
+                ast::LitExpr::Int(_) => Type::Primitive(Primitive::Int),
+                ast::LitExpr::Float(_) => Type::Primitive(Primitive::Float),
+                ast::LitExpr::Bool(_) => Type::Primitive(Primitive::Bool),
+                ast::LitExpr::String(_) => Type::Primitive(Primitive::String),
+            },
+            ast::Expr::Array(array_expr) => {
+                if let Some(expected) = expected.as_deref_mut() {
+                    let Type::Array(expected) = expected else {
+                        self.add_error(
+                            &format!(
+                                "could not assign {} to {}",
+                                self.source_substr(expr.span()),
+                                self.display_type(expected)
+                            ),
+                            expr.span(),
+                        );
+                        return None;
+                    };
+                    for elem in &array_expr.elements {
+                        _ = self.expr(elem, Some(expected))?;
+                    }
+                    Type::Array(Box::new(*expected.clone()))
+                } else {
+                    todo!()
+                }
+            }
+            ast::Expr::Ident(ident) => {
+                if let Some(ty) = self.scopes.local(&ident.value) {
+                    ty.clone()
+                } else {
+                    self.add_error(
+                        &format!("cannot find value `{}` in this scope", &ident.value),
+                        expr.span(),
+                    );
+                    return None;
+                }
+            }
+            ast::Expr::Binary(binary_expr) => todo!(),
+            ast::Expr::Block(block_expr) => todo!(),
+            ast::Expr::Call(call_expr) => todo!(),
+            ast::Expr::Closure(closure_expr) => todo!(),
+            ast::Expr::For(for_expr) => todo!(),
+            ast::Expr::FieldGet(field_get_expr) => todo!(),
+            ast::Expr::Group(group_expr) => todo!(),
+            ast::Expr::If(if_expr) => todo!(),
+            ast::Expr::Index(index_expr) => todo!(),
+            ast::Expr::Loop(loop_expr) => todo!(),
+            ast::Expr::MethodCall(method_call_expr) => todo!(),
+            ast::Expr::Struct(struct_expr) => todo!(),
+            ast::Expr::Path(path) => todo!(),
+            ast::Expr::Tuple(tuple_expr) => todo!(),
+            ast::Expr::Unary(unary_expr) => todo!(),
+            ast::Expr::While(while_expr) => todo!(),
+        };
+        if let Some(expected) = expected
+            && !self.can_assing_type(expected, &mut ty)
+        {
+            self.add_assign_error(expected, &mut ty, expr.span());
+            None
+        } else {
+            Some(ty)
+        }
+    }
+
+    fn add_assign_error(&mut self, left: &Type, right: &mut Type, span: position::Span) {
+        self.add_error(
+            &format!(
+                "could not assign {} to {}",
+                self.display_type(right),
+                self.display_type(left)
+            ),
+            span,
+        );
+    }
+
+    fn fn_item(&mut self, item_fn: &ast::ItemFn) -> Option<()> {
+        let Type::Fn(fn_id) = self.env.types_by_ids.get(&item_fn.id).unwrap() else {
+            unreachable!()
+        };
+        let mut complex_types = self.env.complex_types.clone();
+        let ComplexType::Fn(fn_type) = complex_types.get_mut(fn_id).unwrap() else {
+            unreachable!()
+        };
+        self.current_fn = Some(*fn_id);
+        self.scopes.push_scope();
+
+        for (param, ast_param) in fn_type.params.iter_mut().zip(item_fn.params.iter()) {
+            if let FnParam::Typed(param) = param {
+                self.scopes.insert_local(&param.name, param.ty.clone());
+                match ast_param {
+                    ast::FnParam::Receiver(_) => {
+                        self.add_error(
+                            "self paramater is only allowed in associated functions (impl or trait functions)",
+                            ast_param.span(),
+                        );
+                        return None;
+                    }
+                    ast::FnParam::Typed(ast_param) => {
+                        if let Some(ast_default_value) = &ast_param.default_value {
+                            param.default_value =
+                                Some(self.expr(ast_default_value, Some(&mut param.ty))?);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.scopes.pop_scope();
+
+        Some(())
+    }
+
+    fn impl_item(&mut self, item_impl: &ast::ItemImpl) -> Option<()> {
+        Some(())
+    }
+
+    fn item(&mut self, item: &ast::Item) -> Option<()> {
+        match item {
+            ast::Item::Fn(item_fn) => self.fn_item(item_fn),
+            ast::Item::Impl(item_impl) => self.impl_item(item_impl),
+            _ => Some(()),
+        }
+    }
+
+    fn push_global_scope(&mut self) {
+        self.scopes.push_scope();
+        for (name, ty) in &self.env.value_items {
+            self.scopes.insert_local(name.as_str(), ty.clone());
+        }
+    }
+
+    pub fn check(&mut self, program: &[ast::Item]) -> Option<()> {
         //TODO: check default values after collecting definitions
-        self.env.collect(program);
+        self.env.collect(program)?;
+        println!("collecting finished");
+
+        self.push_global_scope();
+        for item in program {
+            self.item(item)?;
+        }
+
         self.diagnostics.append(&mut self.env.diagnostics);
+        Some(())
     }
 
     pub fn diagnostics(&self) -> &[position::Diagnostic] {

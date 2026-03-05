@@ -704,7 +704,10 @@ impl Parser<'_> {
                 self.expect(TokenKind::LeftBracket)?;
                 let ty = self.parse_type()?;
                 self.expect(TokenKind::RightBracket)?;
-                TypeExpr::Array(ty.into())
+                match self.parse_optional_mark() {
+                    Some(_) => TypeExpr::Nilable(ty.into()),
+                    None => ty,
+                }
             }
             TokenKind::LeftParen => {
                 self.expect(TokenKind::LeftParen)?;
@@ -951,41 +954,41 @@ impl Parser<'_> {
         Some(WithSpan::new(op, token.span))
     }
 
-    fn parse_attrib_op(&mut self) -> Option<AttribOp> {
+    fn parse_attrib_op(&mut self) -> Option<BinaryOrAssignOp> {
         let token = self.advance();
         let op = match &token.value.kind() {
-            Token![or] => AttribOp::Binary(BinaryOp::Or),
-            Token![and] => AttribOp::Binary(BinaryOp::And),
-            Token![else] => AttribOp::Binary(BinaryOp::Else),
-            Token![!=] => AttribOp::Binary(BinaryOp::NotEqual),
-            Token![==] => AttribOp::Binary(BinaryOp::Equal),
-            Token![<] => AttribOp::Binary(BinaryOp::Less),
-            Token![<=] => AttribOp::Binary(BinaryOp::LessEqual),
-            Token![>] => AttribOp::Binary(BinaryOp::Greater),
-            Token![>=] => AttribOp::Binary(BinaryOp::GreaterEqual),
-            Token![+] => AttribOp::Binary(BinaryOp::Add),
-            Token![-] => AttribOp::Binary(BinaryOp::Sub),
-            Token![*] => AttribOp::Binary(BinaryOp::Mult),
-            Token![/] => AttribOp::Binary(BinaryOp::Div),
-            Token![%] => AttribOp::Binary(BinaryOp::Rem),
-            Token![|] => AttribOp::Binary(BinaryOp::BitOr),
-            Token![&] => AttribOp::Binary(BinaryOp::BitAnd),
-            Token![^] => AttribOp::Binary(BinaryOp::BitXor),
-            Token![>>] => AttribOp::Binary(BinaryOp::Shr),
-            Token![<<] => AttribOp::Binary(BinaryOp::Shl),
-            TokenKind::Slash2 => AttribOp::Binary(BinaryOp::DivInt),
+            Token![or] => BinaryOrAssignOp::Binary(BinaryOp::Or),
+            Token![and] => BinaryOrAssignOp::Binary(BinaryOp::And),
+            Token![else] => BinaryOrAssignOp::Binary(BinaryOp::Else),
+            Token![!=] => BinaryOrAssignOp::Binary(BinaryOp::NotEqual),
+            Token![==] => BinaryOrAssignOp::Binary(BinaryOp::Equal),
+            Token![<] => BinaryOrAssignOp::Binary(BinaryOp::Less),
+            Token![<=] => BinaryOrAssignOp::Binary(BinaryOp::LessEqual),
+            Token![>] => BinaryOrAssignOp::Binary(BinaryOp::Greater),
+            Token![>=] => BinaryOrAssignOp::Binary(BinaryOp::GreaterEqual),
+            Token![+] => BinaryOrAssignOp::Binary(BinaryOp::Add),
+            Token![-] => BinaryOrAssignOp::Binary(BinaryOp::Sub),
+            Token![*] => BinaryOrAssignOp::Binary(BinaryOp::Mult),
+            Token![/] => BinaryOrAssignOp::Binary(BinaryOp::Div),
+            Token![%] => BinaryOrAssignOp::Binary(BinaryOp::Rem),
+            Token![|] => BinaryOrAssignOp::Binary(BinaryOp::BitOr),
+            Token![&] => BinaryOrAssignOp::Binary(BinaryOp::BitAnd),
+            Token![^] => BinaryOrAssignOp::Binary(BinaryOp::BitXor),
+            Token![>>] => BinaryOrAssignOp::Binary(BinaryOp::Shr),
+            Token![<<] => BinaryOrAssignOp::Binary(BinaryOp::Shl),
+            TokenKind::Slash2 => BinaryOrAssignOp::Binary(BinaryOp::DivInt),
 
-            Token![+=] => AttribOp::Assign(BinaryAssignOp::Add),
-            Token![-=] => AttribOp::Assign(BinaryAssignOp::Sub),
-            Token![*=] => AttribOp::Assign(BinaryAssignOp::Mul),
-            Token![/=] => AttribOp::Assign(BinaryAssignOp::Div),
-            TokenKind::Slash2Eq => AttribOp::Assign(BinaryAssignOp::DivInt),
-            Token![%=] => AttribOp::Assign(BinaryAssignOp::Rem),
-            Token![&=] => AttribOp::Assign(BinaryAssignOp::BitOr),
-            Token![|=] => AttribOp::Assign(BinaryAssignOp::BitAnd),
-            Token![^=] => AttribOp::Assign(BinaryAssignOp::BitXor),
-            Token![>>=] => AttribOp::Assign(BinaryAssignOp::Shr),
-            Token![<<=] => AttribOp::Assign(BinaryAssignOp::Shl),
+            Token![+=] => BinaryOrAssignOp::Assign(BinaryAssignOp::Add),
+            Token![-=] => BinaryOrAssignOp::Assign(BinaryAssignOp::Sub),
+            Token![*=] => BinaryOrAssignOp::Assign(BinaryAssignOp::Mul),
+            Token![/=] => BinaryOrAssignOp::Assign(BinaryAssignOp::Div),
+            TokenKind::Slash2Eq => BinaryOrAssignOp::Assign(BinaryAssignOp::DivInt),
+            Token![%=] => BinaryOrAssignOp::Assign(BinaryAssignOp::Rem),
+            Token![&=] => BinaryOrAssignOp::Assign(BinaryAssignOp::BitOr),
+            Token![|=] => BinaryOrAssignOp::Assign(BinaryAssignOp::BitAnd),
+            Token![^=] => BinaryOrAssignOp::Assign(BinaryAssignOp::BitXor),
+            Token![>>=] => BinaryOrAssignOp::Assign(BinaryAssignOp::Shr),
+            Token![<<=] => BinaryOrAssignOp::Assign(BinaryAssignOp::Shl),
             _ => {
                 self.add_error(
                     &format!("expected binary op, got {}", TokenKind::from(token.value)),

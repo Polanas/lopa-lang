@@ -4,11 +4,13 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer, type_check};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
+        fn main(a: [int] = nil) {
+        }
     "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);
     match ast {
-        Ok(mut ast) => {
+        Ok(ast) => {
             let mut type_context = type_check::Context::new();
             type_context.set_source(source);
             type_context.check(&ast);

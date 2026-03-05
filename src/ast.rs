@@ -226,13 +226,6 @@ pub struct LitNil {
 impl_combined!(LitNil);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct LitUnit {
-    pub span: Span,
-    pub id: AstNodeId,
-}
-impl_combined!(LitUnit);
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct LitInt {
     pub value: i64,
     pub span: Span,
@@ -498,7 +491,6 @@ impl_combined_enum! {
 }
 
 impl std::fmt::Display for TypeExpr {
-    //TODO: finish type displaying
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TypeExpr::Array(type_expr) => write!(f, "[{type_expr}]"),
@@ -539,7 +531,7 @@ impl std::fmt::Display for TypeExpr {
                     write!(f, "fn({params})")
                 }
             }
-            TypeExpr::Nilable(type_expr) => write!(f, "{type_expr}"),
+            TypeExpr::Nilable(type_expr) => write!(f, "{type_expr}?"),
             TypeExpr::Path(path) => write!(
                 f,
                 "{}",
@@ -647,15 +639,9 @@ pub struct InlineFn {
 }
 impl_combined!(InlineFn);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AttribOp {
-    Binary(common::BinaryOp),
-    Assign(common::BinaryAssignOp),
-}
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct OperatorAttrib {
-    pub op: AttribOp,
+    pub op: BinaryOrAssignOp,
     pub id: AstNodeId,
     pub span: Span,
 }
