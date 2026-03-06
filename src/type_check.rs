@@ -1250,22 +1250,28 @@ impl Scopes {
     }
 }
 
-pub struct Context<'a> {
+#[derive(Default, Debug, Clone)]
+struct Context {
+    current_fn: Option<TypeId>,
+    current_impl_item: Option<Type>,
+}
+
+pub struct TypeCheck<'a> {
     diagnostics: Vec<position::Diagnostic>,
     env: Env,
+    context: Context,
     scopes: Scopes,
-    current_fn: Option<TypeId>,
     source: Option<&'a str>,
 }
 
-impl<'a> Context<'a> {
+impl<'a> TypeCheck<'a> {
     pub fn new() -> Self {
         Self {
             diagnostics: Default::default(),
             source: Default::default(),
             env: Env::new(),
-            current_fn: None,
             scopes: Default::default(),
+            context: Default::default(),
         }
     }
 
@@ -1282,6 +1288,37 @@ impl<'a> Context<'a> {
             span,
             message: message.to_owned(),
         });
+    }
+
+    fn cast_fn_to_bare(&self, func: &Fn) -> BareFn {
+        BareFn {
+            output: func.output.clone(),
+            params: func
+                .params
+                .iter()
+                .map(|p| match p {
+                    FnParam::Receiver => BareFnParam {
+                        name: Some(String::from("self")),
+                        ty: self.context.current_impl_item.clone().unwrap(),
+                    },
+                    FnParam::Typed(typed) => BareFnParam {
+                        name: Some(typed.name.clone()),
+                        ty: typed.ty.clone(),
+                    },
+                })
+                .collect_vec(),
+            variadic: func.variadic.clone().map(Into::into),
+        }
+    }
+
+    //TODO: consider accounting for returning nothing vs nil?
+    fn cmp_bare_fns(&self, left: &BareFn, right: &BareFn) -> bool {
+        let variadics_cmp = match (&left.variadic, &right.variadic) {
+            (Some(left), Some(right)) => left.ty == right.ty,
+            (None, None) => true,
+            _ => return false,
+        };
+        left.params == right.params && left.output == right.output && variadics_cmp
     }
 
     //is `left = right` possible?
@@ -1308,7 +1345,20 @@ impl<'a> Context<'a> {
                         (left, right) => left == right,
                     },
                     (Type::Struct(left), Type::Struct(right)) => left == right,
-                    // (Type::Fn(left), Type::Fn(right)) => left == right,
+                    (Type::Enum(left), Type::Enum(right)) => left == right,
+                    (Type::BareFn(left), Type::BareFn(right)) => self.cmp_bare_fns(left, right),
+                    (Type::BareFn(left), Type::Fn(right)) => {
+                        let ValueItemRef::Fn(right) =
+                            self.env.value_item_ref(ValueItemKind::Fn, *right);
+                        self.cmp_bare_fns(left, &self.cast_fn_to_bare(right))
+                    }
+                    (Type::Fn(left), Type::Fn(right)) => {
+                        let ValueItemRef::Fn(left) =
+                            self.env.value_item_ref(ValueItemKind::Fn, *left);
+                        let ValueItemRef::Fn(right) =
+                            self.env.value_item_ref(ValueItemKind::Fn, *right);
+                        self.cmp_bare_fns(&self.cast_fn_to_bare(left), &self.cast_fn_to_bare(right))
+                    }
                     (Type::Array(left), Type::Array(right)) => self.can_assing_type(left, right),
                     (Type::Union(left), Type::Union(right)) => {
                         left.types.sort();
@@ -1318,9 +1368,14 @@ impl<'a> Context<'a> {
                             .zip(right.types.iter_mut())
                             .all(|(l, r)| self.can_assing_type(l, r))
                     }
-                    (left, right) => {
-                        false
+                    (Type::Block(left), Type::Block(right)) => {
+                        left.len() == right.len()
+                            && left
+                                .iter_mut()
+                                .zip(right.iter_mut())
+                                .all(|(l, r)| self.can_assing_type(l, r))
                     }
+                    _ => false,
                 }
             }
         }
@@ -1526,7 +1581,7 @@ impl<'a> Context<'a> {
         let ComplexType::Fn(fn_type) = complex_types.get_mut(fn_id).unwrap() else {
             unreachable!()
         };
-        self.current_fn = Some(*fn_id);
+        self.context.current_fn = Some(*fn_id);
         self.scopes.push_scope();
 
         for (param, ast_param) in fn_type.params.iter_mut().zip(item_fn.params.iter()) {
@@ -1551,6 +1606,7 @@ impl<'a> Context<'a> {
         }
 
         self.scopes.pop_scope();
+        self.context.current_fn = None;
 
         Some(())
     }
@@ -1593,7 +1649,7 @@ impl<'a> Context<'a> {
     }
 }
 
-impl<'a> Default for Context<'a> {
+impl<'a> Default for TypeCheck<'a> {
     fn default() -> Self {
         Self::new()
     }

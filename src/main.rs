@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ast = parser::parse_program(&tokens);
     match ast {
         Ok(ast) => {
-            let mut type_context = type_check::Context::new();
+            let mut type_context = type_check::TypeCheck::new();
             type_context.set_source(source);
             type_context.check(&ast);
             if !type_context.diagnostics().is_empty() {
