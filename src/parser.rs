@@ -504,7 +504,7 @@ impl Parser<'_> {
         };
 
         Some(Expr::Block(BlockExpr {
-            body,
+            stmts: body,
             span: left_brace.span.union(right_brace.span),
             id: self.id(),
         }))
@@ -1437,6 +1437,7 @@ impl Parser<'_> {
                 exprs: Some(exprs),
                 span,
                 id: self.id(),
+                types,
             })
         } else {
             let span = self
@@ -1449,6 +1450,7 @@ impl Parser<'_> {
                 exprs: None,
                 span,
                 id: self.id(),
+                types,
             })
         })
     }

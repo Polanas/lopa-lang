@@ -129,7 +129,7 @@ impl_combined!(UnaryExpr);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BlockExpr {
-    pub body: Vec<Stmt>,
+    pub stmts: Vec<Stmt>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -385,6 +385,7 @@ impl_combined_enum! {
 #[derive(Debug, PartialEq, Clone)]
 pub struct BindingStmt {
     pub pats: Vec<Pat>,
+    pub types: Vec<Option<TypeExpr>>,
     pub exprs: Option<Vec<Expr>>,
     pub span: Span,
     pub id: AstNodeId,

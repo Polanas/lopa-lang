@@ -4,8 +4,17 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer, type_check};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
-        fn main(a: [int] = nil) {
+        fn main() {
+            let x: int, y: int = {nil}, {nil};
         }
+        
+        ---
+        function main() do
+          local x = 1
+          local y = 2
+        end
+        ---
+        
     "#;
     let tokens = tokenizer::tokenize(source);
     let ast = parser::parse_program(&tokens);

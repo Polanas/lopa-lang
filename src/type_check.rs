@@ -37,7 +37,7 @@ pub struct TypeId(pub usize);
 pub struct Union {
     pub types: Vec<Type>,
 }
-
+//Type::Nilable(Box(Type::Nilable(Box(X))))
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Type {
     Primitive(Primitive),
@@ -49,6 +49,7 @@ pub enum Type {
     Array(Box<Type>),
     Block(Vec<Type>),
     Union(Union),
+    Uninitialised(Box<Type>),
     Receiver,
     Blank,
 }
@@ -62,6 +63,10 @@ impl Type {
         matches!(self, Self::Nilable(_))
     }
 
+    pub fn is_initialised(&self) -> bool {
+        !matches!(self, Self::Uninitialised(_))
+    }
+
     pub fn unwrap_nil_ref(&self) -> &Self {
         match self {
             Self::Nilable(inner) => inner,
@@ -73,6 +78,18 @@ impl Type {
         match self {
             Self::Nilable(inner) => inner,
             other => other,
+        }
+    }
+
+    pub fn collapse_nil(&mut self) {
+        if let Type::Nilable(inner) = self {
+            inner.collapse_nil();
+
+            if inner.is_nilable()
+                && let Type::Nilable(deep_inner) = std::mem::replace(&mut **inner, Type::Blank)
+            {
+                *self = Type::Nilable(deep_inner)
+            }
         }
     }
 }
@@ -1323,6 +1340,9 @@ impl<'a> TypeCheck<'a> {
 
     //is `left = right` possible?
     fn can_assing_type(&self, left: &mut Type, right: &mut Type) -> bool {
+        left.collapse_nil();
+        right.collapse_nil();
+
         match (left.is_nilable(), right.is_nilable()) {
             //T? = T?
             (true, true) => self.can_assing_type(left.unwrap_nil_mut(), right.unwrap_nil_mut()),
@@ -1478,6 +1498,7 @@ impl<'a> TypeCheck<'a> {
                 .to_string(),
             Type::Receiver => unreachable!(),
             Type::Blank => unreachable!(),
+            Type::Uninitialised(ty) => self.display_type(ty),
         }
     }
 
@@ -1526,6 +1547,13 @@ impl<'a> TypeCheck<'a> {
             }
             ast::Expr::Ident(ident) => {
                 if let Some(ty) = self.scopes.local(&ident.value) {
+                    if !ty.is_initialised() {
+                        self.add_error(
+                            &format!("attempt to use uninitialised value `{}`", ident.value),
+                            expr.span(),
+                        );
+                        return None;
+                    }
                     ty.clone()
                 } else {
                     self.add_error(
@@ -1535,8 +1563,10 @@ impl<'a> TypeCheck<'a> {
                     return None;
                 }
             }
+            ast::Expr::Block(block_expr) => {
+                todo!()
+            }
             ast::Expr::Binary(binary_expr) => todo!(),
-            ast::Expr::Block(block_expr) => todo!(),
             ast::Expr::Call(call_expr) => todo!(),
             ast::Expr::Closure(closure_expr) => todo!(),
             ast::Expr::For(for_expr) => todo!(),
@@ -1573,6 +1603,147 @@ impl<'a> TypeCheck<'a> {
         );
     }
 
+    fn type_expr(&mut self, type_expr: &ast::TypeExpr) -> Option<Type> {
+        let span = type_expr.span();
+        Some(match type_expr {
+            ast::TypeExpr::Array(type_expr) => {
+                let inner = self.type_expr(type_expr)?;
+                Type::Array(inner.into())
+            }
+            ast::TypeExpr::BareFn(bare_fn) => Type::BareFn(BareFn {
+                output: match &bare_fn.output {
+                    ast::ReturnType::None => ReturnType::None,
+                    ast::ReturnType::Type(type_exprs) => ReturnType::Type(
+                        type_exprs
+                            .iter()
+                            .map(|ty| self.type_expr(ty))
+                            .collect::<Option<Vec<_>>>()?,
+                    ),
+                },
+                params: bare_fn
+                    .params
+                    .iter()
+                    .map(|p| match p {
+                        ast::BareFnParam::Receiver(_) => Some(BareFnParam {
+                            name: None,
+                            ty: Type::Receiver,
+                        }),
+                        ast::BareFnParam::Typed(param) => {
+                            self.type_expr(&param.ty).map(|ty| BareFnParam {
+                                name: param.ident.as_ref().map(|i| i.value.clone()),
+                                ty,
+                            })
+                        }
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+                variadic: {
+                    if let Some(variadic) = bare_fn.variadic.as_ref() {
+                        let ty = self.type_expr(&variadic.ty)?;
+                        Some(
+                            Variadic {
+                                name: variadic.ident.as_ref().map(|i| i.value.clone()),
+                                ty,
+                            }
+                            .into(),
+                        )
+                    } else {
+                        None
+                    }
+                },
+            }),
+            ast::TypeExpr::Nilable(type_expr) => Type::Nilable(self.type_expr(type_expr)?.into()),
+            ast::TypeExpr::Path(path) => {
+                //TODO: add proper modules support
+                let name = &path.segments[0].ident.value;
+
+                if let Some(ty) = self.env.type_items.get(name.as_str()) {
+                    ty.clone()
+                } else if let Some(ty) = self.env.value_items.get(name.as_str()) {
+                    ty.clone()
+                } else {
+                    self.add_error(&format!("could not find type {name}"), span);
+                    return None;
+                }
+            }
+            ast::TypeExpr::Receiver(_) => Type::Receiver,
+            ast::TypeExpr::Primitive(primitive_type) => Type::Primitive(primitive_type.value),
+            ast::TypeExpr::Paren(type_expr) => self.type_expr(type_expr)?,
+            ast::TypeExpr::Tuple(_tuple_type) => todo!(),
+            ast::TypeExpr::Union(union_type) => {
+                let mut types = vec![];
+                let mut head = &*union_type.right;
+
+                while let ast::TypeExpr::Union(ast::UnionType { left, right, .. }) = head {
+                    types.push(self.type_expr(left)?);
+                    head = right;
+                }
+
+                types.push(self.type_expr(head)?);
+                Type::Union(Union { types })
+            }
+        })
+    }
+
+    fn binding(&mut self, binding: &ast::BindingStmt) -> Option<Type> {
+        for (i, (pat, ty)) in binding.pats.iter().zip(binding.types.iter()).enumerate() {
+            let expr = binding.exprs.as_ref().and_then(|e| e.get(i));
+            match pat {
+                ast::Pat::Ident(ident) => match (ty, expr) {
+                    (None, None) => {
+                        self.add_error(
+                            &format!("expected type or value for {}", &ident.value.value),
+                            ident.span,
+                        );
+                    }
+                    (None, Some(expr)) => {
+                        let ty = self.expr(expr, None)?;
+                        self.scopes.insert_local(&ident.value.value, ty);
+                    }
+                    (Some(ty), None) => {
+                        let ty = self.type_expr(ty)?;
+                        let ty = if ty.is_nilable() {
+                            ty
+                        } else {
+                            Type::Uninitialised(ty.into())
+                        };
+                        self.scopes.insert_local(&ident.value.value, ty);
+                    }
+                    (Some(ty), Some(expr)) => {
+                        let mut expected = self.type_expr(ty)?;
+                        let expr_ty = self.expr(expr, Some(&mut expected))?;
+                        self.scopes.insert_local(&ident.value.value, expr_ty);
+                    }
+                },
+                ast::Pat::Paren(pat_paren) => todo!(),
+                ast::Pat::Path(path) => todo!(),
+            }
+        }
+
+        Some(Type::Primitive(Primitive::Nil))
+    }
+
+    fn stmt(&mut self, stmt: &ast::Stmt) -> Option<Type> {
+        Some(match stmt {
+            ast::Stmt::Expr(expr_stmt) => match expr_stmt.exprs.as_slice() {
+                [expr] => self.expr(expr, None)?,
+                exprs => Type::Block(
+                    exprs
+                        .iter()
+                        .map(|e| self.expr(e, None))
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+            },
+            ast::Stmt::Assign(assign_stmt) => todo!(),
+            ast::Stmt::BinaryAssign(binary_assign_stmt) => todo!(),
+            ast::Stmt::Binding(binding) => self.binding(binding)?,
+            ast::Stmt::Return(return_stmt) => todo!(),
+            ast::Stmt::Continue(continue_stmt) => todo!(),
+            ast::Stmt::Break(break_stmt) => todo!(),
+            ast::Stmt::Yield(yield_stmt) => todo!(),
+            ast::Stmt::Empty(empty_stmt) => todo!(),
+        })
+    }
+
     fn fn_item(&mut self, item_fn: &ast::ItemFn) -> Option<()> {
         let Type::Fn(fn_id) = self.env.types_by_ids.get(&item_fn.id).unwrap() else {
             unreachable!()
@@ -1603,6 +1774,10 @@ impl<'a> TypeCheck<'a> {
                     }
                 }
             }
+        }
+
+        for stmt in item_fn.body.stmts.iter() {
+            self.stmt(stmt)?;
         }
 
         self.scopes.pop_scope();
@@ -1652,5 +1827,17 @@ impl<'a> TypeCheck<'a> {
 impl<'a> Default for TypeCheck<'a> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::type_check::Type;
+
+    #[test]
+    fn collapse_nil() {
+        let mut nested = Type::Nilable(Type::Nilable(Type::Receiver.into()).into());
+        nested.collapse_nil();
+        assert_eq!(nested, Type::Nilable(Type::Receiver.into()));
     }
 }
