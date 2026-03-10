@@ -299,6 +299,7 @@ impl<'a> Tokenizer<'a> {
             "inline" => Some(Token::Inline),
             "and" => Some(Token::And),
             "or" => Some(Token::Or),
+            "static" => Some(Token::Static)
             _ => None,
         }
     }

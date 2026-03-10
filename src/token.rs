@@ -45,6 +45,7 @@ macro_rules! Token {
     [and]          => { $crate::token::TokenKind::And };
     [or]        => { $crate::token::TokenKind::Or };
     [let]        => { $crate::token::TokenKind::Let };
+    [static]        => { $crate::token::TokenKind::Static };
     [true]        => { $crate::token::TokenKind::True };
     [false]        => { $crate::token::TokenKind::False };
     [fn]          => { $crate::token::TokenKind::Fn};
@@ -148,6 +149,7 @@ pub enum TokenKind {
     And,
     Or,
     Let,
+    Static,
     True,
     False,
     Fn,
@@ -181,30 +183,30 @@ pub enum TokenKind {
 
 impl TokenKind {
     pub fn is_prefix(&self) -> bool {
-        match self {
+        matches!(
+            self,
             TokenKind::Number
-            | Token![nil]
-            | Token![true]
-            | Token![false]
-            | Token![self]
-            | TokenKind::Ident
-            | TokenKind::String
-            | Token![!]
-            | Token![-]
-            | TokenKind::LeftParen
-            | TokenKind::LeftBrace
-            | TokenKind::LeftBracket
-            | Token![if]
-            | Token![for]
-            | Token![while]
-            | Token![loop]
-            | Token![|]
-            | Token![return]
-            | Token![break]
-            | Token![continue]
-            | Token![yield] => true,
-            _ => false,
-        }
+                | Token![nil]
+                | Token![true]
+                | Token![false]
+                | Token![self]
+                | TokenKind::Ident
+                | TokenKind::String
+                | Token![!]
+                | Token![-]
+                | TokenKind::LeftParen
+                | TokenKind::LeftBrace
+                | TokenKind::LeftBracket
+                | Token![if]
+                | Token![for]
+                | Token![while]
+                | Token![loop]
+                | Token![|]
+                | Token![return]
+                | Token![break]
+                | Token![continue]
+                | Token![yield]
+        )
     }
     pub fn as_binary_op(&self) -> Option<common::BinaryOp> {
         use common::BinaryOp;
@@ -331,6 +333,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Yield => write!(f, "yield"),
             TokenKind::Co => write!(f, "co"),
             TokenKind::Enum => write!(f, "enum"),
+            TokenKind::Static => write!(f, "static"),
         }
     }
 }
@@ -396,6 +399,7 @@ pub enum Token {
     And,
     Or,
     Let,
+    Static,
     True,
     False,
     Fn,
@@ -517,6 +521,7 @@ impl From<&Token> for TokenKind {
             Token::Co => Self::Co,
             Token::Yield => Self::Yield,
             Token::Enum => Self::Enum,
+            Token::Static => Self::Static,
         }
     }
 }

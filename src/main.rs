@@ -4,7 +4,14 @@ use std::error::Error;
 use lopa_lang::{parser, position, tokenizer, type_check};
 fn main() -> Result<(), Box<dyn Error>> {
     let source = r#"
+        struct Vec2 {
+
+        }
+        impl Vec2 {
+            static ZERO = Vec2 { x: 1, y: 2 };
+        }
         fn main() {
+            static value: x = 20;
         }
     "#;
     let tokens = tokenizer::tokenize(source);
