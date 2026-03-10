@@ -691,6 +691,7 @@ pub enum ExternKind {
 pub struct ItemExtern {
     pub kind: ExternKind,
     pub defs: Vec<ExternDefinition>,
+    pub attribs: Vec<Attrib>,
     pub id: AstNodeId,
     pub span: Span,
 }

@@ -1681,7 +1681,7 @@ impl Parser<'_> {
         }))
     }
 
-    fn parse_inline(&mut self) -> Option<Item> {
+    fn parse_inline(&mut self, attribs: Vec<Attrib>) -> Option<Item> {
         let inline_token = self.expect(TokenKind::Inline)?;
         self.expect(TokenKind::LeftParen)?;
         let ident = self.parse_ident()?;
@@ -1695,7 +1695,6 @@ impl Parser<'_> {
         self.expect(TokenKind::RightParen)?;
 
         let mut defs = vec![];
-        let attribs = self.parse_attribs()?;
         let span = if self.check(TokenKind::Fn) {
             let def = self.parse_inline_fn()?;
             let span = inline_token.span.union(def.span());
@@ -1809,7 +1808,7 @@ impl Parser<'_> {
         }
     }
 
-    fn parse_extern(&mut self) -> Option<Item> {
+    fn parse_extern(&mut self, attribs: Vec<Attrib>) -> Option<Item> {
         let extern_token = self.expect(Token![extern])?;
         self.expect(TokenKind::LeftParen)?;
         let ident = self.parse_ident()?;
@@ -1847,6 +1846,7 @@ impl Parser<'_> {
             defs,
             id: self.id(),
             span,
+            attribs,
         }))
     }
 
@@ -1981,14 +1981,16 @@ impl Parser<'_> {
     }
 
     fn parse_item(&mut self) -> Option<Item> {
+        //TODO: error/warn if attribs are unused
+        //also introduce warnings?
         let attribs = self.parse_attribs()?;
         match self.peek() {
-            Token![fn] => self.parse_fn(attribs),
+            t if t.as_fn_type().is_some() => self.parse_fn(attribs),
             Token![struct] => self.parse_struct(attribs),
             Token![enum] => self.parse_enum(attribs),
             Token![impl] => self.parse_impl(),
-            Token![extern] => self.parse_extern(),
-            Token![inline] => self.parse_inline(),
+            Token![extern] => self.parse_extern(attribs),
+            Token![inline] => self.parse_inline(attribs),
             other => {
                 let token = self.advance();
                 self.add_error(&format!("expected item, got {}", other), token.span);

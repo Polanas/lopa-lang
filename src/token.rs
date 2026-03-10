@@ -1,4 +1,4 @@
-use crate::common;
+use crate::{ast, common};
 
 #[macro_export]
 macro_rules! Token {
@@ -182,6 +182,14 @@ pub enum TokenKind {
 }
 
 impl TokenKind {
+    pub fn as_fn_type(&self) -> Option<ast::FnType> {
+        Some(match self {
+            Token![fn] => ast::FnType::Sync,
+            Token![co] => ast::FnType::Coroutine,
+            _ => return None,
+        })
+    }
+
     pub fn is_prefix(&self) -> bool {
         matches!(
             self,
