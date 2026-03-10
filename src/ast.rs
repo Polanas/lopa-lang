@@ -336,13 +336,17 @@ impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone, strum_macros::Display)]
     pub enum Expr {
         Array(ArrayExpr),
+        Assign(AssignExpr),
         Binary(BinaryExpr),
         Block(BlockExpr),
+        Break(BreakExpr),
         Call(CallExpr),
         Closure(ClosureExpr),
+        Continue(ContinueExpr),
         For(ForExpr),
         FieldGet(FieldGetExpr),
         Group(GroupExpr),
+        Ident(Ident),
         If(IfExpr),
         Index(IndexExpr),
         Lit(LitExpr),
@@ -350,10 +354,11 @@ impl_combined_enum! {
         MethodCall(MethodCallExpr),
         Struct(StructExpr),
         Path(Path),
-        Ident(Ident),
+        Return(ReturnExpr),
         Tuple(TupleExpr),
         Unary(UnaryExpr),
         While(WhileExpr),
+        Yield(YieldExpr),
     }
 }
 
@@ -373,10 +378,19 @@ pub struct PatParen {
 }
 impl_combined!(PatParen);
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct PatTuple {
+    pub pats: Vec<Pat>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(PatTuple);
+
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone, strum_macros::Display)]
     pub enum Pat {
         Ident(PatIdent),
+        Tuple(PatTuple),
         Paren(PatParen),
         Path(Path),
     }
@@ -384,29 +398,14 @@ impl_combined_enum! {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct BindingStmt {
-    pub pats: Vec<Pat>,
-    pub types: Vec<Option<TypeExpr>>,
-    pub exprs: Option<Vec<Expr>>,
+    pub pat: Pat,
+    pub ty: Option<TypeExpr>,
+    pub expr: Option<Expr>,
     pub span: Span,
     pub id: AstNodeId,
 }
 impl_combined!(BindingStmt);
 
-// impl Binding {
-//     pub fn as_ref(&'_ self) -> BindingRef<'_> {
-//         BindingRef {
-//             kind: self.kind,
-//             idents: &self.idents,
-//             values: self.values.as_deref(),
-//         }
-//     }
-// }
-//
-// #[derive(Debug, PartialEq, Clone)]
-// pub struct BindingRef<'a> {
-//     pub idents: &'a [WithSpan<Ident>],
-//     pub values: Option<&'a [WithSpan<Expr>]>,
-// }
 #[derive(Debug, PartialEq, Clone)]
 pub struct PrimitiveType {
     pub span: Span,
@@ -476,6 +475,14 @@ pub struct UnionType {
 }
 impl_combined!(UnionType);
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct ParenType {
+    pub ty: Box<TypeExpr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ParenType);
+
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum TypeExpr {
@@ -485,7 +492,7 @@ impl_combined_enum! {
         Path(Path),
         Receiver(Receiver),
         Primitive(PrimitiveType),
-        Paren(Box<TypeExpr>),
+        Paren(ParenType),
         Tuple(TupleType),
         Union(UnionType),
     }
@@ -540,7 +547,7 @@ impl std::fmt::Display for TypeExpr {
             ),
             TypeExpr::Receiver(_) => write!(f, "Self"),
             TypeExpr::Primitive(primitive_type) => write!(f, "{}", primitive_type.value),
-            TypeExpr::Paren(type_expr) => write!(f, "{type_expr}"),
+            TypeExpr::Paren(type_expr) => write!(f, "{}", type_expr.ty),
             TypeExpr::Union(union_type) => write!(f, "{} | {}", union_type.left, union_type.right),
             TypeExpr::Tuple(_tuple_type) => {
                 unimplemented!()
@@ -642,7 +649,7 @@ impl_combined!(InlineFn);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct OperatorAttrib {
-    pub op: BinaryOrAssignOp,
+    pub op: BinaryOp,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -800,7 +807,7 @@ impl_combined_enum! {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprStmt {
-    pub exprs: Vec<Expr>,
+    pub expr: Expr,
     pub semi: Option<Span>,
     pub span: Span,
     pub id: AstNodeId,
@@ -808,73 +815,50 @@ pub struct ExprStmt {
 impl_combined!(ExprStmt);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct AssignStmt {
-    pub left: Vec<Expr>,
-    pub right: Vec<Expr>,
+pub struct AssignExpr {
+    pub left: Box<Expr>,
+    pub right: Box<Expr>,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(AssignStmt);
+impl_combined!(AssignExpr);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ReturnStmt {
-    pub exprs: Option<Vec<Expr>>,
+pub struct ReturnExpr {
+    pub expr: Option<Box<Expr>>,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(ReturnStmt);
+impl_combined!(ReturnExpr);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ContinueStmt {
+pub struct ContinueExpr {
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(ContinueStmt);
+impl_combined!(ContinueExpr);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BreakStmt {
+pub struct BreakExpr {
     pub span: Span,
+    pub expr: Option<Box<Expr>>,
     pub id: AstNodeId,
 }
-impl_combined!(BreakStmt);
+impl_combined!(BreakExpr);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct YieldStmt {
-    pub exprs: Option<Vec<Expr>>,
+pub struct YieldExpr {
+    pub expr: Option<Box<Expr>>,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(YieldStmt);
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct EmptyStmt {
-    pub span: Span,
-    pub id: AstNodeId,
-}
-impl_combined!(EmptyStmt);
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct BinaryAssignStmt {
-    pub left: Vec<Expr>,
-    pub right: Vec<Expr>,
-    pub op: BinaryAssignOp,
-    pub id: AstNodeId,
-    pub span: Span,
-}
-impl_combined!(BinaryAssignStmt);
+impl_combined!(YieldExpr);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum Stmt {
         Expr(ExprStmt),
-        Assign(AssignStmt),
-        BinaryAssign(BinaryAssignStmt),
         Binding(BindingStmt),
-        Return(ReturnStmt),
-        Continue(ContinueStmt),
-        Break(BreakStmt),
-        Yield(YieldStmt),
-        Empty(EmptyStmt),
     }
 }
 

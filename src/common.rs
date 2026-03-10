@@ -67,19 +67,18 @@ pub enum UnaryOp {
     Negate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BinaryOrAssignOp {
-    Binary(BinaryOp),
-    Assign(BinaryAssignOp),
-}
-
-
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BinaryOp {
+    Add,
+    Mul,
     Div,
     DivInt,
-    Mult,
-    Add,
+    Rem,
+    Or,
+    Shl,
+    Shr,
+    BitXor,
+    BitAnd,
     Sub,
     Greater,
     GreaterEqual,
@@ -87,30 +86,20 @@ pub enum BinaryOp {
     LessEqual,
     NotEqual,
     Equal,
-    Rem,
     And,
-    Or,
     Else,
-    BitXor,
-    BitAnd,
     BitOr,
-    Shl,
-    Shr,
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum BinaryAssignOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    DivInt,
-    Rem,
-    BitXor,
-    BitAnd,
-    BitOr,
-    Shl,
-    Shr,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    DivIntAssign,
+    RemAssign,
+    BitXorAssign,
+    BitAndAssign,
+    BitOrAssign,
+    ShlAssign,
+    ShrAssign,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

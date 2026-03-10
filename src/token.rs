@@ -179,6 +179,72 @@ pub enum TokenKind {
     EOF,
 }
 
+impl TokenKind {
+    pub fn is_prefix(&self) -> bool {
+        match self {
+            TokenKind::Number
+            | Token![nil]
+            | Token![true]
+            | Token![false]
+            | Token![self]
+            | TokenKind::Ident
+            | TokenKind::String
+            | Token![!]
+            | Token![-]
+            | TokenKind::LeftParen
+            | TokenKind::LeftBrace
+            | TokenKind::LeftBracket
+            | Token![if]
+            | Token![for]
+            | Token![while]
+            | Token![loop]
+            | Token![|]
+            | Token![return]
+            | Token![break]
+            | Token![continue]
+            | Token![yield] => true,
+            _ => false,
+        }
+    }
+    pub fn as_binary_op(&self) -> Option<common::BinaryOp> {
+        use common::BinaryOp;
+        Some(match self {
+            Token![or] => BinaryOp::Or,
+            Token![and] => BinaryOp::And,
+            Token![else] => BinaryOp::Else,
+            Token![!=] => BinaryOp::NotEqual,
+            Token![==] => BinaryOp::Equal,
+            Token![<] => BinaryOp::Less,
+            Token![<=] => BinaryOp::LessEqual,
+            Token![>] => BinaryOp::Greater,
+            Token![>=] => BinaryOp::GreaterEqual,
+            Token![+] => BinaryOp::Add,
+            Token![-] => BinaryOp::Sub,
+            Token![*] => BinaryOp::Mul,
+            Token![/] => BinaryOp::Div,
+            Token![%] => BinaryOp::Rem,
+            Token![|] => BinaryOp::BitOr,
+            Token![&] => BinaryOp::BitAnd,
+            Token![^] => BinaryOp::BitXor,
+            Token![>>] => BinaryOp::Shr,
+            Token![<<] => BinaryOp::Shl,
+            TokenKind::Slash2 => BinaryOp::DivInt,
+            Token![+=] => BinaryOp::AddAssign,
+            Token![-=] => BinaryOp::SubAssign,
+            Token![*=] => BinaryOp::MulAssign,
+            Token![/=] => BinaryOp::DivAssign,
+            TokenKind::Slash2Eq => BinaryOp::DivIntAssign,
+            Token![%=] => BinaryOp::RemAssign,
+            Token![&=] => BinaryOp::BitOrAssign,
+            Token![|=] => BinaryOp::BitAndAssign,
+            Token![^=] => BinaryOp::BitXorAssign,
+            Token![>>=] => BinaryOp::ShrAssign,
+            Token![<<=] => BinaryOp::ShlAssign,
+            _ => return None,
+        })
+    }
+}
+
 impl std::fmt::Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
