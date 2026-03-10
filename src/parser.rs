@@ -1466,15 +1466,35 @@ impl Parser<'_> {
         }))
     }
 
+    fn parse_struct_kind(&mut self) -> Option<StructKind> {
+        if self.matches(TokenKind::LeftParen).is_some() {
+            self.expect(TokenKind::RightParen)?;
+
+            let ident = self.parse_ident()?;
+            Some(match ident.value.as_str() {
+                StructKind::KIND_GC => StructKind::GC,
+                StructKind::KIND_VALUE => StructKind::Value,
+                StructKind::KIND_C => StructKind::C,
+                other => {
+                    self.add_error(&format!("expected struct kind, got {}", other), ident.span);
+                    return None;
+                }
+            })
+        } else {
+            Some(StructKind::GC)
+        }
+    }
+
     fn parse_struct(&mut self, struct_attribs: Vec<Attrib>) -> Option<Item> {
         let struct_token = self.expect(Token![struct])?;
+        let kind = self.parse_struct_kind()?;
         let name = self.parse_ident()?;
 
         Some(match self.peek() {
             TokenKind::Semicolon => {
                 let semi = self.expect(Token![;])?;
                 Item::Struct(ItemStruct {
-                    kind: StructKind::GC,
+                    kind,
                     fields: Fields::Unit,
                     name,
                     span: struct_token.span.union(semi.span),
@@ -1489,7 +1509,7 @@ impl Parser<'_> {
 
                 Item::Struct(ItemStruct {
                     name,
-                    kind: StructKind::GC,
+                    kind,
                     fields: Fields::Named(FieldsNamed {
                         span: left.span.union(right.span),
                         fields,
@@ -1507,7 +1527,7 @@ impl Parser<'_> {
                 self.expect(TokenKind::Semicolon)?;
                 Item::Struct(ItemStruct {
                     name,
-                    kind: StructKind::GC,
+                    kind,
                     fields: Fields::Unnamed(FieldsUnnamed {
                         fields,
                         span: left.span.union(right.span),

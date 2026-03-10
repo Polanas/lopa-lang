@@ -58,7 +58,14 @@ pub enum StringKind {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum StructKind {
     GC,
-    Native,
+    Value,
+    C,
+}
+
+impl StructKind {
+    pub const KIND_GC: &str = "gc";
+    pub const KIND_VALUE: &str = "value";
+    pub const KIND_C: &str = "C";
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
