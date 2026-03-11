@@ -1850,8 +1850,7 @@ impl Parser<'_> {
         }))
     }
 
-    fn parse_impl_fn(&mut self) -> Option<ImplItem> {
-        let fn_attribs = self.parse_attribs()?;
+    fn parse_impl_fn(&mut self, fn_attribs: Vec<Attrib>) -> Option<ImplItem> {
         let (fn_type, fn_type_span) = {
             if self.check(Token![fn]) {
                 let fn_token = self.expect(Token![fn])?;
@@ -1952,8 +1951,41 @@ impl Parser<'_> {
         }))
     }
 
+    fn parse_static(&mut self, attribs: Vec<Attrib>) -> Option<ItemStatic> {
+        let static_keyword = self.expect(Token![static])?;
+        let ident = self.parse_ident()?;
+        let ty = if self.matches(Token![:]).is_some() {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        self.expect(Token![=])?;
+        let expr = self.parse_expr(Precedence::Lowest)?;
+        let semi = self.expect(Token![;])?;
+        Some(ItemStatic {
+            span: static_keyword.span.union(semi.span),
+            ident,
+            ty,
+            expr,
+            id: self.id(),
+            attribs,
+        })
+    }
+
     fn parse_impl_item(&mut self) -> Option<ImplItem> {
-        self.parse_impl_fn()
+        let attribs = self.parse_attribs()?;
+        Some(match self.peek() {
+            t if t.as_fn_type().is_some() => self.parse_impl_fn(attribs)?,
+            Token![static] => ImplItem::Static(self.parse_static(attribs)?),
+            _ => {
+                let token = self.advance();
+                self.add_error(
+                    &format!("expected impl item, got {}", token.value.kind()),
+                    token.span,
+                );
+                return None;
+            }
+        })
     }
 
     fn parse_impl(&mut self) -> Option<Item> {
@@ -1991,6 +2023,7 @@ impl Parser<'_> {
             Token![impl] => self.parse_impl(),
             Token![extern] => self.parse_extern(attribs),
             Token![inline] => self.parse_inline(attribs),
+            Token![static] => Some(Item::Static(self.parse_static(attribs)?)),
             other => {
                 let token = self.advance();
                 self.add_error(&format!("expected item, got {}", other), token.span);

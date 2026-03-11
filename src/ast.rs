@@ -628,7 +628,8 @@ impl_combined!(ItemFn);
 pub struct ItemStatic {
     pub ident: Ident,
     pub ty: Option<TypeExpr>,
-    pub value: Expr,
+    pub attribs: Vec<Attrib>,
+    pub expr: Expr,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -802,6 +803,7 @@ impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
     pub enum Item {
         Fn(ItemFn),
+        Static(ItemStatic),
         Extern(ItemExtern),
         Inline(ItemInline),
         Struct(ItemStruct),
