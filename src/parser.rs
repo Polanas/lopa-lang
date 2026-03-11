@@ -533,7 +533,7 @@ impl Parser<'_> {
         let span = if_token.span.union(value.span());
         Some(Expr::If(IfExpr {
             condition: condition.into(),
-            value,
+            value: Expr::Block(value).into(),
             id: self.id(),
             span,
         }))

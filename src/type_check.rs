@@ -3,12 +3,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use itertools::Itertools;
+use itertools::{Itertools, Position};
 
 use crate::{
     ast::{self, AstNodeId},
     common::{self, BinaryOp, Primitive},
-    position::{self, Spanned, WithSpan},
+    position::{self, Diagnostic, Spanned, WithSpan},
     shared_mut::SharedMut,
 };
 
@@ -233,6 +233,8 @@ pub struct Enum {
 #[derive(Debug, Clone)]
 pub struct Static {
     pub name: String,
+    //None indicates that there wasn't a type specified in the AST, meaning it will be resolved
+    //later, during final type check phase
     pub ty: Option<Type>,
 }
 
@@ -904,6 +906,21 @@ impl<'env> BlankResolver<'env> {
         Some(())
     }
 
+    fn static_item(&mut self, static_item: &ast::ItemStatic) -> Option<()> {
+        let Some((id, _)) = self.value_items.get(&static_item.ident.value) else {
+            unreachable!()
+        };
+        let mut complex_types = self.env.complex_types.clone();
+        let Some(ComplexType::Static(static_ty)) = complex_types.get_mut(id) else {
+            unreachable!()
+        };
+        if let Some(ty) = static_ty.ty.as_mut() {
+            let ast_ty = static_item.ty.as_ref().unwrap();
+            self.update_type(ty, ast_ty);
+        }
+        Some(())
+    }
+
     fn inline_item(&mut self, inline_item: &ast::ItemInline) -> Option<()> {
         for def in &inline_item.defs {
             let (id, _) = self.env.value_items.get_mut(&def.name.value).unwrap();
@@ -1033,8 +1050,8 @@ impl<'env> BlankResolver<'env> {
             ast::Item::Enum(item_enum) => self.enum_item(item_enum),
             ast::Item::Impl(item_impl) => self.impl_item(item_impl),
             ast::Item::Inline(item_inline) => self.inline_item(item_inline),
-            ast::Item::Extern(item_extern) => todo!(),
-            ast::Item::Static(item_static) => todo!(),
+            ast::Item::Static(item_static) => self.static_item(item_static),
+            ast::Item::Extern(item_extern) => self.extern_item(item_extern),
         }
     }
 
@@ -1233,12 +1250,14 @@ impl Env {
                     return match kind {
                         ValueItemKind::Fn => Type::Fn(*id),
                         ValueItemKind::Static => {
-                            let ComplexType::Static(static_ty) =
-                                self.complex_types.get(&id).unwrap()
-                            else {
-                                unreachable!()
-                            };
-                            static_ty.ty.clone().unwrap()
+                            //TODO: say 'expected type found static' and return None
+                            todo!()
+                            // let ComplexType::Static(static_ty) =
+                            //     self.complex_types.get(&id).unwrap()
+                            // else {
+                            //     unreachable!()
+                            // };
+                            // static_ty.ty.clone().unwrap()
                         }
                     };
                 }
@@ -1359,9 +1378,18 @@ impl Scopes {
         self.scope_mut().locals.insert(name.to_owned(), ty);
     }
 
-    fn local(&self, name: &str) -> Option<&Type> {
+    fn local_ref(&self, name: &str) -> Option<&Type> {
         for scope in self.scopes.iter().rev() {
             if let Some(ty) = scope.locals.get(name) {
+                return Some(ty);
+            }
+        }
+        None
+    }
+
+    fn local_mut(&mut self, name: &str) -> Option<&mut Type> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(ty) = scope.locals.get_mut(name) {
                 return Some(ty);
             }
         }
@@ -1379,7 +1407,7 @@ pub struct TypeCheck<'a> {
     diagnostics: Vec<position::Diagnostic>,
     env: Env,
     context: Context,
-    scopes: Scopes,
+    scopes: SharedMut<Scopes>,
     source: Option<&'a str>,
 }
 
@@ -1389,7 +1417,7 @@ impl<'a> TypeCheck<'a> {
             diagnostics: Default::default(),
             source: Default::default(),
             env: Env::new(),
-            scopes: Default::default(),
+            scopes: SharedMut::new(Default::default()),
             context: Default::default(),
         }
     }
@@ -1407,6 +1435,14 @@ impl<'a> TypeCheck<'a> {
             span,
             message: message.to_owned(),
         });
+    }
+
+    fn dump_scopes(&self) {
+        for scope in self.scopes.scopes.iter() {
+            for (name, ty) in scope.locals.iter() {
+                println!("{}: {}", name, self.display_type(ty));
+            }
+        }
     }
 
     fn cast_fn_to_bare(&self, func: &Fn) -> BareFn {
@@ -1499,6 +1535,11 @@ impl<'a> TypeCheck<'a> {
                             .zip(right.types.iter_mut())
                             .all(|(l, r)| self.can_assing_type(l, r))
                     }
+                    (Type::Tuple(left), Type::Tuple(right)) => left
+                        .types
+                        .iter_mut()
+                        .zip(right.types.iter_mut())
+                        .all(|(l, r)| self.can_assing_type(l, r)),
                     _ => false,
                 }
             }
@@ -1599,8 +1640,8 @@ impl<'a> TypeCheck<'a> {
                 .map(|t| self.display_type(t))
                 .join(" |")
                 .to_string(),
-            Type::Receiver => unreachable!(),
-            Type::Blank => unreachable!(),
+            Type::Receiver => String::from("Self"),
+            Type::Blank => String::from("Blank"),
             Type::Uninit(ty) => self.display_type(ty),
             Type::Tuple(tuple) => format!(
                 "({})",
@@ -1625,7 +1666,10 @@ impl<'a> TypeCheck<'a> {
     fn expr(&mut self, expr: &ast::Expr, mut expected: Option<&mut Type>) -> Option<Type> {
         let mut ty = match &expr {
             ast::Expr::Lit(lit_expr) => match lit_expr {
-                ast::LitExpr::Nil(_) => Type::Primitive(Primitive::Nil),
+                ast::LitExpr::Nil(_) => match expected.as_deref() {
+                    Some(Type::Nilable(inner)) => Type::Nilable(inner.clone()),
+                    _ => Type::Primitive(Primitive::Nil),
+                },
                 ast::LitExpr::Int(_) => Type::Primitive(Primitive::Int),
                 ast::LitExpr::Float(_) => Type::Primitive(Primitive::Float),
                 ast::LitExpr::Bool(_) => Type::Primitive(Primitive::Bool),
@@ -1653,7 +1697,7 @@ impl<'a> TypeCheck<'a> {
                 }
             }
             ast::Expr::Ident(ident) => {
-                if let Some(ty) = self.scopes.local(&ident.value) {
+                if let Some(ty) = self.scopes.local_ref(&ident.value) {
                     if !ty.is_initialised() {
                         self.add_error(
                             &format!("attempt to use uninitialised value `{}`", ident.value),
@@ -1662,6 +1706,23 @@ impl<'a> TypeCheck<'a> {
                         return None;
                     }
                     ty.clone()
+                } else if let Some((id, kind)) = self.env.value_items.get(&ident.value) {
+                    match kind {
+                        ValueItemKind::Fn => Type::Fn(*id),
+                        ValueItemKind::Static => {
+                            if let Some(ComplexType::Static(static_ty)) =
+                                self.env.complex_types.get(id)
+                            {
+                                static_ty.ty.clone().unwrap()
+                            } else {
+                                self.add_error(
+                                    &format!("cannot find value `{}` in this scope", &ident.value),
+                                    expr.span(),
+                                );
+                                return None;
+                            }
+                        }
+                    }
                 } else {
                     self.add_error(
                         &format!("cannot find value `{}` in this scope", &ident.value),
@@ -1670,25 +1731,91 @@ impl<'a> TypeCheck<'a> {
                     return None;
                 }
             }
-            ast::Expr::Block(block_expr) => {
-                todo!()
+            ast::Expr::Tuple(tuple_expr) => {
+                let exprs = tuple_expr.exprs.iter();
+                let types = if let Some(Type::Tuple(tuple_expected)) = expected.as_deref_mut() {
+                    exprs
+                        .zip(tuple_expected.types.iter_mut())
+                        .map(|(expr, expected)| self.expr(expr, Some(expected)))
+                        .collect::<Option<Vec<_>>>()?
+                } else {
+                    exprs
+                        .map(|e| self.expr(e, None))
+                        .collect::<Option<Vec<_>>>()?
+                };
+                Type::Tuple(Tuple { types })
             }
-            ast::Expr::Binary(binary_expr) => todo!(),
+            ast::Expr::Assign(assign_expr) => {
+                match assign_expr.left.as_ref() {
+                    ast::Expr::Ident(ident) => {
+                        let mut scopes = self.scopes.clone();
+                        let Some(local) = scopes.local_mut(&ident.value) else {
+                            self.add_error(
+                                &format!("cannot find value '{}' in this scope", &ident.value),
+                                ident.span,
+                            );
+                            return None;
+                        };
+                        _ = self.expr(&assign_expr.right, Some(local))?;
+                    }
+                    _ => todo!(),
+                }
+                Type::Primitive(Primitive::Nil)
+            }
+            ast::Expr::Block(block_expr) => {
+                let mut ty = Type::Primitive(Primitive::Nil);
+                for (pos, stmt) in block_expr.stmts.iter().with_position() {
+                    match pos {
+                        Position::First | Position::Middle => {
+                            self.stmt(stmt)?;
+                        }
+                        Position::Last | Position::Only => match stmt {
+                            ast::Stmt::Expr(expr_stmt) => {
+                                let expr_ty = self.expr(&expr_stmt.expr, None)?;
+                                if expr_stmt.semi.is_none() {
+                                    ty = expr_ty
+                                }
+                            }
+                            _ => {
+                                self.stmt(stmt)?;
+                            }
+                        },
+                    }
+                }
+                ty
+            }
+            ast::Expr::If(if_expr) => {
+                let _cond = self.expr(&if_expr.condition, None)?;
+                let mut value = Type::Nilable(self.expr(&if_expr.value, None)?.into());
+                value.collapse_nil();
+                value
+            }
+            ast::Expr::Binary(binary_expr) => {
+                match binary_expr.op {
+                    //let x = nil else 20;
+                    BinaryOp::Else => {
+                        let mut left = self.expr(&binary_expr.left, None)?;
+                        let mut right = self.expr(&binary_expr.right, None)?;
+                        if !self.can_assing_type(&mut left, &mut right) {
+                            self.add_assign_error(&left, &right, binary_expr.left.span());
+                        }
+                        right
+                    }
+                    _ => todo!(),
+                }
+            }
             ast::Expr::Call(call_expr) => todo!(),
             ast::Expr::Closure(closure_expr) => todo!(),
             ast::Expr::For(for_expr) => todo!(),
             ast::Expr::FieldGet(field_get_expr) => todo!(),
             ast::Expr::Group(group_expr) => todo!(),
-            ast::Expr::If(if_expr) => todo!(),
             ast::Expr::Index(index_expr) => todo!(),
             ast::Expr::Loop(loop_expr) => todo!(),
             ast::Expr::MethodCall(method_call_expr) => todo!(),
             ast::Expr::Struct(struct_expr) => todo!(),
             ast::Expr::Path(path) => todo!(),
-            ast::Expr::Tuple(tuple_expr) => todo!(),
             ast::Expr::Unary(unary_expr) => todo!(),
             ast::Expr::While(while_expr) => todo!(),
-            ast::Expr::Assign(assign_expr) => todo!(),
             ast::Expr::Break(break_expr) => todo!(),
             ast::Expr::Continue(continue_expr) => todo!(),
             ast::Expr::Return(return_expr) => todo!(),
@@ -1704,7 +1831,7 @@ impl<'a> TypeCheck<'a> {
         }
     }
 
-    fn add_assign_error(&mut self, left: &Type, right: &mut Type, span: position::Span) {
+    fn add_assign_error(&mut self, left: &Type, right: &Type, span: position::Span) {
         self.add_error(
             &format!(
                 "could not assign {} to {}",
@@ -1787,10 +1914,16 @@ impl<'a> TypeCheck<'a> {
                     return None;
                 }
             }
+            ast::TypeExpr::Tuple(tuple_type) => Type::Tuple(Tuple {
+                types: tuple_type
+                    .types
+                    .iter()
+                    .map(|t| self.type_expr(t))
+                    .collect::<Option<Vec<_>>>()?,
+            }),
             ast::TypeExpr::Receiver(_) => Type::Receiver,
             ast::TypeExpr::Primitive(primitive_type) => Type::Primitive(primitive_type.value),
             ast::TypeExpr::Paren(type_expr) => self.type_expr(&type_expr.ty)?,
-            ast::TypeExpr::Tuple(_tuple_type) => todo!(),
             ast::TypeExpr::Union(union_type) => {
                 let mut types = vec![];
                 let mut head = &*union_type.right;
@@ -1806,40 +1939,151 @@ impl<'a> TypeCheck<'a> {
         })
     }
 
-    fn binding(&mut self, binding: &ast::BindingStmt) -> Option<Type> {
-        match &binding.pat {
-            ast::Pat::Ident(ident) => match (&binding.ty, &binding.expr) {
-                (None, None) => {
-                    self.add_error(
-                        &format!("expected type or value for {}", &ident.value.value),
-                        ident.span,
-                    );
-                }
-                (None, Some(expr)) => {
+    fn binding_inner(
+        &mut self,
+        pat: &ast::Pat,
+        expr: Option<&ast::Expr>,
+        ty: Option<(Type, position::Span)>,
+    ) -> Option<Type> {
+        match (ty, expr) {
+            (None, None) => {
+                self.add_error(&format!("expected type or value for {:?}", pat), pat.span());
+                return None;
+            }
+            (None, Some(expr)) => match pat {
+                ast::Pat::Ident(ast::PatIdent { value: ident, .. }) => {
                     let ty = self.expr(expr, None)?;
-                    self.scopes.insert_local(&ident.value.value, ty);
+                    self.scopes.insert_local(&ident.value, ty);
                 }
-                (Some(ty), None) => {
-                    let ty = self.type_expr(ty)?;
-                    let ty = if ty.is_nilable() {
-                        ty
-                    } else {
-                        Type::Uninit(ty.into())
+                ast::Pat::Paren(pat_paren) => {
+                    self.binding_inner(&pat_paren.pat, Some(expr), None)?;
+                }
+                ast::Pat::Tuple(pat_tuple) => {
+                    let ast::Expr::Tuple(tuple_expr) = expr else {
+                        self.add_error(
+                            &format!("expected tuple, got {}", self.source_substr(expr.span())),
+                            expr.span(),
+                        );
+                        return None;
                     };
-                    self.scopes.insert_local(&ident.value.value, ty);
-                }
-                (Some(ty), Some(expr)) => {
-                    let mut expected = self.type_expr(ty)?;
-                    let expr_ty = self.expr(expr, Some(&mut expected))?;
-                    self.scopes.insert_local(&ident.value.value, expr_ty);
-                }
-            },
-            ast::Pat::Paren(pat_paren) => todo!(),
-            ast::Pat::Path(path) => todo!(),
-            ast::Pat::Tuple(pat_tuple) => todo!(),
-        }
+                    if tuple_expr.exprs.len() != pat_tuple.pats.len() {
+                        self.add_error(
+                            &format!(
+                                "expected tuple of length {}, got one of length {}",
+                                pat_tuple.pats.len(),
+                                tuple_expr.exprs.len()
+                            ),
+                            expr.span(),
+                        );
+                        return None;
+                    }
 
+                    for (expr, pat) in tuple_expr.exprs.iter().zip(pat_tuple.pats.iter()) {
+                        self.binding_inner(pat, Some(expr), None)?;
+                    }
+                }
+                ast::Pat::Path(path) => todo!(),
+            },
+            (Some((ty, ty_span)), None) => match pat {
+                ast::Pat::Ident(ast::PatIdent { value: ident, .. }) => {
+                    let ty = Type::Uninit(ty.into());
+                    self.scopes.insert_local(&ident.value, ty);
+                }
+                ast::Pat::Tuple(pat_tuple) => {
+                    let Type::Tuple(tuple_ty) = ty else {
+                        self.add_error(
+                            &format!("expected tuple, got {}", self.display_type(&ty)),
+                            pat_tuple.span,
+                        );
+                        return None;
+                    };
+                    if tuple_ty.types.len() != pat_tuple.pats.len() {
+                        self.add_error(
+                            &format!(
+                                "expected tuple of length {}, got one of length {}",
+                                pat_tuple.pats.len(),
+                                tuple_ty.types.len()
+                            ),
+                            ty_span,
+                        );
+                        return None;
+                    }
+
+                    for (ty, pat) in tuple_ty.types.iter().zip(pat_tuple.pats.iter()) {
+                        self.binding_inner(pat, None, Some((ty.clone(), ty_span)));
+                    }
+                }
+                ast::Pat::Paren(pat_paren) => {
+                    self.binding_inner(&pat_paren.pat, None, None)?;
+                }
+                ast::Pat::Path(path) => todo!(),
+            },
+            (Some((mut expected, ty_span)), Some(expr)) => match pat {
+                ast::Pat::Ident(ast::PatIdent { value: ident, .. }) => {
+                    let expr_ty = self.expr(expr, Some(&mut expected))?;
+                    self.scopes.insert_local(&ident.value, expr_ty);
+                }
+                ast::Pat::Tuple(pat_tuple) => {
+                    let (Type::Tuple(tuple_ty), ast::Expr::Tuple(tuple_expr)) = (&expected, expr)
+                    else {
+                        self.add_error(
+                            &format!("expected tuple, got {}", self.display_type(&expected)),
+                            pat_tuple.span,
+                        );
+                        return None;
+                    };
+                    if tuple_ty.types.len() != pat_tuple.pats.len() {
+                        self.add_error(
+                            &format!(
+                                "expected tuple of length {}, got one of length {}",
+                                pat_tuple.pats.len(),
+                                tuple_ty.types.len()
+                            ),
+                            ty_span,
+                        );
+                        return None;
+                    }
+
+                    if tuple_expr.exprs.len() != pat_tuple.pats.len() {
+                        self.add_error(
+                            &format!(
+                                "expected tuple of length {}, got one of length {}",
+                                pat_tuple.pats.len(),
+                                tuple_expr.exprs.len()
+                            ),
+                            expr.span(),
+                        );
+                        return None;
+                    }
+
+                    for ((expected, expr), pat) in tuple_ty
+                        .types
+                        .iter()
+                        .zip(tuple_expr.exprs.iter())
+                        .zip(pat_tuple.pats.iter())
+                    {
+                        self.binding_inner(pat, Some(expr), Some((expected.clone(), ty_span)))?;
+                    }
+                }
+                ast::Pat::Paren(pat_paren) => {
+                    self.binding_inner(&pat_paren.pat, Some(expr), Some((expected, ty_span)));
+                }
+                ast::Pat::Path(path) => todo!(),
+            },
+        };
         Some(Type::Primitive(Primitive::Nil))
+    }
+
+    fn binding(&mut self, binding: &ast::BindingStmt) -> Option<Type> {
+        let ty = match binding.ty.as_ref().map(|t| {
+            let span = t.span();
+            self.type_expr(t).map(|t| (t, span))
+        }) {
+            Some(Some(t)) => Some(t),
+            Some(None) => return None,
+            None => None,
+        };
+        self.binding_inner(&binding.pat, binding.expr.as_ref(), ty)
     }
 
     fn stmt(&mut self, stmt: &ast::Stmt) -> Option<Type> {
@@ -1905,9 +2149,28 @@ impl<'a> TypeCheck<'a> {
             self.stmt(stmt)?;
         }
 
+        self.dump_scopes();
+
         self.scopes.pop_scope();
         self.context.current_fn = None;
 
+        Some(())
+    }
+
+    fn static_item(&mut self, static_item: &ast::ItemStatic) -> Option<()> {
+        let Some((id, _)) = self.env.value_items.get(&static_item.ident.value) else {
+            unreachable!()
+        };
+        let mut complex_types = self.env.complex_types.clone();
+        let Some(ComplexType::Static(static_ty)) = complex_types.get_mut(id) else {
+            unreachable!()
+        };
+        if let Some(ty) = &mut static_ty.ty {
+            self.expr(&static_item.expr, Some(ty))?;
+        } else {
+            let expr_ty = self.expr(&static_item.expr, None)?;
+            static_ty.ty = Some(expr_ty);
+        }
         Some(())
     }
 
@@ -1919,6 +2182,7 @@ impl<'a> TypeCheck<'a> {
         match item {
             ast::Item::Fn(item_fn) => self.fn_item(item_fn),
             ast::Item::Impl(item_impl) => self.impl_item(item_impl),
+            ast::Item::Static(item_static) => self.static_item(item_static),
             _ => Some(()),
         }
     }
@@ -1947,13 +2211,33 @@ impl<'a> TypeCheck<'a> {
         self.env.collect(program)?;
         println!("collecting finished");
 
-        self.push_global_scope();
+        //TODO: resolve statics as a separate step
+        // self.push_global_scope();
         for item in program {
             self.item(item)?;
         }
 
         self.diagnostics.append(&mut self.env.diagnostics);
         Some(())
+    }
+
+    pub fn debug_dump(&self) {
+        println!("value items: ");
+        for (name, (id, kind)) in self.env.value_items.iter() {
+            let ty = self.env.complex_types.get(id).unwrap();
+            match kind {
+                ValueItemKind::Fn => {
+                    println!("{};", self.display_type(&Type::Fn(*id)));
+                }
+                ValueItemKind::Static => {
+                    let ComplexType::Static(static_ty) = ty else {
+                        unreachable!()
+                    };
+                    let ty = static_ty.ty.as_ref().unwrap();
+                    println!("static {}: {}", name, self.display_type(ty));
+                }
+            }
+        }
     }
 
     pub fn diagnostics(&self) -> &[position::Diagnostic] {

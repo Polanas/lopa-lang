@@ -112,7 +112,7 @@ impl_combined!(BinaryExpr);
 #[derive(Debug, PartialEq, Clone)]
 pub struct IfExpr {
     pub condition: Box<Expr>,
-    pub value: BlockExpr,
+    pub value: Box<Expr>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -386,6 +386,7 @@ pub struct PatTuple {
 }
 impl_combined!(PatTuple);
 
+//TODO: implement a way to display patterns
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone, strum_macros::Display)]
     pub enum Pat {
