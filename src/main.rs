@@ -6,7 +6,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     //TODO: unknown types as fn params are not checked
     let source = r#"
         fn main() {
-            let x: int? = nil;
+            let x = if true {
+                20
+            } else {
+                nil
+            };
         }
     "#;
     let tokens = tokenizer::tokenize(source);

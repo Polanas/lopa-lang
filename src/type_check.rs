@@ -86,7 +86,7 @@ impl Type {
         }
     }
 
-    pub fn collapse_nil(&mut self) {
+    fn collapse_nil_inner(&mut self) {
         if let Type::Nilable(inner) = self {
             inner.collapse_nil();
 
@@ -95,6 +95,14 @@ impl Type {
             {
                 *self = Type::Nilable(deep_inner)
             }
+        }
+    }
+    pub fn collapse_nil(&mut self) {
+        self.collapse_nil_inner();
+        if let Type::Nilable(inner) = self
+            && **inner == Type::Primitive(Primitive::Nil)
+        {
+            *self = Type::Primitive(Primitive::Nil);
         }
     }
 }
@@ -1663,6 +1671,16 @@ impl<'a> TypeCheck<'a> {
         }
     }
 
+    fn unify_types(&self, left: Type, right: Type) -> Type {
+        match (left, right) {
+            (Type::Primitive(Primitive::Nil), right) => Type::Nilable(right.into()),
+            (left, Type::Primitive(Primitive::Nil)) => Type::Nilable(left.into()),
+            (left @ Type::Nilable(_), _) => left,
+            (_, right @ Type::Nilable(_)) => right,
+            (_, right) => right,
+        }
+    }
+
     fn expr(&mut self, expr: &ast::Expr, mut expected: Option<&mut Type>) -> Option<Type> {
         let mut ty = match &expr {
             ast::Expr::Lit(lit_expr) => match lit_expr {
@@ -1790,20 +1808,38 @@ impl<'a> TypeCheck<'a> {
                 value.collapse_nil();
                 value
             }
-            ast::Expr::Binary(binary_expr) => {
-                match binary_expr.op {
-                    //let x = nil else 20;
-                    BinaryOp::Else => {
+            ast::Expr::Binary(binary_expr) => match binary_expr.op {
+                BinaryOp::Else => {
+                    if let ast::Expr::If(if_expr) = &*binary_expr.left {
+                        _ = self.expr(&if_expr.condition, None)?;
+                        let left = self.expr(&if_expr.value, None)?;
+                        let right = self.expr(&binary_expr.right, None)?;
+                        self.unify_types(left, right)
+                    } else {
                         let mut left = self.expr(&binary_expr.left, None)?;
                         let mut right = self.expr(&binary_expr.right, None)?;
-                        if !self.can_assing_type(&mut left, &mut right) {
-                            self.add_assign_error(&left, &right, binary_expr.left.span());
+                        match &mut left {
+                            Type::Primitive(Primitive::Nil) => right,
+                            Type::Nilable(inner) => {
+                                if !self.can_assing_type(inner, &mut right) {
+                                    self.add_assign_error(&left, &right, binary_expr.left.span());
+                                    return None;
+                                }
+                                right
+                            }
+                            other => {
+                                if !self.can_assing_type(other, &mut right) {
+                                    self.add_assign_error(&left, &right, binary_expr.left.span());
+                                    return None;
+                                }
+                                left
+                            }
                         }
-                        right
                     }
-                    _ => todo!(),
+                    // right
                 }
-            }
+                _ => todo!(),
+            },
             ast::Expr::Call(call_expr) => todo!(),
             ast::Expr::Closure(closure_expr) => todo!(),
             ast::Expr::For(for_expr) => todo!(),
