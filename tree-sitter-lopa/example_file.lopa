@@ -1,0 +1,10 @@
+mod test {
+  struct X {
+
+  }
+  mod test {
+    struct X {
+
+    }
+  }
+}
