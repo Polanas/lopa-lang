@@ -27,11 +27,7 @@ macro_rules! Token {
     [=]    => { $crate::token::TokenKind::Eq };
     [==]    => { $crate::token::TokenKind::Eq2 };
     [>]    => { $crate::token::TokenKind::Greater };
-    [>>]    => { $crate::token::TokenKind::Greater2 };
-    [>>=]    => { $crate::token::TokenKind::Greater2Eq };
     [<]    => { $crate::token::TokenKind::Less };
-    [<<]    => { $crate::token::TokenKind::Less2 };
-    [<<=]    => { $crate::token::TokenKind::Less2Eq };
     [<=]    => { $crate::token::TokenKind::LessEq };
     [>=]    => { $crate::token::TokenKind::GreaterEq };
     [->]    => { $crate::token::TokenKind::Arrow };
@@ -58,6 +54,7 @@ macro_rules! Token {
     [continue]          => { $crate::token::TokenKind::Continue };
     [break]          => { $crate::token::TokenKind::Break };
     [in]          => { $crate::token::TokenKind::In };
+    [alias]          => { $crate::token::TokenKind::Alias };
     [nil]          => { $crate::token::TokenKind::Nil };
     [return]          => { $crate::token::TokenKind::Return };
     [yield]          => { $crate::token::TokenKind::Yield };
@@ -122,18 +119,14 @@ pub enum TokenKind {
     CaretEq,
     AmpersandEq,
     BarEq,
-    Less2Eq,
-    Greater2Eq,
 
     Bang,
     BangEq,
     Eq,
     Eq2,
-    Greater2,
     GreaterEq,
     Greater,
     Less,
-    Less2,
     LessEq,
     Arrow,
     FatArrow,
@@ -162,6 +155,7 @@ pub enum TokenKind {
     Continue,
     Break,
     In,
+    Alias,
     Nil,
     Return,
     Yield,
@@ -216,43 +210,42 @@ impl TokenKind {
                 | Token![yield]
         )
     }
-    pub fn as_binary_op(&self) -> Option<common::BinaryOp> {
-        use common::BinaryOp;
-        Some(match self {
-            Token![or] => BinaryOp::Or,
-            Token![and] => BinaryOp::And,
-            Token![else] => BinaryOp::Else,
-            Token![!=] => BinaryOp::NotEqual,
-            Token![==] => BinaryOp::Equal,
-            Token![<] => BinaryOp::Less,
-            Token![<=] => BinaryOp::LessEqual,
-            Token![>] => BinaryOp::Greater,
-            Token![>=] => BinaryOp::GreaterEqual,
-            Token![+] => BinaryOp::Add,
-            Token![-] => BinaryOp::Sub,
-            Token![*] => BinaryOp::Mul,
-            Token![/] => BinaryOp::Div,
-            Token![%] => BinaryOp::Rem,
-            Token![|] => BinaryOp::BitOr,
-            Token![&] => BinaryOp::BitAnd,
-            Token![^] => BinaryOp::BitXor,
-            Token![>>] => BinaryOp::Shr,
-            Token![<<] => BinaryOp::Shl,
-            TokenKind::Slash2 => BinaryOp::DivInt,
-            Token![+=] => BinaryOp::AddAssign,
-            Token![-=] => BinaryOp::SubAssign,
-            Token![*=] => BinaryOp::MulAssign,
-            Token![/=] => BinaryOp::DivAssign,
-            TokenKind::Slash2Eq => BinaryOp::DivIntAssign,
-            Token![%=] => BinaryOp::RemAssign,
-            Token![&=] => BinaryOp::BitOrAssign,
-            Token![|=] => BinaryOp::BitAndAssign,
-            Token![^=] => BinaryOp::BitXorAssign,
-            Token![>>=] => BinaryOp::ShrAssign,
-            Token![<<=] => BinaryOp::ShlAssign,
-            _ => return None,
-        })
-    }
+    // pub fn as_binary_op(&self) -> Option<common::BinaryOp> {
+    //     use common::BinaryOp;
+    //     Some(match self {
+    //         Token![or] => BinaryOp::Or,
+    //         Token![and] => BinaryOp::And,
+    //         Token![!=] => BinaryOp::NotEqual,
+    //         Token![==] => BinaryOp::Equal,
+    //         Token![<] => BinaryOp::Less,
+    //         Token![<=] => BinaryOp::LessEqual,
+    //         Token![>] => BinaryOp::Greater,
+    //         Token![>=] => BinaryOp::GreaterEqual,
+    //         Token![+] => BinaryOp::Add,
+    //         Token![-] => BinaryOp::Sub,
+    //         Token![*] => BinaryOp::Mul,
+    //         Token![/] => BinaryOp::Div,
+    //         Token![%] => BinaryOp::Rem,
+    //         Token![|] => BinaryOp::BitOr,
+    //         Token![&] => BinaryOp::BitAnd,
+    //         Token![^] => BinaryOp::BitXor,
+    //         Token![>>] => BinaryOp::Shr,
+    //         Token![<<] => BinaryOp::Shl,
+    //         TokenKind::Slash2 => BinaryOp::DivInt,
+    //         Token![+=] => BinaryOp::AddAssign,
+    //         Token![-=] => BinaryOp::SubAssign,
+    //         Token![*=] => BinaryOp::MulAssign,
+    //         Token![/=] => BinaryOp::DivAssign,
+    //         TokenKind::Slash2Eq => BinaryOp::DivIntAssign,
+    //         Token![%=] => BinaryOp::RemAssign,
+    //         Token![&=] => BinaryOp::BitOrAssign,
+    //         Token![|=] => BinaryOp::BitAndAssign,
+    //         Token![^=] => BinaryOp::BitXorAssign,
+    //         Token![>>=] => BinaryOp::ShrAssign,
+    //         Token![<<=] => BinaryOp::ShlAssign,
+    //         _ => return None,
+    //     })
+    // }
 }
 
 impl std::fmt::Display for TokenKind {
@@ -282,12 +275,8 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Eq2 => write!(f, "=="),
             TokenKind::Less => write!(f, "<"),
             TokenKind::LessEq => write!(f, "<="),
-            TokenKind::Less2Eq => write!(f, "<<="),
-            TokenKind::Less2 => write!(f, "<<"),
             TokenKind::Greater => write!(f, ">"),
             TokenKind::GreaterEq => write!(f, ">="),
-            TokenKind::Greater2Eq => write!(f, ">>="),
-            TokenKind::Greater2 => write!(f, ">>"),
             TokenKind::Arrow => write!(f, "->"),
             TokenKind::FatArrow => write!(f, "=>"),
             TokenKind::Bar => write!(f, "|"),
@@ -342,6 +331,7 @@ impl std::fmt::Display for TokenKind {
             TokenKind::Co => write!(f, "co"),
             TokenKind::Enum => write!(f, "enum"),
             TokenKind::Static => write!(f, "static"),
+            TokenKind::Alias => write!(f, "alias"),
         }
     }
 }
@@ -380,10 +370,6 @@ pub enum Token {
     CaretEq,
     AmpersandEq,
     BarEq,
-    Less2Eq,
-    Greater2Eq,
-    Less2,
-    Greater2,
 
     Bang,
     BangEq,
@@ -420,6 +406,7 @@ pub enum Token {
     Continue,
     Break,
     In,
+    Alias,
     Nil,
     Return,
     Yield,
@@ -469,7 +456,7 @@ impl From<&Token> for TokenKind {
             Token::BangEq => Self::BangEq,
             Token::Eq => Self::Eq,
             Token::Eq2 => Self::Eq2,
-            Token::Greater => Self::Greater2,
+            Token::Greater => Self::Greater,
             Token::GreaterEq => Self::GreaterEq,
             Token::Less => Self::Less,
             Token::LessEq => Self::LessEq,
@@ -517,10 +504,6 @@ impl From<&Token> for TokenKind {
             Token::CaretEq => Self::CaretEq,
             Token::AmpersandEq => Self::AmpersandEq,
             Token::BarEq => Self::BarEq,
-            Token::Less2Eq => Self::Less2Eq,
-            Token::Greater2Eq => Self::Greater2Eq,
-            Token::Less2 => Self::Less2,
-            Token::Greater2 => Self::Greater2,
             Token::Dot3 => Self::Dot3,
             Token::Mark2 => Self::Mark2,
             Token::Slash2 => Self::Slash2,
@@ -530,6 +513,7 @@ impl From<&Token> for TokenKind {
             Token::Yield => Self::Yield,
             Token::Enum => Self::Enum,
             Token::Static => Self::Static,
+            Token::Alias => Self::Alias,
         }
     }
 }

@@ -94,7 +94,6 @@ pub enum BinaryOp {
     NotEqual,
     Equal,
     And,
-    Else,
     BitOr,
     AddAssign,
     SubAssign,

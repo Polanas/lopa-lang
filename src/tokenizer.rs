@@ -180,24 +180,12 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 '!' => Some(self.matches_or('=', Token::BangEq, Token::Bang)),
-                '<' => Some(if self.consume_if(|ch| ch == '<') {
-                    if self.consume_if(|ch| ch == '=') {
-                        Token::Less2Eq
-                    } else {
-                        Token::Less2
-                    }
-                } else if self.consume_if(|ch| ch == '=') {
+                '<' => Some(if self.consume_if(|ch| ch == '=') {
                     Token::LessEq
                 } else {
                     Token::Less
                 }),
-                '>' => Some(if self.consume_if(|ch| ch == '>') {
-                    if self.consume_if(|ch| ch == '=') {
-                        Token::Greater2Eq
-                    } else {
-                        Token::Greater2
-                    }
-                } else if self.consume_if(|ch| ch == '=') {
+                '>' => Some(if self.consume_if(|ch| ch == '=') {
                     Token::GreaterEq
                 } else {
                     Token::Greater
@@ -300,6 +288,7 @@ impl<'a> Tokenizer<'a> {
             "and" => Some(Token::And),
             "or" => Some(Token::Or),
             "static" => Some(Token::Static),
+            "alias" => Some(Token::Alias),
             _ => None,
         }
     }

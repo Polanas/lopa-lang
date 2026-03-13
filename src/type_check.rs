@@ -1811,7 +1811,6 @@ impl<'a> TypeCheck<'a> {
             ast::Expr::Binary(binary_expr) => match binary_expr.op {
                 BinaryOp::Else => {
                     if let ast::Expr::If(if_expr) = &*binary_expr.left {
-                        _ = self.expr(&if_expr.condition, None)?;
                         let left = self.expr(&if_expr.value, None)?;
                         let right = self.expr(&binary_expr.right, None)?;
                         self.unify_types(left, right)

@@ -113,6 +113,7 @@ impl_combined!(BinaryExpr);
 pub struct IfExpr {
     pub condition: Box<Expr>,
     pub value: Box<Expr>,
+    pub else_block: Box<Expr>,
     pub id: AstNodeId,
     pub span: Span,
 }
@@ -161,28 +162,12 @@ pub struct ClosureExpr {
 impl_combined!(ClosureExpr);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct NamedMember {
+pub struct Member {
     pub value: Ident,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(NamedMember);
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct UnnamedMember {
-    pub value: usize,
-    pub span: Span,
-    pub id: AstNodeId,
-}
-impl_combined!(UnnamedMember);
-
-impl_combined_enum! {
-    #[derive(Debug, PartialEq, Clone)]
-    pub enum Member {
-        Named(NamedMember),
-        Unnamed(UnnamedMember),
-    }
-}
+impl_combined!(Member);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FieldGetExpr {
@@ -442,11 +427,46 @@ pub struct BareFnType {
     pub span: Span,
     pub id: AstNodeId,
 }
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct WherePredicate {
+    pub bounded_ty: TypeExpr,
+    pub bounds: Vec<Path>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(WherePredicate);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct WhereClause {
+    pub predicates: Vec<WherePredicate>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(WhereClause);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Generics {
+    pub params: Vec<TypeExpr>,
+    pub where_clause: Option<WhereClause>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(Generics);
+
 impl_combined!(BareFnType);
+#[derive(Debug, PartialEq, Clone)]
+pub struct GenericArguments {
+    pub params: Vec<TypeExpr>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(GenericArguments);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PathSegment {
     pub ident: Ident,
+    pub generic_args: Option<GenericArguments>,
     pub span: Span,
 }
 impl_spanned!(PathSegment);
@@ -486,6 +506,14 @@ impl_combined!(ParenType);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
+    pub enum TypeItem {
+        Struct(ItemStruct),
+        Enum(ItemEnum),
+    }
+}
+
+impl_combined_enum! {
+    #[derive(Debug, PartialEq, Clone)]
     pub enum TypeExpr {
         Array(Box<TypeExpr>),
         BareFn(BareFnType),
@@ -496,6 +524,7 @@ impl_combined_enum! {
         Paren(ParenType),
         Tuple(TupleType),
         Union(UnionType),
+        Item(TypeItem),
     }
 }
 
@@ -553,6 +582,7 @@ impl std::fmt::Display for TypeExpr {
             TypeExpr::Tuple(_tuple_type) => {
                 unimplemented!()
             }
+            TypeExpr::Item(type_item) => todo!(),
         }
     }
 }
@@ -615,6 +645,7 @@ pub enum FnType {
 pub struct ItemFn {
     pub fn_type: FnType,
     pub name: Ident,
+    pub generics: Generics,
     pub params: Vec<FnParam>,
     pub body: BlockExpr,
     pub output: ReturnType,
@@ -639,6 +670,7 @@ impl_combined!(ItemStatic);
 #[derive(Debug, PartialEq, Clone)]
 pub struct ExternFn {
     pub name: Ident,
+    pub generics: Generics,
     pub params: Vec<FnParam>,
     pub output: ReturnType,
     pub variadic: Option<Variadic>,
@@ -650,6 +682,7 @@ impl_combined!(ExternFn);
 #[derive(Debug, PartialEq, Clone)]
 pub struct InlineFn {
     pub name: Ident,
+    pub generics: Generics,
     pub params: Vec<FnParam>,
     pub output: ReturnType,
     pub body: LitString,
@@ -729,36 +762,22 @@ pub struct FieldValue {
 impl_combined!(FieldValue);
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FieldsNamed {
+pub struct Fields {
     pub fields: Vec<Field>,
     pub span: Span,
     pub id: AstNodeId,
 }
-impl_combined!(FieldsNamed);
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct FieldsUnnamed {
-    pub fields: Vec<Field>,
-    pub span: Span,
-    pub id: AstNodeId,
-}
-impl_combined!(FieldsUnnamed);
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Fields {
-    Unit,
-    Named(FieldsNamed),
-    Unnamed(FieldsUnnamed),
-}
+impl_combined!(Fields);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ItemStruct {
     pub name: Ident,
+    pub generics: Generics,
     pub kind: StructKind,
     pub fields: Fields,
+    pub attribs: Vec<Attrib>,
     pub span: Span,
     pub id: AstNodeId,
-    pub attribs: Vec<Attrib>,
 }
 impl_combined!(ItemStruct);
 
@@ -773,6 +792,7 @@ impl_combined_enum! {
 #[derive(Debug, PartialEq, Clone)]
 pub struct ItemImpl {
     pub target: TypeExpr,
+    pub generics: Generics,
     pub items: Vec<ImplItem>,
     pub span: Span,
     pub id: AstNodeId,
@@ -782,7 +802,7 @@ impl_combined!(ItemImpl);
 #[derive(Debug, PartialEq, Clone)]
 pub struct EnumVariant {
     pub name: Ident,
-    pub fields: Fields,
+    pub ty: Option<TypeExpr>,
     pub discriminant: Option<Expr>,
     pub attribs: Vec<Attrib>,
     pub span: Span,
@@ -793,12 +813,65 @@ impl_combined!(EnumVariant);
 #[derive(Debug, PartialEq, Clone)]
 pub struct ItemEnum {
     pub name: Ident,
+    pub generics: Generics,
     pub variants: Vec<EnumVariant>,
     pub attribs: Vec<Attrib>,
     pub span: Span,
     pub id: AstNodeId,
 }
 impl_combined!(ItemEnum);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct UseGlobal {
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(UseGlobal);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct UseGroup {
+    pub items: Vec<UsePart>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(UseGroup);
+
+impl_combined_enum! {
+    #[derive(Debug, PartialEq, Clone)]
+    pub enum UsePart {
+        Ident(Ident),
+        Global(UseGlobal),
+        Group(UseGroup),
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ItemUse {
+    pub parts: Vec<UsePart>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ItemUse);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ItemMod {
+    pub ident: Ident,
+    pub atttibs: Vec<Attrib>,
+    pub content: Option<Vec<Item>>,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ItemMod);
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct ItemAlias {
+    pub ident: Ident,
+    pub generics: Generics,
+    pub ty: TypeExpr,
+    pub span: Span,
+    pub id: AstNodeId,
+}
+impl_combined!(ItemAlias);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
@@ -810,6 +883,9 @@ impl_combined_enum! {
         Struct(ItemStruct),
         Enum(ItemEnum),
         Impl(ItemImpl),
+        Use(ItemUse),
+        Mod(ItemMod),
+        Alias(ItemAlias),
     }
 }
 

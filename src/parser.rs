@@ -1128,7 +1128,7 @@ impl Parser<'_> {
             let span = left.span().union(ident.span());
             Expr::FieldGet(FieldGetExpr {
                 base: left.into(),
-                member: Member::Named(NamedMember {
+                member: Member::Named(Member {
                     span: ident.span,
                     value: ident,
                     id: self.id(),
@@ -1390,7 +1390,7 @@ impl Parser<'_> {
                     EnumVariant {
                         span: name.span().union(right.span),
                         name,
-                        fields: Fields::Named(FieldsNamed {
+                        fields: Fields::Named(Fields {
                             fields,
                             span: left.span.union(right.span),
                             id: self.id(),
@@ -1510,7 +1510,7 @@ impl Parser<'_> {
                 Item::Struct(ItemStruct {
                     name,
                     kind,
-                    fields: Fields::Named(FieldsNamed {
+                    fields: Fields::Named(Fields {
                         span: left.span.union(right.span),
                         fields,
                         id: self.id(),
