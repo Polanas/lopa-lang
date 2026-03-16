@@ -24,11 +24,14 @@ module.exports = grammar({
     /\s/
   ],
   word: $ => $.identifier,
+  supertypes: $ => [
+    $._expression,
+    $._item,
+  ],
 
   rules: {
-    // source_file: $ => $.one_line_string,
-    source_file: $ => repeat($.item),
-    item: $ => choice(
+    source_file: $ => repeat($._item),
+    _item: $ => choice(
       $.item_fn,
       $.item_static,
       $.item_extern,
@@ -42,7 +45,7 @@ module.exports = grammar({
     item_mod: $ => seq(
       'mod',
       $.identifier,
-      choice(';', seq( '{', repeat($.item), '}'))
+      choice(';', seq('{', repeat($._item), '}'))
     ),
     item_use: $ => seq(
       'use',
@@ -79,25 +82,25 @@ module.exports = grammar({
     item_enum: $ => seq(
       'enum',
       $.identifier,
-      $.fields
+      $.field_declaration_list
     ),
     item_struct: $ => seq(
       'struct',
-      optional(seq('(', choice('value', 'gc', 'native'), ')')),
-      $.identifier,
-      $.fields,
+      field('struct_kind', optional(seq('(', choice('value', 'gc', 'native'), ')'))),
+      field('name', $._type_identifier),
+      field('body', $.field_declaration_list),
     ),
-    fields: $ => seq(
+    field_declaration_list: $ => seq(
       '{',
-      sepBy(',', $.field),
+      sepBy(',', $.field_declaration),
       optional(','),
       '}'
     ),
-    field: $ => seq(
-      $.identifier,
+    field_declaration: $ => seq(
+      field('name', $.identifier),
       ':',
-      $._type,
-      optional(seq('=', $._expression))
+      field('type', $._type),
+      field('default_value', optional(seq('=', $._expression))),
     ),
     item_inline: $ => seq(
       'inline',
@@ -242,9 +245,12 @@ module.exports = grammar({
       token.immediate(/(?:[^"\\]|\\.)*/),
       '"""',
     ),
+
     escape_sequence: _ => token.immediate(/\\(.|\n)/),
     number: _ => /[\d][\d|_]*(.[\d]+)?/,
     identifier: _ => /[_]?[A-Za-z_][0-9A-Za-z_]*/,
+
+    _type_identifier: $ => alias($.identifier, $.type_identifier),
   }
 });
 

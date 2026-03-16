@@ -7,15 +7,22 @@ edition = "2024"
 anyhow = "1.0.100"
 bitflags = "2.10.0"
 byteorder = "1.5.0"
+dashmap = "6.1.0"
 derive_more = { version = "2.1.1", features = ["add", "add_assign", "from"] }
 itertools = "0.14.0"
+logos = "0.16.1"
 mlua = { version = "0.11.5", features = ["luajit52"] }
+notify-rust = "4.12.0"
 num-complex = "0.4.6"
 ordered-float = "5.1.0"
 paste = "1.0.15"
+petgraph = "0.8.3"
 proc-macro2 = "1.0.106"
 residua-uleb128 = "0.2.0"
+rowan = "0.16.1"
 strum = { version = "0.27.2", features = ["derive"] }
 strum_macros = "0.27.2"
 syn = {version ="2.0.114", features = ["full", "extra-traits"]}
 thiserror = "2.0.17"
+tokio = "1.50.0"
+tower-lsp-server = "0.23.0"

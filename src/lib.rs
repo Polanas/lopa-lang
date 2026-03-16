@@ -1,4 +1,5 @@
 pub mod common;
+pub mod lsp;
 pub mod tokenizer;
 pub mod position;
 #[macro_use]

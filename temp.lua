@@ -10,3 +10,5 @@
 --
 -- --global b = a
 -- --global a = b
+local x = "hi\n";
+print(x)

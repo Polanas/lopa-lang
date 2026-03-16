@@ -1,5 +1,69 @@
 [
   {
+    "type": "_expression",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "identifier",
+        "named": true
+      },
+      {
+        "type": "multiline_string",
+        "named": true
+      },
+      {
+        "type": "number",
+        "named": true
+      },
+      {
+        "type": "one_line_string",
+        "named": true
+      }
+    ]
+  },
+  {
+    "type": "_item",
+    "named": true,
+    "subtypes": [
+      {
+        "type": "item_enum",
+        "named": true
+      },
+      {
+        "type": "item_extern",
+        "named": true
+      },
+      {
+        "type": "item_fn",
+        "named": true
+      },
+      {
+        "type": "item_impl",
+        "named": true
+      },
+      {
+        "type": "item_inline",
+        "named": true
+      },
+      {
+        "type": "item_mod",
+        "named": true
+      },
+      {
+        "type": "item_static",
+        "named": true
+      },
+      {
+        "type": "item_struct",
+        "named": true
+      },
+      {
+        "type": "item_use",
+        "named": true
+      }
+    ]
+  },
+  {
     "type": "array_type",
     "named": true,
     "fields": {},
@@ -156,58 +220,79 @@
     }
   },
   {
-    "type": "field",
+    "type": "field_declaration",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "array_type",
-          "named": true
-        },
-        {
-          "type": "fn_type",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "multiline_string",
-          "named": true
-        },
-        {
-          "type": "number",
-          "named": true
-        },
-        {
-          "type": "one_line_string",
-          "named": true
-        },
-        {
-          "type": "primitive_type",
-          "named": true
-        },
-        {
-          "type": "scoped_identifier",
-          "named": true
-        },
-        {
-          "type": "tuple_type",
-          "named": true
-        },
-        {
-          "type": "union_type",
-          "named": true
-        }
-      ]
+    "fields": {
+      "default_value": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "=",
+            "named": false
+          },
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "?",
+            "named": false
+          },
+          {
+            "type": "array_type",
+            "named": true
+          },
+          {
+            "type": "fn_type",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "primitive_type",
+            "named": true
+          },
+          {
+            "type": "scoped_identifier",
+            "named": true
+          },
+          {
+            "type": "self",
+            "named": false
+          },
+          {
+            "type": "tuple_type",
+            "named": true
+          },
+          {
+            "type": "union_type",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
-    "type": "fields",
+    "type": "field_declaration_list",
     "named": true,
     "fields": {},
     "children": {
@@ -215,7 +300,7 @@
       "required": false,
       "types": [
         {
-          "type": "field",
+          "type": "field_declaration",
           "named": true
         }
       ]
@@ -230,27 +315,15 @@
       "required": true,
       "types": [
         {
+          "type": "_expression",
+          "named": true
+        },
+        {
           "type": "array_type",
           "named": true
         },
         {
           "type": "fn_type",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "multiline_string",
-          "named": true
-        },
-        {
-          "type": "number",
-          "named": true
-        },
-        {
-          "type": "one_line_string",
           "named": true
         },
         {
@@ -448,53 +521,6 @@
     }
   },
   {
-    "type": "item",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "item_enum",
-          "named": true
-        },
-        {
-          "type": "item_extern",
-          "named": true
-        },
-        {
-          "type": "item_fn",
-          "named": true
-        },
-        {
-          "type": "item_impl",
-          "named": true
-        },
-        {
-          "type": "item_inline",
-          "named": true
-        },
-        {
-          "type": "item_mod",
-          "named": true
-        },
-        {
-          "type": "item_static",
-          "named": true
-        },
-        {
-          "type": "item_struct",
-          "named": true
-        },
-        {
-          "type": "item_use",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "item_enum",
     "named": true,
     "fields": {},
@@ -503,7 +529,7 @@
       "required": true,
       "types": [
         {
-          "type": "fields",
+          "type": "field_declaration_list",
           "named": true
         },
         {
@@ -642,11 +668,11 @@
       "required": true,
       "types": [
         {
-          "type": "identifier",
+          "type": "_item",
           "named": true
         },
         {
-          "type": "item",
+          "type": "identifier",
           "named": true
         }
       ]
@@ -661,27 +687,15 @@
       "required": true,
       "types": [
         {
+          "type": "_expression",
+          "named": true
+        },
+        {
           "type": "array_type",
           "named": true
         },
         {
           "type": "fn_type",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "multiline_string",
-          "named": true
-        },
-        {
-          "type": "number",
-          "named": true
-        },
-        {
-          "type": "one_line_string",
           "named": true
         },
         {
@@ -706,20 +720,53 @@
   {
     "type": "item_struct",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "fields",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        }
-      ]
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "field_declaration_list",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      },
+      "struct_kind": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "gc",
+            "named": false
+          },
+          {
+            "type": "native",
+            "named": false
+          },
+          {
+            "type": "value",
+            "named": false
+          }
+        ]
+      }
     }
   },
   {
@@ -776,7 +823,7 @@
       "required": false,
       "types": [
         {
-          "type": "item",
+          "type": "_item",
           "named": true
         }
       ]
@@ -998,6 +1045,10 @@
   {
     "type": "struct",
     "named": false
+  },
+  {
+    "type": "type_identifier",
+    "named": true
   },
   {
     "type": "use",

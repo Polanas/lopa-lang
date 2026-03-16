@@ -582,7 +582,7 @@ impl std::fmt::Display for TypeExpr {
             TypeExpr::Tuple(_tuple_type) => {
                 unimplemented!()
             }
-            TypeExpr::Item(type_item) => todo!(),
+            TypeExpr::Item(_type_item) => todo!(),
         }
     }
 }
@@ -647,9 +647,9 @@ pub struct ItemFn {
     pub name: Ident,
     pub generics: Generics,
     pub params: Vec<FnParam>,
-    pub body: BlockExpr,
-    pub output: ReturnType,
     pub variadic: Option<Variadic>,
+    pub output: ReturnType,
+    pub body: BlockExpr,
     pub attribs: Vec<Attrib>,
     pub id: AstNodeId,
     pub span: Span,
@@ -947,6 +947,7 @@ impl_combined!(YieldExpr);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
+    #[allow(clippy::large_enum_variant)]
     pub enum Stmt {
         Expr(ExprStmt),
         Binding(BindingStmt),
@@ -982,8 +983,14 @@ impl_combined!(BareFnParamTyped);
 
 impl_combined_enum! {
     #[derive(Debug, PartialEq, Clone)]
+    #[allow(clippy::large_enum_variant)]
     pub enum BareFnParam {
         Receiver(Receiver),
         Typed(BareFnParamTyped),
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Ast {
+    pub items: Vec<Item>,
 }
