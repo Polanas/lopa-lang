@@ -1,5 +1,7 @@
-mod ast;
-mod lexer;
+pub mod ast;
+pub mod parser;
+#[macro_use]
+pub mod lexer;
 
 use std::sync::{Arc, RwLock, atomic::AtomicUsize};
 

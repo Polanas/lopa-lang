@@ -1,12 +1,25 @@
 #![allow(dead_code)]
 
+use itertools::Itertools;
+use logos::Logos;
+use lopa_lang::lsp::{
+    self, lexer::Syntax, parser::{Cst, Prettify}
+};
 use proc_macro2::TokenStream;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let text = "fn test(a: int, b: int) -> int {
+            let x = 1*2+3;
+    }";
+    dbg!(Syntax::lexer(text).collect_vec());
+    let (node, errors) = lsp::parser::parse(text);
+    println!("{}", Cst(node).prettify());
+    for error in errors {
+        println!("expected {:?}, got {}", &error.expected, &text[error.span]);
+    }
     Ok(())
 }
-
 // // use lopa_lang::{parser, position, tokenizer, type_check};
 // fn main() -> Result<(), Box<dyn Error>> {
 //     dbg!(syn::parse_str::<TokenStream>("a >>= b").unwrap());

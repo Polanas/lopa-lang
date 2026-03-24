@@ -1,77 +1,47 @@
-use logos::Logos;
+use rowan::{SyntaxNode, ast::AstNode, cursor};
 
-#[derive(Logos, Debug, PartialEq, Clone, Copy)]
-pub(super) enum Token {
-    #[token("(")]
-    LeftParen,
-    #[token(")")]
-    RightParen,
-    #[token("[")]
-    LeftBracket,
-    #[token("]")]
-    RightBracket,
-    #[token("{")]
-    LeftBrace,
-    #[token("}")]
-    RightBrace,
-    #[token("|")]
-    Bar,
-    #[token("=")]
-    Eq,
-    #[token(",")]
-    Comma,
-    #[token(".")]
-    Dot,
-    #[token("+")]
-    Plus,
-    #[token("-")]
-    Minus,
-    #[token("/")]
-    Slash,
-    #[token("*")]
-    Star,
-    #[token(";")]
-    Semi,
-    #[token("let")]
-    Let,
-    #[token("fn")]
-    Fn,
-    #[regex("[_]?[A-Za-z_][0-9A-Za-z_]*")]
-    Ident,
-    #[regex("[\\d][\\d|_]*(.[\\d]+)?")]
-    Num,
-    #[regex("\\s+")]
-    Whitespace,
-    #[end]
-    EndOfLine,
+use crate::lsp::{lexer::Syntax, parser};
+
+macro_rules! impl_ast_node {
+    ($type:ty,$token:ident) => {
+        impl AstNode for $type {
+            type Language = parser::Lang;
+
+            fn can_cast(kind: <Self::Language as rowan::Language>::Kind) -> bool
+            where
+                Self: Sized,
+            {
+                kind == Syntax::$token
+            }
+
+            fn cast(syntax: SyntaxNode<Self::Language>) -> Option<Self>
+            where
+                Self: Sized,
+            {
+                Self::can_cast(syntax.kind()).then(|| Self { syntax })
+            }
+
+            fn syntax(&self) -> &SyntaxNode<Self::Language> {
+                &self.syntax
+            }
+        }
+    };
 }
 
-#[cfg(test)]
-mod test {
-    use itertools::Itertools;
-    use logos::Logos as _;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockExpr {
+    syntax: rowan::SyntaxNode<parser::Lang>,
+}
+impl_ast_node!(BlockExpr, BlockExpr);
 
-    use crate::lsp::ast::Token;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemFn {
+    syntax: rowan::SyntaxNode<parser::Lang>,
+}
+impl_ast_node!(ItemFn, FnItem);
 
-    #[test]
-    fn simple_fn() {
-        let lex = Token::lexer("fn main() { let x = 5; }")
-            .map(|t| t.unwrap())
-            .filter(|t| *t != Token::Whitespace)
-            .collect_vec();
-
-        assert_eq!(lex.as_slice(),&[
-            Token::Fn,
-            Token::Ident,
-            Token::LeftParen,
-            Token::RightParen,
-            Token::LeftBrace,
-            Token::Let,
-            Token::Ident,
-            Token::Eq,
-            Token::Num,
-            Token::Semi,
-            Token::RightBrace,
-        ]);
+impl ItemFn {
+    pub fn body(&self) -> Option<BlockExpr> {
+        self.syntax.children().find_map(BlockExpr::cast)
     }
 }
