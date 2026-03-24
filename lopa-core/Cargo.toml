@@ -1,0 +1,14 @@
+[package]
+name = "lopa-core"
+version = "0.1.0"
+edition = "2024"
+workspace = "../"
+
+[dependencies]
+logos.workspace = true
+rowan.workspace = true
+anyhow.workspace = true
+derive_more.workspace = true
+strum.workspace = true
+strum_macros.workspace = true
+itertools.workspace = true

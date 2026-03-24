@@ -4,8 +4,7 @@ use std::ops::Range;
 use logos::Logos;
 use rowan::{GreenNode, GreenNodeBuilder, NodeOrToken, SyntaxNode, SyntaxToken};
 
-use crate::T;
-use crate::lsp::lexer::Syntax;
+use crate::{T, lexer::Syntax};
 
 #[derive(Clone, Debug)]
 pub struct Cst(pub GreenNode);
@@ -211,6 +210,12 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn index(&mut self) {
+        self.expect(T!['[']);
+        self.expr();
+        self.expect(T![']']);
+    }
+
     fn arg(&mut self) {
         self.with(Syntax::Arg, |this| {
             this.expr();
@@ -226,10 +231,20 @@ impl<'a> Parser<'a> {
         let checkpoint = self.builder.checkpoint();
         self.expr_prefix();
 
-        while self.input.at(T!['(']) {
-            self.builder
-                .start_node_at(checkpoint, Syntax::CallExpr.into());
-            self.arg_list();
+        while self.input.at_any(&[T!['('], T!['[']]) {
+            match self.input.nth(0) {
+                T!['('] => {
+                    self.builder
+                        .start_node_at(checkpoint, Syntax::CallExpr.into());
+                    self.arg_list();
+                }
+                T!['['] => {
+                    self.builder
+                        .start_node_at(checkpoint, Syntax::IndexExpr.into());
+                    self.index();
+                }
+                _ => unreachable!(),
+            }
             self.builder.finish_node();
         }
 

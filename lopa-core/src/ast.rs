@@ -1,6 +1,6 @@
 use rowan::{SyntaxNode, ast::AstNode, cursor};
 
-use crate::lsp::{lexer::Syntax, parser};
+use crate::{lexer::Syntax, parser};
 
 macro_rules! impl_ast_node {
     ($type:ty,$token:ident) => {

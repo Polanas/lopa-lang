@@ -1,35 +1,33 @@
-use std::{fmt::Display, ops::Range};
-
 use logos::Logos;
 
 #[macro_export]
 macro_rules! T {
-    ['('] => { $crate::lsp::lexer::Syntax::LeftParen };
-    [')'] => { $crate::lsp::lexer::Syntax::RightParen };
-    ['{'] => { $crate::lsp::lexer::Syntax::LeftBrace };
-    ['}'] => { $crate::lsp::lexer::Syntax::RightBrace };
-    ['['] => { $crate::lsp::lexer::Syntax::LeftBracket };
-    [']'] => { $crate::lsp::lexer::Syntax::RightBracket };
-    [' '] => { $crate::lsp::lexer::Syntax::Whitespaces };
-    [|] => { $crate::lsp::lexer::Syntax::Bar };
-    [=] => { $crate::lsp::lexer::Syntax::Eq };
-    [,] => { $crate::lsp::lexer::Syntax::Comma };
-    [;] => { $crate::lsp::lexer::Syntax::Semi };
-    [:] => { $crate::lsp::lexer::Syntax::Colon };
-    [.] => { $crate::lsp::lexer::Syntax::Dot };
-    [+] => { $crate::lsp::lexer::Syntax::Plus };
-    [-] => { $crate::lsp::lexer::Syntax::Minus };
-    [/] => { $crate::lsp::lexer::Syntax::Slash };
-    [*] => { $crate::lsp::lexer::Syntax::Star };
-    [->] => { $crate::lsp::lexer::Syntax::Arrow };
-    [fn] => { $crate::lsp::lexer::Syntax::Fn_KW };
-    [let] => { $crate::lsp::lexer::Syntax::Let_KW };
-    [ident] => { $crate::lsp::lexer::Syntax::Ident };
-    [true] => { $crate::lsp::lexer::Syntax::False_KW };
-    [false] => { $crate::lsp::lexer::Syntax::True_KW };
-    [int] => { $crate::lsp::lexer::Syntax::Int };
-    [float] => { $crate::lsp::lexer::Syntax::Float };
-    [eof] => { $crate::lsp::lexer::Syntax::EndOfFile };
+    ['('] => { $crate::lexer::Syntax::LeftParen };
+    [')'] => { $crate::lexer::Syntax::RightParen };
+    ['{'] => { $crate::lexer::Syntax::LeftBrace };
+    ['}'] => { $crate::lexer::Syntax::RightBrace };
+    ['['] => { $crate::lexer::Syntax::LeftBracket };
+    [']'] => { $crate::lexer::Syntax::RightBracket };
+    [' '] => { $crate::lexer::Syntax::Whitespaces };
+    [|] => { $crate::lexer::Syntax::Bar };
+    [=] => { $crate::lexer::Syntax::Eq };
+    [,] => { $crate::lexer::Syntax::Comma };
+    [;] => { $crate::lexer::Syntax::Semi };
+    [:] => { $crate::lexer::Syntax::Colon };
+    [.] => { $crate::lexer::Syntax::Dot };
+    [+] => { $crate::lexer::Syntax::Plus };
+    [-] => { $crate::lexer::Syntax::Minus };
+    [/] => { $crate::lexer::Syntax::Slash };
+    [*] => { $crate::lexer::Syntax::Star };
+    [->] => { $crate::lexer::Syntax::Arrow };
+    [fn] => { $crate::lexer::Syntax::Fn_KW };
+    [let] => { $crate::lexer::Syntax::Let_KW };
+    [ident] => { $crate::lexer::Syntax::Ident };
+    [true] => { $crate::lexer::Syntax::False_KW };
+    [false] => { $crate::lexer::Syntax::True_KW };
+    [int] => { $crate::lexer::Syntax::Int };
+    [float] => { $crate::lexer::Syntax::Float };
+    [eof] => { $crate::lexer::Syntax::EndOfFile };
 }
 
 #[allow(non_camel_case_types)]
@@ -107,6 +105,7 @@ pub enum Syntax {
     ParenExpr,
     AssignExpr,
     CallExpr,
+    IndexExpr,
     ReturnExpr,
     BlockExpr,
     BinaryExpr,

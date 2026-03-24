@@ -5,12 +5,11 @@ use logos::Logos;
 use lopa_lang::lsp::{
     self, lexer::Syntax, parser::{Cst, Prettify}
 };
-use proc_macro2::TokenStream;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let text = "fn test(a: int, b: int) -> int {
-            let x = 1*2+3;
+            let x = vec[0](0)[0];
     }";
     dbg!(Syntax::lexer(text).collect_vec());
     let (node, errors) = lsp::parser::parse(text);
