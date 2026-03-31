@@ -117,6 +117,50 @@ pub enum Syntax {
     BinaryExpr,
 }
 
+impl Syntax {
+    // pub fn to_string(&self) -> &str {
+    //     match self {
+    //         Syntax::LeftParen => "(",
+    //         Syntax::RightParen => ")",
+    //         Syntax::LeftBracket => "[",
+    //         Syntax::RightBracket => "]",
+    //         Syntax::LeftBrace => "{",
+    //         Syntax::RightBrace => "}",
+    //         Syntax::Bar => "|",
+    //         Syntax::Eq => "=",
+    //         Syntax::Comma => ",",
+    //         Syntax::Dot => ".",
+    //         Syntax::Plus => "+",
+    //         Syntax::Minus => "-",
+    //         Syntax::Slash => "/",
+    //         Syntax::Star => "*",
+    //         Syntax::Semi => ";",
+    //         Syntax::Let_KW => "let",
+    //         Syntax::Fn_KW => "fn",
+    //         Syntax::Arrow => "->",
+    //         Syntax::Ident => "ident",
+    //         Syntax::Int => "num",
+    //         Syntax::Whitespaces => " ",
+    //         Syntax::True_KW => "true",
+    //         Syntax::False_KW => "false",
+    //         Syntax::Error
+    //         | Syntax::EndOfFile
+    //         | Syntax::File
+    //         | Syntax::FnItem
+    //         | Syntax::LetStmt
+    //         | Syntax::AssignExpr
+    //         | Syntax::CallExpr
+    //         | Syntax::ReturnExpr
+    //         | Syntax::BlockExpr
+    //         | Syntax::ExprStmt => panic!("no text"),
+    //         Syntax::Float => todo!(),
+    //         Syntax::LiteralExpr => todo!(),
+    //         Syntax::Arg => todo!(),
+    //         Syntax::ArgList => todo!(),
+    //         Syntax::ParenExpr => todo!(),
+    //     }
+    // }
+}
 impl From<Syntax> for rowan::SyntaxKind {
     fn from(value: Syntax) -> Self {
         Self(value as u16)

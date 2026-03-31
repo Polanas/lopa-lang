@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
+use notify_rust::Notification;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
@@ -32,16 +33,15 @@ impl LanguageServer for Backend {
                 version: Some("0.0.1".to_string()),
             }),
             offset_encoding: None,
-
             capabilities: ServerCapabilities {
-                document_formatting_provider: Some(OneOf::Left(true)),
-                inlay_hint_provider: Some(OneOf::Left(true)),
+                // document_formatting_provider: Some(OneOf::Left(true)),
+                // inlay_hint_provider: Some(OneOf::Left(true)),
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {
                         open_close: Some(true),
-                        change: Some(TextDocumentSyncKind::FULL),
+                        change: Some(TextDocumentSyncKind::INCREMENTAL),
                         save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
-                            include_text: Some(true),
+                            include_text: None,
                         })),
                         ..Default::default()
                     },
@@ -54,63 +54,59 @@ impl LanguageServer for Backend {
                     all_commit_characters: None,
                     completion_item: None,
                 }),
-                execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec!["dummy.do_something".to_string()],
-                    work_done_progress_options: Default::default(),
-                }),
-
-                workspace: Some(WorkspaceServerCapabilities {
-                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
-                        supported: Some(true),
-                        change_notifications: Some(OneOf::Left(true)),
-                    }),
-                    file_operations: None,
-                }),
-                semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
-                        SemanticTokensRegistrationOptions {
-                            text_document_registration_options: {
-                                TextDocumentRegistrationOptions {
-                                    document_selector: Some(vec![DocumentFilter {
-                                        language: Some("lopa".to_string()),
-                                        scheme: Some("file".to_string()),
-                                        pattern: None,
-                                    }]),
-                                }
-                            },
-                            semantic_tokens_options: SemanticTokensOptions {
-                                work_done_progress_options: WorkDoneProgressOptions::default(),
-                                legend: SemanticTokensLegend {
-                                    token_types: vec![
-                                        SemanticTokenType::FUNCTION,
-                                        SemanticTokenType::VARIABLE,
-                                        SemanticTokenType::PARAMETER,
-                                        SemanticTokenType::STRUCT,
-                                        SemanticTokenType::PROPERTY,
-                                    ],
-                                    token_modifiers: vec![],
-                                },
-                                range: Some(true),
-                                full: Some(SemanticTokensFullOptions::Bool(true)),
-                            },
-                            static_registration_options: StaticRegistrationOptions::default(),
-                        },
-                    ),
-                ),
-                definition_provider: Some(OneOf::Left(true)),
-                references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(true)),
+                // execute_command_provider: Some(ExecuteCommandOptions {
+                //     commands: vec!["dummy.do_something".to_string()],
+                //     work_done_progress_options: Default::default(),
+                // }),
+                //
+                // workspace: Some(WorkspaceServerCapabilities {
+                //     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                //         supported: Some(true),
+                //         change_notifications: Some(OneOf::Left(true)),
+                //     }),
+                //     file_operations: None,
+                // }),
+                // semantic_tokens_provider: Some(
+                //     SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
+                //         SemanticTokensRegistrationOptions {
+                //             text_document_registration_options: {
+                //                 TextDocumentRegistrationOptions {
+                //                     document_selector: Some(vec![DocumentFilter {
+                //                         language: Some("lopa".to_string()),
+                //                         scheme: Some("file".to_string()),
+                //                         pattern: None,
+                //                     }]),
+                //                 }
+                //             },
+                //             semantic_tokens_options: SemanticTokensOptions {
+                //                 work_done_progress_options: WorkDoneProgressOptions::default(),
+                //                 legend: SemanticTokensLegend {
+                //                     token_types: vec![
+                //                         SemanticTokenType::FUNCTION,
+                //                         SemanticTokenType::VARIABLE,
+                //                         SemanticTokenType::PARAMETER,
+                //                         SemanticTokenType::STRUCT,
+                //                         SemanticTokenType::PROPERTY,
+                //                     ],
+                //                     token_modifiers: vec![],
+                //                 },
+                //                 range: Some(true),
+                //                 full: Some(SemanticTokensFullOptions::Bool(true)),
+                //             },
+                //             static_registration_options: StaticRegistrationOptions::default(),
+                //         },
+                //     ),
+                // ),
+                // definition_provider: Some(OneOf::Left(true)),
+                // references_provider: Some(OneOf::Left(true)),
+                // rename_provider: Some(OneOf::Left(true)),
                 position_encoding: Some(PositionEncodingKind::UTF8),
                 ..ServerCapabilities::default()
             },
         })
     }
 
-    async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "server initialized!")
-            .await;
-    }
+    async fn initialized(&self, _: InitializedParams) {}
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
@@ -137,10 +133,15 @@ impl LanguageServer for Backend {
                 vfs.change_file_content(file, &change.text, range);
             }
 
-            let rope = vfs.content_by_file(file);
+            let content = vfs.content_by_file(file);
+            let len = {
+                let content = content.read().unwrap();
+                content.len()
+            };
+            let range = convert::to_range(&vfs, file, 0..(len-1));
             let diagnostics = vec![Diagnostic {
-                range: convert::to_range(&vfs, file, 0..rope.byte_len()),
-                message: rope.to_string(),
+                range,
+                message: content.read().unwrap().as_str().to_string().replace("\n", "\\n"),
                 ..Default::default()
             }];
             (diagnostics, uri)
@@ -185,18 +186,11 @@ impl LanguageServer for Backend {
         }
     }
 
-    async  fn diagnostic(&self,params:DocumentDiagnosticParams) -> Result<DocumentDiagnosticReportResult> {
-        
-    }
-
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let uri = params.text_document_position_params.text_document.uri;
-        notify_rust::Notification::new()
-            .summary("Uri")
-            .body(uri.as_str())
-            .show()
-            .unwrap();
         let position = params.text_document_position_params.position;
-        Ok(None)
+        Ok(Some(Hover {
+            contents: HoverContents::Scalar(MarkedString::String(String::from("hover1"))),
+            range: None,
+        }))
     }
 }

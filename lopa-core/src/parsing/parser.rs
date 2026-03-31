@@ -6,6 +6,8 @@ use rowan::{GreenNode, GreenNodeBuilder, NodeOrToken, SyntaxNode, SyntaxToken};
 
 use super::lexer::Syntax;
 
+pub type Cst = GreenNode;
+
 pub trait Prettify {
     fn prettify(&self) -> String;
 }
@@ -45,13 +47,7 @@ impl Prettify for SyntaxNode<Lang> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Parse {
-    pub node: GreenNode,
-    pub errors: Vec<ParseError>,
-}
-
-pub fn parse(input: &str) -> Parse {
+pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
     Parser::new(input).parse()
 }
 
@@ -136,12 +132,9 @@ impl<'a> Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn parse(mut self) -> Parse {
+    fn parse(mut self) -> (Cst, Vec<ParseError>) {
         self.file();
-        Parse {
-            node: self.builder.finish(),
-            errors: self.errors,
-        }
+        (self.builder.finish(), self.errors)
     }
     fn file(&mut self) {
         self.with(Syntax::File, |this| {

@@ -1,11 +1,15 @@
-use std::{ops::Range, path::PathBuf, sync::Arc};
+use std::{
+    fmt::Display,
+    ops::Range,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
 use bimap::BiMap;
-use crop::Rope;
 use slotmap::SlotMap;
 use tower_lsp_server::ls_types::Uri;
 
-use crate::uri_ext::UrlExt as _;
+use crate::{base::FileContent, uri_ext::UrlExt as _};
 
 slotmap::new_key_type! { pub struct FileId; }
 
@@ -14,7 +18,7 @@ pub struct VfsPath(pub String);
 
 //Maps between filesystem paths and `FileId`s, store file contents
 pub struct Vfs {
-    contents: SlotMap<FileId, Rope>,
+    contents: SlotMap<FileId, Arc<RwLock<FileContent>>>,
     files: BiMap<FileId, VfsPath>,
 }
 
@@ -42,19 +46,22 @@ impl Vfs {
         self.files.get_by_left(&file).unwrap()
     }
 
-    pub fn content_by_file(&self, file: FileId) -> Rope {
+    pub fn content_by_file(&self, file: FileId) -> Arc<RwLock<FileContent>> {
         self.contents[file].clone()
     }
 
     pub fn set_path_content(&mut self, path: VfsPath, content: String) -> FileId {
         match self.file_by_path(&path) {
             Some(file) => {
-                let rope = &mut self.contents[file];
-                rope.replace(0..rope.byte_len(), &content);
+                let mut contents = self.contents[file].write().unwrap();
+                let len = contents.as_str().len();
+                contents.replace(0..len, &content);
                 file
             }
             None => {
-                let file = self.contents.insert(Rope::from(content));
+                let file = self
+                    .contents
+                    .insert(Arc::new(FileContent::new(content).into()));
                 self.files.insert(file, path);
                 file
             }
@@ -67,16 +74,13 @@ impl Vfs {
         new_text: &str,
         range: Option<Range<usize>>,
     ) {
-        let rope = &mut self.contents[file];
+        let mut content = self.contents[file].write().unwrap();
+        let len = content.as_str().len();
         match range {
             Some(range) => {
-                if range.start == range.end {
-                    rope.insert(range.start, new_text);
-                } else {
-                    rope.delete(range);
-                }
+                content.replace(range, new_text);
             }
-            None => rope.replace(0..rope.byte_len(), new_text),
+            None => content.replace(0..len, new_text),
         }
     }
 
@@ -85,5 +89,11 @@ impl Vfs {
         self.contents.remove(file);
         self.files.remove_by_left(&file);
         Some(())
+    }
+}
+
+impl Default for Vfs {
+    fn default() -> Self {
+        Self::new()
     }
 }

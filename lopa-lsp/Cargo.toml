@@ -13,9 +13,10 @@ lopa-core = { path = "../lopa-core" }
 salsa.workspace = true
 itertools.workspace = true
 derive_more.workspace = true
-crop.workspace = true
 bimap = "0.6.3"
 slotmap = "1.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 anyhow.workspace = true
+rustc-hash = "2.1.2"
+crop = "0.4.3"
