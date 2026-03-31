@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+mlua = { version = "0.11.5", features = ["luajit52"] }
+itertools.workspace = true
+logos.workspace = true
+lopa-core = { path = "../lopa-core"}
+rowan.workspace = true
+crop.workspace = true

@@ -4,18 +4,58 @@ use std::ops::Range;
 use logos::Logos;
 use rowan::{GreenNode, GreenNodeBuilder, NodeOrToken, SyntaxNode, SyntaxToken};
 
-use crate::{T, lexer::Syntax};
+use super::lexer::Syntax;
 
-#[derive(Clone, Debug)]
-pub struct Cst(pub GreenNode);
-
-pub fn parse(input: &str) -> (GreenNode, Vec<ParseError>) {
-    let mut parser = Parser::new(input);
-    parser.file();
-    (parser.builder.finish(), parser.errors)
+pub trait Prettify {
+    fn prettify(&self) -> String;
 }
 
-pub struct Parser<'a> {
+impl Prettify for SyntaxNode<Lang> {
+    fn prettify(&self) -> String {
+        fn children(
+            node_or_token: &NodeOrToken<SyntaxNode<Lang>, SyntaxToken<Lang>>,
+            result: &mut String,
+            depth: u32,
+        ) {
+            match node_or_token {
+                NodeOrToken::Node(n) => {
+                    (0..(depth)).for_each(|_| result.push(' '));
+                    result.push_str(&n.kind().to_string());
+                    result.push('\n');
+                }
+                NodeOrToken::Token(t) => {
+                    if !matches!(t.kind(), Syntax::Whitespaces) {
+                        (0..(depth)).for_each(|_| result.push(' '));
+                        result.push('\'');
+                        result.push_str(t.text());
+                        result.push('\'');
+                        result.push('\n');
+                    }
+                }
+            }
+            if let NodeOrToken::Node(node) = node_or_token {
+                for node in node.children_with_tokens() {
+                    children(&node, result, depth + 1);
+                }
+            }
+        }
+        let mut result = String::new();
+        children(&NodeOrToken::Node(self.clone()), &mut result, 0);
+        result
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Parse {
+    pub node: GreenNode,
+    pub errors: Vec<ParseError>,
+}
+
+pub fn parse(input: &str) -> Parse {
+    Parser::new(input).parse()
+}
+
+struct Parser<'a> {
     input: Input<'a>,
     builder: GreenNodeBuilder<'static>,
     errors: Vec<ParseError>,
@@ -93,7 +133,16 @@ impl<'a> Parser<'a> {
 
         self.add_error(tokens, self.input.nth_span(0));
     }
+}
 
+impl<'a> Parser<'a> {
+    fn parse(mut self) -> Parse {
+        self.file();
+        Parse {
+            node: self.builder.finish(),
+            errors: self.errors,
+        }
+    }
     fn file(&mut self) {
         self.with(Syntax::File, |this| {
             this.whitespace();
@@ -166,16 +215,29 @@ impl<'a> Parser<'a> {
     }
 
     fn expr_prefix(&mut self) {
-        self.expr_primary();
+        match self.input.peek() {
+            T![return] => self.ret(),
+            _ => self.expr_primary(),
+        }
+    }
+
+    fn ret(&mut self) {
+        self.with(Syntax::ReturnExpr, |this| {
+            this.expect(T![return]);
+            this.expr();
+            if this.input.peek() == T![;] {
+                this.expect(T![;]);
+            }
+        })
     }
 
     fn expr_primary(&mut self) {
         let checkpoint = self.builder.checkpoint();
         match self.input.peek() {
-            T![int] | T![float] | T![true] | T![false] => {
+            T![int] | T![float] | T![true] | T![false] | T![nil] => {
                 self.builder
                     .start_node_at(checkpoint, Syntax::LiteralExpr.into());
-                self.expect_any(&[T!(int), T!(float), T!(true), T!(false)]);
+                self.expect_any(&[T![int], T![float], T![true], T![false], T![nil]]);
                 self.builder.finish_node();
             }
             T!['('] => {
@@ -288,8 +350,11 @@ impl<'a> Parser<'a> {
         self.with(Syntax::BlockExpr, |this| {
             this.expect(T!['{']);
             while !this.input.at_any(&[T!('}'), T!(eof)]) {
-                match this.input.nth(0) {
+                match this.input.peek() {
                     T![let] => this.stmt_let(),
+                    T![;] => {
+                        this.expect(T![;]);
+                    }
                     _ => this.stmt_expr(),
                 }
             }
@@ -299,7 +364,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParseError {
     pub expected: Vec<Syntax>,
     pub span: Range<usize>,
@@ -395,45 +460,5 @@ impl rowan::Language for Lang {
 
     fn kind_to_raw(kind: Self::Kind) -> rowan::SyntaxKind {
         kind.into()
-    }
-}
-
-pub trait Prettify {
-    fn prettify(&self) -> String;
-}
-
-impl Prettify for Cst {
-    fn prettify(&self) -> String {
-        let syntax_node = SyntaxNode::<Lang>::new_root(self.0.clone());
-        fn children(
-            node_or_token: &NodeOrToken<SyntaxNode<Lang>, SyntaxToken<Lang>>,
-            result: &mut String,
-            depth: u32,
-        ) {
-            match node_or_token {
-                NodeOrToken::Node(n) => {
-                    (0..(depth)).for_each(|_| result.push(' '));
-                    result.push_str(&n.kind().to_string());
-                    result.push('\n');
-                }
-                NodeOrToken::Token(t) => {
-                    if !matches!(t.kind(), Syntax::Whitespaces) {
-                        (0..(depth)).for_each(|_| result.push(' '));
-                        result.push('\'');
-                        result.push_str(t.text());
-                        result.push('\'');
-                        result.push('\n');
-                    }
-                }
-            }
-            if let NodeOrToken::Node(node) = node_or_token {
-                for node in node.children_with_tokens() {
-                    children(&node, result, depth + 1);
-                }
-            }
-        }
-        let mut result = String::new();
-        children(&NodeOrToken::Node(syntax_node), &mut result, 0);
-        result
     }
 }

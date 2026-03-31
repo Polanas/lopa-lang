@@ -7,10 +7,11 @@ logos = "0.16.1"
 rowan = "0.16.1"
 anyhow = "1.0.100"
 derive_more = { version = "2.1.1", features = ["add", "add_assign", "from"] }
-mlua = { version = "0.11.5", features = ["luajit52"] }
 strum = { version = "0.27.2", features = ["derive"] }
 strum_macros = "0.27.2"
 itertools = "0.14.0"
+salsa = { version = "0.26.0" }
+crop = { version = "0.4.3" }
 # thiserror = "2.0.17"
 
 # [package]
