@@ -4,7 +4,7 @@ use rowan::ast::AstNode;
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
 
 macro_rules! impl_ast_node {
-    ($type:ident) => {
+    ($type:ident, $name:ident) => {
         impl AstNode for $type {
             type Language = parser::Lang;
 
@@ -12,7 +12,7 @@ macro_rules! impl_ast_node {
             where
                 Self: Sized,
             {
-                kind == Syntax::$type
+                kind == Syntax::$name
             }
 
             fn cast(syntax: SyntaxNode) -> Option<Self>
@@ -39,15 +39,15 @@ macro_rules! def_ast_node {
 }
 
 macro_rules! def_impl_ast_node {
-    ($type:ident) => {
+    ($type:ident, $name:ident) => {
         def_ast_node!($type);
-        impl_ast_node!($type);
+        impl_ast_node!($type, $name);
     };
 }
 
-def_impl_ast_node!(FnItem);
-def_impl_ast_node!(ParamList);
-def_impl_ast_node!(Param);
+def_impl_ast_node!(FnItem, FN_ITEM);
+def_impl_ast_node!(ParamList, PARAM_LIST);
+def_impl_ast_node!(Param, PARAM);
 impl FnItem {
     pub fn params(&self) -> impl Iterator<Item = Param> {
         self.syntax.children().filter_map(Param::cast)
@@ -65,7 +65,7 @@ def_ast_node!(ParenExpr);
 def_ast_node!(CallExpr);
 def_ast_node!(IndexExpr);
 def_ast_node!(ReturnExpr);
-def_impl_ast_node!(BlockExpr);
+def_impl_ast_node!(BlockExpr, BLOCK_EXPR);
 def_ast_node!(BinaryExpr);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,13 +88,13 @@ impl AstNode for Expr {
     {
         matches!(
             kind,
-            Syntax::LiteralExpr
-                | Syntax::ParenExpr
-                | Syntax::CallExpr
-                | Syntax::IndexExpr
-                | Syntax::ReturnExpr
-                | Syntax::BlockExpr
-                | Syntax::BinaryExpr
+            Syntax::LIT_EXPR
+                | Syntax::PAREN_EXPR
+                | Syntax::CALL_EXPR
+                | Syntax::INDEX_EXPR
+                | Syntax::RETURN_EXPR
+                | Syntax::BLOCK_EXPR
+                | Syntax::BINARY_EXPR
         )
     }
 
@@ -103,13 +103,13 @@ impl AstNode for Expr {
         Self: Sized,
     {
         Some(match syntax.kind() {
-            Syntax::LiteralExpr => Self::Literal(LiteralExpr { syntax }),
-            Syntax::ParenExpr => Self::Paren(ParenExpr { syntax }),
-            Syntax::CallExpr => Self::Call(CallExpr { syntax }),
-            Syntax::IndexExpr => Self::Index(IndexExpr { syntax }),
-            Syntax::ReturnExpr => Self::Return(ReturnExpr { syntax }),
-            Syntax::BlockExpr => Self::Block(BlockExpr { syntax }),
-            Syntax::BinaryExpr => Self::Binary(BinaryExpr { syntax }),
+            Syntax::LIT_EXPR => Self::Literal(LiteralExpr { syntax }),
+            Syntax::PAREN_EXPR => Self::Paren(ParenExpr { syntax }),
+            Syntax::CALL_EXPR => Self::Call(CallExpr { syntax }),
+            Syntax::INDEX_EXPR => Self::Index(IndexExpr { syntax }),
+            Syntax::RETURN_EXPR => Self::Return(ReturnExpr { syntax }),
+            Syntax::BLOCK_EXPR => Self::Block(BlockExpr { syntax }),
+            Syntax::BINARY_EXPR => Self::Binary(BinaryExpr { syntax }),
             _ => return None,
         })
     }
@@ -139,7 +139,7 @@ impl AstNode for Item {
     where
         Self: Sized,
     {
-        matches!(kind, Syntax::FnItem)
+        matches!(kind, Syntax::FN_ITEM)
     }
 
     fn cast(syntax: SyntaxNode) -> Option<Self>
@@ -147,7 +147,7 @@ impl AstNode for Item {
         Self: Sized,
     {
         Some(match syntax.kind() {
-            Syntax::FnItem => Self::Fn(FnItem { syntax }),
+            Syntax::FN_ITEM => Self::Fn(FnItem { syntax }),
             _ => return None,
         })
     }
@@ -157,7 +157,7 @@ impl AstNode for Item {
     }
 }
 
-def_impl_ast_node!(File);
+def_impl_ast_node!(File, FILE);
 impl File {
     pub fn items(&self) -> impl Iterator<Item = Item> {
         self.syntax.children().filter_map(Item::cast)

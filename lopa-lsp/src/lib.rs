@@ -26,7 +26,7 @@ pub struct Backend {
 pub struct FileData {}
 
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "lopa-ls".to_string(),

@@ -47,10 +47,10 @@ impl FileContent {
     }
 
     fn try_recompute(&mut self) {
-        // if self.dirty {
-        self.line_starts = line_starts(self.value.as_str());
-        self.dirty = false;
-        // }
+        if self.dirty {
+            self.line_starts = line_starts(self.value.as_str());
+            self.dirty = false;
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -114,7 +114,7 @@ pub struct Source {
 
 #[salsa::tracked]
 fn parse(db: &dyn salsa::Database, source: Source) -> Parse<'_> {
-    let (node, errors) = parser::parse(&source.contents(db).as_str());
+    let (node, errors) = parser::parse(source.contents(db).as_str());
     Parse::new(db, node, errors)
 }
 
@@ -122,7 +122,6 @@ fn parse(db: &dyn salsa::Database, source: Source) -> Parse<'_> {
 // pub fn parse(db: &dyn salsa::Database, source: SourceFile) -> ParseResult<'_> {
 //     ParseResult::new(db, parser::parse(source.text(db).as_ref()))
 // }
-
 #[salsa::db]
 #[derive(Default)]
 pub struct DbImpl {

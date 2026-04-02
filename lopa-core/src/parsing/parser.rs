@@ -1,8 +1,11 @@
-use std::iter::Peekable;
 use std::ops::Range;
+use std::{fmt, iter::Peekable};
 
 use logos::Logos;
-use rowan::{GreenNode, GreenNodeBuilder, NodeOrToken, SyntaxNode, SyntaxToken};
+use rowan::{
+    GreenNode, GreenNodeBuilder, NodeOrToken, SyntaxKind, SyntaxNode, SyntaxToken, TextRange,
+    TextSize,
+};
 
 use super::lexer::Syntax;
 
@@ -26,7 +29,7 @@ impl Prettify for SyntaxNode<Lang> {
                     result.push('\n');
                 }
                 NodeOrToken::Token(t) => {
-                    if !matches!(t.kind(), Syntax::Whitespaces) {
+                    if !matches!(t.kind(), T![' ']) {
                         (0..(depth)).for_each(|_| result.push(' '));
                         result.push('\'');
                         result.push_str(t.text());
@@ -66,12 +69,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn add_error(&mut self, expected: &[Syntax], span: Range<usize>) {
-        self.errors.push(ParseError::new(expected, span));
+    fn add_error(&mut self, kind: ErrorKind, span: Range<usize>) {
+        self.errors.push(ParseError::new(
+            TextRange::new(TextSize::new(span.start as _), TextSize::new(span.end as _)),
+            kind,
+        ));
     }
 
     fn whitespace(&mut self) {
-        if !self.input.at(Syntax::Whitespaces) {
+        if !self.input.at(T![' ']) {
             return;
         }
         let span = self.input.advance();
@@ -79,11 +85,11 @@ impl<'a> Parser<'a> {
             .token(T![' '].into(), &self.input.content[span]);
     }
 
-    fn advance_with_err(&mut self, expected: &[Syntax]) {
+    fn advance_with_err(&mut self, kind: ErrorKind) {
         let span = self.input.advance();
         self.builder
-            .token(Syntax::Error.into(), &self.input.content[span.clone()]);
-        self.add_error(expected, span);
+            .token(Syntax::ERROR.into(), &self.input.content[span.clone()]);
+        self.add_error(kind, span);
     }
 
     fn ate_any(&mut self, tokens: &[Syntax]) -> bool {
@@ -119,7 +125,7 @@ impl<'a> Parser<'a> {
             return;
         }
 
-        self.add_error(&[token], self.input.nth_span(0));
+        self.add_error(ErrorKind::ExpectedToken(token), self.input.nth_span(0));
     }
 
     fn expect_any(&mut self, tokens: &[Syntax]) {
@@ -127,7 +133,10 @@ impl<'a> Parser<'a> {
             return;
         }
 
-        self.add_error(tokens, self.input.nth_span(0));
+        self.add_error(
+            ErrorKind::ExpectedTokens(tokens.into()),
+            self.input.nth_span(0),
+        );
     }
 }
 
@@ -137,13 +146,13 @@ impl<'a> Parser<'a> {
         (self.builder.finish(), self.errors)
     }
     fn file(&mut self) {
-        self.with(Syntax::File, |this| {
+        self.with(Syntax::FILE, |this| {
             this.whitespace();
-            while !this.input.at(Syntax::EndOfFile) {
+            while !this.input.at(Syntax::EOF) {
                 match this.input.peek() {
                     T!(fn) => this.fn_item(),
                     _ => {
-                        this.advance_with_err(&[T!(fn)]);
+                        this.advance_with_err(ErrorKind::ExpectedToken(T![fn]));
                     }
                 };
             }
@@ -151,7 +160,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_item(&mut self) {
-        self.with(Syntax::FnItem, |this| {
+        self.with(Syntax::FN_ITEM, |this| {
             this.expect(T!(fn));
             this.expect(T!(ident));
             if this.input.at(T!['(']) {
@@ -167,14 +176,14 @@ impl<'a> Parser<'a> {
     }
 
     fn return_type(&mut self) {
-        self.with(Syntax::ReturnType, |this| {
+        self.with(Syntax::RETURN_TYPE, |this| {
             this.expect(T![->]);
             this.type_expr();
         });
     }
 
     fn param(&mut self) {
-        self.with(Syntax::Param, |this| {
+        self.with(Syntax::PARAM, |this| {
             this.expect(T![ident]);
             this.expect(T![:]);
             this.type_expr();
@@ -183,7 +192,7 @@ impl<'a> Parser<'a> {
     }
 
     fn param_list(&mut self) {
-        self.with(Syntax::ParamList, |this| {
+        self.with(Syntax::PARAM_LIST, |this| {
             this.expect(T!('('));
             while !this.input.at_any(&[T![')'], T![eof]]) {
                 this.param();
@@ -193,13 +202,13 @@ impl<'a> Parser<'a> {
     }
 
     fn type_expr(&mut self) {
-        self.with(Syntax::TypeExpr, |this| {
+        self.with(Syntax::TYPE_EXPR, |this| {
             this.expect(T![ident]);
         });
     }
 
     fn stmt_expr(&mut self) {
-        self.with(Syntax::ExprStmt, |this| {
+        self.with(Syntax::EXPR_STMT, |this| {
             this.expr();
             if this.input.at(T![;]) {
                 this.expect(T![;]);
@@ -215,7 +224,7 @@ impl<'a> Parser<'a> {
     }
 
     fn ret(&mut self) {
-        self.with(Syntax::ReturnExpr, |this| {
+        self.with(Syntax::RETURN_EXPR, |this| {
             this.expect(T![return]);
             this.expr();
             if this.input.peek() == T![;] {
@@ -229,26 +238,26 @@ impl<'a> Parser<'a> {
         match self.input.peek() {
             T![int] | T![float] | T![true] | T![false] | T![nil] => {
                 self.builder
-                    .start_node_at(checkpoint, Syntax::LiteralExpr.into());
+                    .start_node_at(checkpoint, Syntax::LIT_EXPR.into());
                 self.expect_any(&[T![int], T![float], T![true], T![false], T![nil]]);
                 self.builder.finish_node();
             }
             T!['('] => {
                 self.builder
-                    .start_node_at(checkpoint, Syntax::ParenExpr.into());
+                    .start_node_at(checkpoint, Syntax::PAREN_EXPR.into());
                 self.expect(T!['(']);
                 self.expr();
                 self.expect(T![')']);
                 self.builder.finish_node();
             }
             T![ident] => {
-                self.builder.start_node_at(checkpoint, Syntax::Ident.into());
+                self.builder.start_node_at(checkpoint, Syntax::IDENT.into());
                 self.expect(T![ident]);
                 self.builder.finish_node();
             }
             _ => {
                 self.builder.token(
-                    Syntax::Error.into(),
+                    Syntax::ERROR.into(),
                     &self.input.content[self.input.advance()],
                 );
             }
@@ -256,7 +265,7 @@ impl<'a> Parser<'a> {
     }
 
     fn arg_list(&mut self) {
-        self.with(Syntax::ArgList, |this| {
+        self.with(Syntax::ARG_LIST, |this| {
             this.expect(T!['(']);
             while !this.input.at_any(&[T![')'], T![eof]]) {
                 this.arg();
@@ -272,7 +281,7 @@ impl<'a> Parser<'a> {
     }
 
     fn arg(&mut self) {
-        self.with(Syntax::Arg, |this| {
+        self.with(Syntax::ARG, |this| {
             this.expr();
             this.ate(T![,]);
         });
@@ -290,12 +299,12 @@ impl<'a> Parser<'a> {
             match self.input.nth(0) {
                 T!['('] => {
                     self.builder
-                        .start_node_at(checkpoint, Syntax::CallExpr.into());
+                        .start_node_at(checkpoint, Syntax::CALL_EXPR.into());
                     self.arg_list();
                 }
                 T!['['] => {
                     self.builder
-                        .start_node_at(checkpoint, Syntax::IndexExpr.into());
+                        .start_node_at(checkpoint, Syntax::INDEX_EXPR.into());
                     self.index();
                 }
                 _ => unreachable!(),
@@ -316,7 +325,7 @@ impl<'a> Parser<'a> {
             self.expect(op);
             self.expr_rec(right_bp);
             self.builder
-                .start_node_at(checkpoint, Syntax::BinaryExpr.into());
+                .start_node_at(checkpoint, Syntax::BINARY_EXPR.into());
             self.builder.finish_node();
         }
     }
@@ -330,7 +339,7 @@ impl<'a> Parser<'a> {
     }
 
     fn stmt_let(&mut self) {
-        self.with(Syntax::LetStmt, |this| {
+        self.with(Syntax::LIT_EXPR, |this| {
             this.expect(T![let]);
             this.expect(T![ident]);
             this.expect(T![=]);
@@ -340,7 +349,7 @@ impl<'a> Parser<'a> {
     }
 
     fn block(&mut self) {
-        self.with(Syntax::BlockExpr, |this| {
+        self.with(Syntax::BLOCK_EXPR, |this| {
             this.expect(T!['{']);
             while !this.input.at_any(&[T!('}'), T!(eof)]) {
                 match this.input.peek() {
@@ -358,17 +367,44 @@ impl<'a> Parser<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ErrorKind {
+    ExpectedToken(Syntax),
+    ExpectedTokens(Vec<Syntax>),
+    ExpectedExpression,
+    ExpectedArgument,
+    ExpectedStatement,
+    ExpectedType,
+    ExpectedIdentifier,
+    ExpectedParameter,
+    ExpectedPattern,
+}
+
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ExpectedToken(tok) => return write!(f, "expected {}", tok),
+            Self::ExpectedTokens(toks) => return write!(f, "expecteded any of: {:?}", toks),
+            Self::ExpectedArgument => "expected argument",
+            Self::ExpectedIdentifier => "expected identifier",
+            Self::ExpectedStatement => "expected statement",
+            Self::ExpectedType => "expected type",
+            Self::ExpectedExpression => "expected expression",
+            Self::ExpectedParameter => "expected parameter",
+            Self::ExpectedPattern => "expected pattern",
+        }
+        .fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParseError {
-    pub expected: Vec<Syntax>,
-    pub span: Range<usize>,
+    pub range: TextRange,
+    pub kind: ErrorKind,
 }
 
 impl ParseError {
-    pub(super) fn new(expected: &[Syntax], span: Range<usize>) -> Self {
-        Self {
-            expected: expected.to_vec(),
-            span,
-        }
+    pub fn new(range: TextRange, kin: ErrorKind) -> Self {
+        Self { range, kind: kin }
     }
 }
 
@@ -408,9 +444,9 @@ impl<'a> Input<'a> {
             .nth(amount)
             .map(|(token, _)| match token {
                 Ok(token) => token,
-                Err(_) => Syntax::Error,
+                Err(_) => Syntax::ERROR,
             })
-            .unwrap_or(Syntax::EndOfFile)
+            .unwrap_or(Syntax::EOF)
     }
 
     fn eat(&mut self, token: Syntax) -> Option<&str> {
