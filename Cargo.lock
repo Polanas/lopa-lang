@@ -777,7 +777,12 @@ dependencies = [
  "derive_more",
  "itertools",
  "logos",
+ "notify-rust",
+ "paste",
  "rowan",
+ "salsa",
+ "slab",
+ "slotmap",
  "strum",
  "strum_macros",
 ]
@@ -885,9 +890,9 @@ dependencies = [
 
 [[package]]
 name = "notify-rust"
-version = "4.12.0"
+version = "4.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21af20a1b50be5ac5861f74af1a863da53a11c38684d9818d82f1c42f7fdc6c2"
+checksum = "7d782ebad628d1a24303e9a0aac4656115ceb482ba56c66c4af3d85530852d9a"
 dependencies = [
  "futures-lite",
  "log",
@@ -995,6 +1000,12 @@ dependencies = [
  "smallvec",
  "windows-link 0.2.1",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "percent-encoding"

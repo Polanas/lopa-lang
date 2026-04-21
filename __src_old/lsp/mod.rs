@@ -4,3 +4,4 @@ pub mod parser;
 pub mod lexer;
 pub mod queries;
 pub mod compiler_error;
+

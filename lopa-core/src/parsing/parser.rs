@@ -1,11 +1,14 @@
+use Syntax::*;
 use std::ops::Range;
 use std::{fmt, iter::Peekable};
 
 use logos::Logos;
 use rowan::{
-    GreenNode, GreenNodeBuilder, NodeOrToken, SyntaxKind, SyntaxNode, SyntaxToken, TextRange,
+    Checkpoint, GreenNode, GreenNodeBuilder, NodeOrToken, SyntaxNode, SyntaxToken, TextRange,
     TextSize,
 };
+
+use crate::parsing::token_set::TokenSet;
 
 use super::lexer::Syntax;
 
@@ -29,7 +32,7 @@ impl Prettify for SyntaxNode<Lang> {
                     result.push('\n');
                 }
                 NodeOrToken::Token(t) => {
-                    if !matches!(t.kind(), T![' ']) {
+                    if !matches!(t.kind(), T![" "]) {
                         (0..(depth)).for_each(|_| result.push(' '));
                         result.push('\'');
                         result.push_str(t.text());
@@ -54,6 +57,27 @@ pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
     Parser::new(input).parse()
 }
 
+const STMT_RECOVERY: TokenSet = TokenSet::new(&[T![fn]]);
+const PARAM_LIST_RECOVREY: TokenSet =
+    TokenSet::new(&[T![->], T!["{"], T![fn]]).union(STMT_RECOVERY);
+const STMT_EXPR_RECOVERY: TokenSet =
+    TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(STMT_RECOVERY);
+const EXPR_FIRST: TokenSet = TokenSet::new(&[
+    IDENT,
+    T![-],
+    T![!],
+    INT,
+    FLOAT,
+    STRING,
+    T!["["],
+    T!["{"],
+    T![return],
+    T![if],
+    T![|],
+    T!["("],
+]);
+const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
+
 struct Parser<'a> {
     input: Input<'a>,
     builder: GreenNodeBuilder<'static>,
@@ -69,7 +93,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn add_error(&mut self, kind: ErrorKind, span: Range<usize>) {
+    fn add_error(&mut self, kind: ErrorKind, span: Option<Range<usize>>) {
+        let span = span.unwrap_or_else(|| self.input.last_token_span.clone());
         self.errors.push(ParseError::new(
             TextRange::new(TextSize::new(span.start as _), TextSize::new(span.end as _)),
             kind,
@@ -77,19 +102,19 @@ impl<'a> Parser<'a> {
     }
 
     fn whitespace(&mut self) {
-        if !self.input.at(T![' ']) {
+        if !self.input.at(T![" "]) {
             return;
         }
         let span = self.input.advance();
         self.builder
-            .token(T![' '].into(), &self.input.content[span]);
+            .token(T![" "].into(), &self.input.content[span]);
     }
 
     fn advance_with_err(&mut self, kind: ErrorKind) {
         let span = self.input.advance();
         self.builder
             .token(Syntax::ERROR.into(), &self.input.content[span.clone()]);
-        self.add_error(kind, span);
+        self.add_error(kind, Some(span));
     }
 
     fn ate_any(&mut self, tokens: &[Syntax]) -> bool {
@@ -113,8 +138,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn with<R>(&mut self, token: Syntax, body: impl FnOnce(&mut Self) -> R) -> R {
-        self.builder.start_node(token.into());
+    fn with<R>(&mut self, syntax: Syntax, body: impl FnOnce(&mut Self) -> R) -> R {
+        self.builder.start_node(syntax.into());
+        let res = body(self);
+        self.builder.finish_node();
+        res
+    }
+
+    fn with_at<R>(
+        &mut self,
+        syntax: Syntax,
+        checkpoint: Checkpoint,
+        body: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        self.builder.start_node_at(checkpoint, syntax.into());
         let res = body(self);
         self.builder.finish_node();
         res
@@ -125,7 +162,10 @@ impl<'a> Parser<'a> {
             return;
         }
 
-        self.add_error(ErrorKind::ExpectedToken(token), self.input.nth_span(0));
+        self.add_error(
+            ErrorKind::ExpectedToken(token),
+            Some(self.input.nth_span(0)),
+        );
     }
 
     fn expect_any(&mut self, tokens: &[Syntax]) {
@@ -135,7 +175,7 @@ impl<'a> Parser<'a> {
 
         self.add_error(
             ErrorKind::ExpectedTokens(tokens.into()),
-            self.input.nth_span(0),
+            Some(self.input.nth_span(0)),
         );
     }
 }
@@ -145,14 +185,15 @@ impl<'a> Parser<'a> {
         self.file();
         (self.builder.finish(), self.errors)
     }
+
     fn file(&mut self) {
         self.with(Syntax::FILE, |this| {
             this.whitespace();
-            while !this.input.at(Syntax::EOF) {
+            while !this.input.at(EOF) {
                 match this.input.peek() {
                     T!(fn) => this.fn_item(),
                     _ => {
-                        this.advance_with_err(ErrorKind::ExpectedToken(T![fn]));
+                        this.advance_with_err(ErrorKind::ExpectedItem);
                     }
                 };
             }
@@ -162,16 +203,32 @@ impl<'a> Parser<'a> {
     fn fn_item(&mut self) {
         self.with(Syntax::FN_ITEM, |this| {
             this.expect(T!(fn));
-            this.expect(T!(ident));
-            if this.input.at(T!['(']) {
+
+            if this.input.at(IDENT) {
+                this.name();
+            } else {
+                this.add_error(ErrorKind::ExpectedIdentifier, None);
+            }
+            if this.input.at(T!["("]) {
                 this.param_list();
+            } else {
+                this.add_error(ErrorKind::ExpectedToken(T!["("]), None);
             }
             if this.input.at(T![->]) {
                 this.return_type();
             }
-            if this.input.at(T!['{']) {
+            if this.input.at(T!["{"]) {
                 this.block();
+            } else {
+                this.add_error(ErrorKind::ExpectedToken(T!["{"]), None);
             }
+        })
+    }
+
+    fn name(&mut self) {
+        assert!(self.input.at(IDENT));
+        self.with(Syntax::NAME, |this| {
+            this.expect(IDENT);
         })
     }
 
@@ -184,7 +241,7 @@ impl<'a> Parser<'a> {
 
     fn param(&mut self) {
         self.with(Syntax::PARAM, |this| {
-            this.expect(T![ident]);
+            this.expect(IDENT);
             this.expect(T![:]);
             this.type_expr();
             this.ate(T![,]);
@@ -193,17 +250,24 @@ impl<'a> Parser<'a> {
 
     fn param_list(&mut self) {
         self.with(Syntax::PARAM_LIST, |this| {
-            this.expect(T!('('));
-            while !this.input.at_any(&[T![')'], T![eof]]) {
-                this.param();
+            this.expect(T!("("));
+            while !this.input.at(T![")"]) && !this.input.at(EOF) {
+                if this.input.at(IDENT) {
+                    this.param();
+                } else {
+                    if this.input.at_any(PARAM_LIST_RECOVREY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedParameter);
+                }
             }
-            this.expect(T!(')'));
+            this.expect(T!(")"));
         })
     }
 
     fn type_expr(&mut self) {
         self.with(Syntax::TYPE_EXPR, |this| {
-            this.expect(T![ident]);
+            this.expect(IDENT);
         });
     }
 
@@ -216,117 +280,143 @@ impl<'a> Parser<'a> {
         });
     }
 
-    fn expr_prefix(&mut self) {
+    fn prefix_expr(&mut self) -> Option<()> {
         match self.input.peek() {
             T![return] => self.ret(),
-            _ => self.expr_primary(),
+            _ => return self.expr_primary(),
         }
+        Some(())
     }
 
     fn ret(&mut self) {
         self.with(Syntax::RETURN_EXPR, |this| {
             this.expect(T![return]);
-            this.expr();
-            if this.input.peek() == T![;] {
-                this.expect(T![;]);
-            }
+            this.expect_expr();
         })
     }
 
-    fn expr_primary(&mut self) {
-        let checkpoint = self.builder.checkpoint();
-        match self.input.peek() {
-            T![int] | T![float] | T![true] | T![false] | T![nil] => {
-                self.builder
-                    .start_node_at(checkpoint, Syntax::LIT_EXPR.into());
-                self.expect_any(&[T![int], T![float], T![true], T![false], T![nil]]);
+    fn expr_primary(&mut self) -> Option<()> {
+        let token = self.input.peek();
+        match token {
+            INT | FLOAT | STRING | TRUE_KW | FALSE_KW | NIL_KW => {
+                self.builder.start_node(LIT_EXPR.into());
+                self.ate(token);
                 self.builder.finish_node();
             }
-            T!['('] => {
-                self.builder
-                    .start_node_at(checkpoint, Syntax::PAREN_EXPR.into());
-                self.expect(T!['(']);
-                self.expr();
-                self.expect(T![')']);
+            T!["("] => {
+                self.builder.start_node(PAREN_EXPR.into());
+                self.expect(T!["("]);
+                self.expect_expr();
+                self.expect(T![")"]);
                 self.builder.finish_node();
             }
-            T![ident] => {
-                self.builder.start_node_at(checkpoint, Syntax::IDENT.into());
-                self.expect(T![ident]);
+            IDENT => {
+                self.builder.start_node(Syntax::IDENT.into());
+                self.expect(IDENT);
                 self.builder.finish_node();
             }
             _ => {
-                self.builder.token(
-                    Syntax::ERROR.into(),
-                    &self.input.content[self.input.advance()],
-                );
+                self.advance_with_err(ErrorKind::ExpectedExpression);
+                return None;
             }
         }
+        Some(())
     }
 
     fn arg_list(&mut self) {
         self.with(Syntax::ARG_LIST, |this| {
-            this.expect(T!['(']);
-            while !this.input.at_any(&[T![')'], T![eof]]) {
-                this.arg();
+            this.expect(T!["("]);
+            while !this.input.at(T![")"]) && !this.input.at(EOF) {
+                if this
+                    .input
+                    .at_any(TokenSet::new(&[Syntax::IDENT]).union(EXPR_FIRST))
+                {
+                    this.arg();
+                } else {
+                    break;
+                }
             }
-            this.expect(T![')']);
+            this.expect(T![")"]);
         })
     }
 
     fn index(&mut self) {
-        self.expect(T!['[']);
-        self.expr();
-        self.expect(T![']']);
+        self.expect(T!["["]);
+        self.expect_expr();
+        self.expect(T!["]"]);
     }
 
     fn arg(&mut self) {
         self.with(Syntax::ARG, |this| {
-            this.expr();
+            if this.input.nth(1) == T![:] {
+                this.name();
+                this.expect(T![:]);
+            }
+            this.expect_expr();
             this.ate(T![,]);
         });
     }
 
     fn expr(&mut self) {
-        self.expr_rec(0);
+        self.expr_bp(0);
     }
 
-    fn expr_rec(&mut self, min_bp: u8) {
-        let checkpoint = self.builder.checkpoint();
-        self.expr_prefix();
-
-        while self.input.at_any(&[T!['('], T!['[']]) {
-            match self.input.nth(0) {
-                T!['('] => {
-                    self.builder
-                        .start_node_at(checkpoint, Syntax::CALL_EXPR.into());
-                    self.arg_list();
-                }
-                T!['['] => {
-                    self.builder
-                        .start_node_at(checkpoint, Syntax::INDEX_EXPR.into());
-                    self.index();
-                }
-                _ => unreachable!(),
-            }
-            self.builder.finish_node();
+    fn expect_expr(&mut self) -> Option<()> {
+        if self.input.at_any(EXPR_FIRST) {
+            self.expr();
+            Some(())
+        } else {
+            self.advance_with_err(ErrorKind::ExpectedExpression);
+            None
         }
+    }
+
+    fn expr_bp(&mut self, min_bp: u8) {
+        let checkpoint = self.builder.checkpoint();
+
+        match self.input.peek().prefix_bp() {
+            Some(rbp) => {
+                self.with(Syntax::UNARY_EXPR, |this| {
+                    this.expect(this.input.peek());
+                    this.expr_bp(rbp);
+                });
+            }
+            None => {
+                if self.prefix_expr().is_none() {
+                    return;
+                }
+            }
+        };
 
         loop {
-            let op = self.input.nth(0);
-            //TODO: check that op is valid
+            match self.input.peek() {
+                T!["("] => {
+                    self.with_at(Syntax::CALL_EXPR, checkpoint, |this| this.arg_list());
+                }
+                T!["["] => {
+                    self.with_at(Syntax::INDEX_EXPR, checkpoint, |this| this.index());
+                }
+                _ => break,
+            }
+        }
+        loop {
+            let op = self.input.peek();
+
             let Some((left_bp, right_bp)) = self.infix_binding_power(op) else {
                 break;
             };
+
             if left_bp < min_bp {
                 break;
             }
 
             self.expect(op);
-            self.expr_rec(right_bp);
-            self.builder
-                .start_node_at(checkpoint, Syntax::BINARY_EXPR.into());
-            self.builder.finish_node();
+
+            if self.input.at_any(EXPR_FIRST) {
+                self.with_at(BINARY_EXPR, checkpoint, |this| this.expr_bp(right_bp));
+            } else {
+                self.advance_with_err(ErrorKind::ExpectedExpression);
+            }
         }
     }
 
@@ -339,29 +429,39 @@ impl<'a> Parser<'a> {
     }
 
     fn stmt_let(&mut self) {
-        self.with(Syntax::LIT_EXPR, |this| {
+        self.with(Syntax::LET_STMT, |this| {
             this.expect(T![let]);
-            this.expect(T![ident]);
+            this.expect(IDENT);
             this.expect(T![=]);
-            this.expr();
+            this.expect_expr();
             this.expect(T![;]);
         })
     }
 
     fn block(&mut self) {
         self.with(Syntax::BLOCK_EXPR, |this| {
-            this.expect(T!['{']);
-            while !this.input.at_any(&[T!('}'), T!(eof)]) {
+            this.expect(T!["{"]);
+            while !this.input.at(T!["}"]) && !this.input.at(EOF) {
                 match this.input.peek() {
                     T![let] => this.stmt_let(),
                     T![;] => {
                         this.expect(T![;]);
                     }
-                    _ => this.stmt_expr(),
+                    _ => {
+                        if this.input.at_any(EXPR_FIRST) {
+                            this.stmt_expr()
+                        } else {
+                            if this.input.at_any(STMT_EXPR_RECOVERY) {
+                                break;
+                            }
+
+                            this.advance_with_err(ErrorKind::ExpectedStatement);
+                        }
+                    }
                 }
             }
 
-            this.expect(T!['}']);
+            this.expect(T!["}"]);
         });
     }
 }
@@ -377,6 +477,7 @@ pub enum ErrorKind {
     ExpectedIdentifier,
     ExpectedParameter,
     ExpectedPattern,
+    ExpectedItem,
 }
 
 impl fmt::Display for ErrorKind {
@@ -391,6 +492,7 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedExpression => "expected expression",
             Self::ExpectedParameter => "expected parameter",
             Self::ExpectedPattern => "expected pattern",
+            Self::ExpectedItem => "expected item",
         }
         .fmt(f)
     }
@@ -411,6 +513,7 @@ impl ParseError {
 pub(super) struct Input<'a> {
     content: &'a str,
     lexer: Peekable<logos::SpannedIter<'a, Syntax>>,
+    last_token_span: Range<usize>,
     fuel: u32,
 }
 
@@ -420,6 +523,7 @@ impl<'a> Input<'a> {
             content,
             lexer: Syntax::lexer(content).spanned().peekable(),
             fuel: 256,
+            last_token_span: 0..0,
         }
     }
 
@@ -465,16 +569,18 @@ impl<'a> Input<'a> {
         self.peek() == token
     }
 
-    fn at_any(&self, tokens: &[Syntax]) -> bool {
-        tokens.contains(&self.peek())
+    fn at_any(&self, tokens: TokenSet) -> bool {
+        tokens.contains(self.peek())
     }
 
     fn advance(&mut self) -> Range<usize> {
         self.fuel = 256;
-        self.lexer.next().map(|(_, span)| span).unwrap_or_else(|| {
+        let span = self.lexer.next().map(|(_, span)| span).unwrap_or_else(|| {
             let len = self.content.len();
             len..len
-        })
+        });
+        self.last_token_span = span.clone();
+        span
     }
 }
 
@@ -489,5 +595,134 @@ impl rowan::Language for Lang {
 
     fn kind_to_raw(kind: Self::Kind) -> rowan::SyntaxKind {
         kind.into()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rowan::{GreenNode, NodeOrToken, SyntaxToken};
+
+    use crate::parsing::{
+        ast::SyntaxNode,
+        parser::{Lang, ParseError, Parser},
+    };
+
+    fn try_parse(source: &str, f: impl FnOnce(&mut Parser)) -> (SyntaxNode, Vec<ParseError>) {
+        let mut parser = Parser::new(source);
+        f(&mut parser);
+        (SyntaxNode::new_root(parser.builder.finish()), parser.errors)
+    }
+
+    fn parse(source: &str, f: impl FnOnce(&mut Parser)) -> SyntaxNode {
+        let mut parser = Parser::new(source);
+        f(&mut parser);
+        if !parser.errors.is_empty() {
+            panic!("{:?}", parser.errors);
+        }
+        SyntaxNode::new_root(parser.builder.finish())
+    }
+
+    fn children_rec(root: SyntaxNode) -> Vec<String> {
+        fn children_recursive(
+            child: NodeOrToken<SyntaxNode, SyntaxToken<Lang>>,
+            out: &mut Vec<String>,
+        ) {
+            if child.as_token().is_none() {
+                out.push(format!("{:?}: {:?}", child.kind(), child.text_range()));
+            }
+            if let Some(node) = child.as_node() {
+                for child in node.children_with_tokens() {
+                    children_recursive(child, out);
+                }
+            }
+        }
+
+        let mut vec = vec![];
+        children_recursive(NodeOrToken::Node(root), &mut vec);
+        vec
+    }
+
+    macro_rules! assert_children_eq {
+        ($node:expr, [$($syntax:expr ),* $(,)?] ) => {
+            assert_eq!(
+                children_rec($node),
+                vec![
+                    $(
+                        $syntax.to_string()
+                    ),*
+                ]
+            );
+        };
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn func() {
+        assert_children_eq!(
+            parse("fn test(){}", |p| p.file()),
+            ["FILE: 0..11", "FN_ITEM: 0..11", "NAME: 3..7", "PARAM_LIST: 7..9", "BLOCK_EXPR: 9..11"]
+        );
+        assert_children_eq!(
+            parse("fn test(){
+                let x = get();
+            }", |p| p.file()),
+            [
+                "FILE: 0..55",
+                    "FN_ITEM: 0..55",
+                        "NAME: 3..7",
+                        "PARAM_LIST: 7..9",
+                        "BLOCK_EXPR: 9..55",
+                            "LET_STMT: 27..54",
+                                "CALL_EXPR: 35..40",
+                                    "IDENT: 35..38",
+                                    "ARG_LIST: 38..40"
+            ]
+        );
+        assert_children_eq!(
+            parse("fn test(){
+                let x = (1);
+            }", |p| p.file()),
+            [
+                "FILE: 0..53",
+                    "FN_ITEM: 0..53",
+                        "NAME: 3..7",
+                        "PARAM_LIST: 7..9",
+                            "BLOCK_EXPR: 9..53",
+                                "LET_STMT: 27..52",
+                                    "PAREN_EXPR: 35..38",
+                                        "LIT_EXPR: 36..37"
+            ]
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn expr() {
+        assert_children_eq!(
+            parse("1 + 2", |p| p.expr()),
+            ["BINARY_EXPR: 0..5", "LIT_EXPR: 0..2", "LIT_EXPR: 4..5"]
+        );
+        assert_children_eq!(
+            parse("1 + -2 * 3", |p| p.expr()),
+            [
+                "BINARY_EXPR: 0..10",
+                    "LIT_EXPR: 0..2",
+                    "BINARY_EXPR: 4..10",
+                        "UNARY_EXPR: 4..7",
+                            "LIT_EXPR: 5..7",
+                        "LIT_EXPR: 9..10"
+            ]
+        );
+        assert_children_eq!(
+            parse("a()", |p| p.expr()),
+            [
+                "BINARY_EXPR: 0..10",
+                    "LIT_EXPR: 0..2",
+                    "BINARY_EXPR: 4..10",
+                        "UNARY_EXPR: 4..7",
+                            "LIT_EXPR: 5..7",
+                        "LIT_EXPR: 9..10"
+            ]
+        );
     }
 }

@@ -1,6 +1,5 @@
+use lopa_core::ide::base::VfsPath;
 use tower_lsp_server::ls_types::Uri;
-
-use crate::vfs::{Vfs, VfsPath};
 
 pub trait UrlExt {
     fn to_vfs_path(&self) -> Option<VfsPath>;

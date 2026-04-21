@@ -1,92 +1,92 @@
 use std::{
-    fmt::Display,
-    ops::Range,
-    path::PathBuf,
+    collections::HashMap,
     sync::{Arc, RwLock},
 };
 
 use bimap::BiMap;
-use slotmap::SlotMap;
+use lopa_core::ide::{File, FileContent, TextRange, base::VfsPath};
 use tower_lsp_server::ls_types::Uri;
 
-use crate::{base::FileContent, uri_ext::UrlExt as _};
-
-slotmap::new_key_type! { pub struct FileId; }
-
-#[derive(Clone, Hash, PartialEq, Eq)]
-pub struct VfsPath(pub String);
+use crate::uri_ext::UrlExt as _;
 
 //Maps between filesystem paths and `FileId`s, store file contents
 pub struct Vfs {
-    contents: SlotMap<FileId, Arc<RwLock<FileContent>>>,
-    files: BiMap<FileId, VfsPath>,
+    contents: HashMap<File, Arc<RwLock<FileContent>>>,
+    files: BiMap<File, VfsPath>,
 }
 
 impl Vfs {
     pub fn new() -> Self {
         Self {
-            contents: SlotMap::with_key(),
+            contents: HashMap::new(),
             files: BiMap::new(),
         }
     }
 
-    pub fn file_by_url(&self, url: &Uri) -> Option<FileId> {
+    pub fn file_by_uri(&self, url: &Uri) -> Option<File> {
         self.file_by_path(&url.to_vfs_path()?)
     }
 
-    pub fn url_for_file(&self, file: FileId) -> Uri {
+    pub fn url_for_file(&self, file: File) -> Uri {
         Uri::from_vfs_path(self.path_by_file(file))
     }
 
-    pub fn file_by_path(&self, path: &VfsPath) -> Option<FileId> {
+    pub fn file_by_path(&self, path: &VfsPath) -> Option<File> {
         self.files.get_by_right(path).copied()
     }
 
-    pub fn path_by_file(&self, file: FileId) -> &VfsPath {
+    pub fn path_by_file(&self, file: File) -> &VfsPath {
         self.files.get_by_left(&file).unwrap()
     }
 
-    pub fn content_by_file(&self, file: FileId) -> Arc<RwLock<FileContent>> {
-        self.contents[file].clone()
+    pub fn content_by_file(&self, file: File) -> Arc<RwLock<FileContent>> {
+        self.contents[&file].clone()
     }
 
-    pub fn set_path_content(&mut self, path: VfsPath, content: String) -> FileId {
+    pub fn insert_file(
+        &mut self,
+        path: VfsPath,
+        content: String,
+        db: &dyn salsa::Database,
+    ) -> File {
+        let file = File::new(db, Arc::new(FileContent::new(content).into()));
+        self.files.insert(file, path);
+        self.contents.insert(file, file.contents(db).clone());
+        file
+    }
+
+    pub fn set_path_content(&mut self, path: VfsPath, content: String) -> File {
         match self.file_by_path(&path) {
             Some(file) => {
-                let mut contents = self.contents[file].write().unwrap();
+                let mut contents = self.contents[&file].write().unwrap();
                 let len = contents.as_str().len();
                 contents.replace(0..len, &content);
                 file
             }
             None => {
-                let file = self
-                    .contents
-                    .insert(Arc::new(FileContent::new(content).into()));
-                self.files.insert(file, path);
-                file
+                panic!("use insert_file first");
             }
         }
     }
 
-    pub fn change_file_content(
-        &mut self,
-        file: FileId,
-        new_text: &str,
-        range: Option<Range<usize>>,
-    ) {
-        let mut content = self.contents[file].write().unwrap();
+    pub fn change_file_content(&mut self, file: File, new_text: &str, range: Option<TextRange>) {
+        let mut content = self.contents[&file].write().unwrap();
         let len = content.as_str().len();
         match range {
             Some(range) => {
-                content.replace(range, new_text);
+                content.replace(
+                    Into::<u32>::into(range.start()) as usize
+                        ..Into::<u32>::into(range.end()) as usize,
+                    new_text,
+                );
             }
             None => content.replace(0..len, new_text),
         }
     }
 
     pub fn remove_uri(&mut self, url: &Uri) -> Option<()> {
-        let file = self.file_by_url(url)?;
-        self.contents.remove(file);
+        let file = self.file_by_uri(url)?;
+        self.contents.remove(&file);
         self.files.remove_by_left(&file);
         Some(())
     }

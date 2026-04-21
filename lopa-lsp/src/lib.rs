@@ -1,16 +1,18 @@
 pub mod base;
 pub mod convert;
+pub mod handler;
 pub mod uri_ext;
 pub mod vfs;
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use dashmap::DashMap;
+use lopa_core::ide::{Analysis, File};
 use notify_rust::Notification;
+use tokio::task;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
-use tower_lsp_server::{Client, LanguageServer, LspService, Server};
+use tower_lsp_server::{Client, LanguageServer};
 
 use crate::uri_ext::UrlExt as _;
 use crate::vfs::Vfs;
@@ -18,6 +20,7 @@ use crate::vfs::Vfs;
 pub struct Settings {}
 
 pub struct Backend {
+    pub analysis: Arc<Mutex<Analysis>>,
     pub client: Client,
     pub vfs: Arc<RwLock<Vfs>>,
     pub opened_files: DashMap<Uri, FileData>,
@@ -117,39 +120,28 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let mut vfs = self.vfs.write().unwrap();
         let uri = params.text_document.uri;
-        vfs.set_path_content(uri.to_vfs_path().unwrap(), params.text_document.text);
+        vfs.insert_file(
+            uri.to_vfs_path().unwrap(),
+            params.text_document.text,
+            &self.analysis.lock().unwrap().db,
+        );
         self.opened_files.insert(uri, FileData {});
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let (diagnostics, uri) = {
+        {
             let mut vfs = self.vfs.write().unwrap();
-            let uri = params.text_document.uri;
-            let Some(file) = vfs.file_by_url(&uri) else {
+            let uri = &params.text_document.uri;
+            let Some(file) = vfs.file_by_uri(uri) else {
                 return;
             };
             for change in params.content_changes.iter() {
                 let range = change.range.map(|r| convert::from_range(&vfs, file, r));
                 vfs.change_file_content(file, &change.text, range);
             }
-
-            let content = vfs.content_by_file(file);
-            let len = {
-                let content = content.read().unwrap();
-                content.len()
-            };
-            let range = convert::to_range(&vfs, file, 0..(len-1));
-            let diagnostics = vec![Diagnostic {
-                range,
-                message: content.read().unwrap().as_str().to_string().replace("\n", "\\n"),
-                ..Default::default()
-            }];
-            (diagnostics, uri)
-        };
-
-        self.client
-            .publish_diagnostics(uri, diagnostics, None)
-            .await;
+            self.analysis.lock().unwrap().apply_change(file);
+        }
+        self.spawn_update_diagnostics(params.text_document.uri);
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {}
@@ -193,4 +185,31 @@ impl LanguageServer for Backend {
             range: None,
         }))
     }
+}
+
+impl Backend {
+    fn spawn_update_diagnostics(&self, uri: Uri) {
+        let (analysis, vfs) = (self.analysis.clone(), self.vfs.clone());
+        let uri_clone = uri.clone();
+        let task = task::spawn_blocking(move || {
+            let state = State { analysis, vfs };
+            handler::diagnostics(state, &uri_clone)
+        });
+        //TODO: termiante previous diagnostics if present (see opened_files)
+        task::spawn({
+            let client = self.client.clone();
+            async move {
+                if let Ok(diagnostics) = task.await {
+                    client.publish_diagnostics(uri, diagnostics, None).await;
+                } else {
+                    //task cancelled, do nothing
+                }
+            }
+        });
+    }
+}
+
+pub struct State {
+    pub analysis: Arc<Mutex<Analysis>>,
+    pub vfs: Arc<RwLock<Vfs>>,
 }

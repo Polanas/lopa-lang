@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock};
 
+use lopa_core::ide::Analysis;
 use lopa_lsp::{
     Backend,
     vfs::{self, Vfs},
@@ -18,6 +19,7 @@ async fn main() {
         client,
         vfs: Arc::new(RwLock::new(Vfs::new())),
         opened_files: Default::default(),
+        analysis: Arc::new(Analysis::default().into()),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

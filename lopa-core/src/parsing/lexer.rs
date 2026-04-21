@@ -57,39 +57,71 @@ macro_rules! to_str {
 
 #[macro_export]
 macro_rules! T {
-    ['('] => { super::lexer::Syntax::L_PAREN };
-    [')'] => { super::lexer::Syntax::R_PAREN };
-    ['{'] => { super::lexer::Syntax::L_BRACE};
-    ['}'] => { super::lexer::Syntax::R_BRACE};
-    ['['] => { super::lexer::Syntax::L_BRACKET};
-    [']'] => { super::lexer::Syntax::R_BRACKET};
-    [' '] => { super::lexer::Syntax::WHITESPACE};
+    ["("] => { super::lexer::Syntax::L_PAREN };
+    [")"] => { super::lexer::Syntax::R_PAREN };
+    ["{"] => { super::lexer::Syntax::L_BRACE};
+    ["}"] => { super::lexer::Syntax::R_BRACE};
+    ["["] => { super::lexer::Syntax::L_BRACKET};
+    ["]"] => { super::lexer::Syntax::R_BRACKET};
+    [" "] => { super::lexer::Syntax::WHITESPACE};
     [|] => { super::lexer::Syntax::BAR};
+    [|=] => { super::lexer::Syntax::BAR_EQ};
     [=] => { super::lexer::Syntax::EQ};
+    [==] => { super::lexer::Syntax::EQ2};
+    [!=] => { super::lexer::Syntax::NOT_EQ};
+    [>] => { super::lexer::Syntax::GT};
+    [<] => { super::lexer::Syntax::LT};
+    [<=] => { super::lexer::Syntax::LESS_EQ};
+    [>=] => { super::lexer::Syntax::GREATER_EQ};
     [,] => { super::lexer::Syntax::COMMA};
+    [!] => { super::lexer::Syntax::BANG};
     [;] => { super::lexer::Syntax::SEMI};
     [:] => { super::lexer::Syntax::COLON};
     [.] => { super::lexer::Syntax::DOT};
     [+] => { super::lexer::Syntax::PLUS};
+    [+=] => { super::lexer::Syntax::PLUS_EQ};
     [-] => { super::lexer::Syntax::MINUS};
+    [-=] => { super::lexer::Syntax::MINUS_EQ};
     [/] => { super::lexer::Syntax::SLASH};
+    [/=] => { super::lexer::Syntax::SLASH_EQ};
+    ["//"] => { super::lexer::Syntax::SLASH2};
+    ["//="] => { super::lexer::Syntax::SLASH2_EQ};
     [*] => { super::lexer::Syntax::STAR};
+    [*=] => { super::lexer::Syntax::STAR_EQ};
+    [%] => { super::lexer::Syntax::PERCENT};
+    [%=] => { super::lexer::Syntax::PERCENT_EQ};
     [->] => { super::lexer::Syntax::ARROW};
     [fn] => { super::lexer::Syntax::FN_KW};
     [let] => { super::lexer::Syntax::LET_KW};
-    [ident] => { super::lexer::Syntax::IDENT};
     [nil] => { super::lexer::Syntax::NIL_KW};
     [true] => { super::lexer::Syntax::TRUE_KW};
     [false] => { super::lexer::Syntax::FALSE_KW};
+    [and] => { super::lexer::Syntax::AND_KW};
+    [or] => { super::lexer::Syntax::OR_KW};
     [return] => { super::lexer::Syntax::RETURN_KW};
-    [int] => { super::lexer::Syntax::INT};
-    [float] => { super::lexer::Syntax::FLOAT};
-    [eof] => { super::lexer::Syntax::EOF };
+    [if] => { super::lexer::Syntax::IF_KW};
+    [else] => { super::lexer::Syntax::ELSE_KW};
+    [for] => { super::lexer::Syntax::FOR_KW};
+    [continue] => { super::lexer::Syntax::CONTINUE_KW};
+    [break] => { super::lexer::Syntax::BREAK_KW};
+    [while] => { super::lexer::Syntax::WHILE_KW};
+    [loop] => { super::lexer::Syntax::LOOP_KW};
+    [in] => { super::lexer::Syntax::IN_KW};
+    [struct] => { super::lexer::Syntax::STRUCT_KW};
+    [enum] => { super::lexer::Syntax::ENUM_KW};
+    [impl] => { super::lexer::Syntax::IMPL_KW};
+    [match] => { super::lexer::Syntax::MATCH_KW};
+    [self] => { super::lexer::Syntax::SELF_KW};
+    [Self] => { super::lexer::Syntax::SELF_TYPE_KW};
+    [const] => { super::lexer::Syntax::CONST_KW};
+    [static] => { super::lexer::Syntax::STATIC_KW};
 }
 
 def! {
     #[regex(r"([ \t\n])+")]
     WHITESPACE @WHITESPACE_FIRST,
+    #[regex(r"--[^\n\r]*?")]
+    COMMENT @WHITESPACE_LAST,
 
     #[regex(r"[_]?[A-Za-z_][0-9A-Za-z_]*")]
     IDENT,
@@ -114,20 +146,52 @@ def! {
     R_BRACE = ["{"],
     #[token("|")]
     BAR = ["|"],
+    #[token("|=")]
+    BAR_EQ = ["|="],
     #[token("=")]
     EQ = ["="],
+    #[token("==")]
+    EQ2 = ["=="],
+    #[token("<")]
+    LT,
+    #[token(">")]
+    GT,
+    #[token("<=")]
+    LESS_EQ,
+    #[token(">=")]
+    GREATER_EQ,
+    #[token("!=")]
+    NOT_EQ = ["!="],
     #[token(",")]
     COMMA = [","],
+    #[token("!")]
+    BANG = ["!"],
     #[token(".")]
     DOT = ["."],
     #[token("+")]
     PLUS = ["+"],
+    #[token("+=")]
+    PLUS_EQ = ["+="],
     #[token("-")]
     MINUS = ["-"],
+    #[token("-=")]
+    MINUS_EQ = ["-="],
     #[token("/")]
-    SLASH = ["/"],
+    SLASH = ["/="],
+    #[token("/=")]
+    SLASH_EQ = ["/"],
+    #[token("//")]
+    SLASH2 = ["//"],
+    #[token("//=")]
+    SLASH2_EQ = ["//="],
     #[token("*")]
     STAR = ["*"],
+    #[token("*=")]
+    STAR_EQ = ["*="],
+    #[token("%")]
+    PERCENT = ["%"],
+    #[token("%=")]
+    PERCENT_EQ = ["%="],
     #[token(";")]
     SEMI = [";"],
     #[token(":")]
@@ -141,10 +205,46 @@ def! {
     TRUE_KW,
     #[token("false")]
     FALSE_KW,
+    #[token("and")]
+    AND_KW,
+    #[token("or")]
+    OR_KW,
     #[token("nil")]
     NIL_KW,
     #[token("return")]
     RETURN_KW,
+    #[token("if")]
+    IF_KW,
+    #[token("else")]
+    ELSE_KW,
+    #[token("for")]
+    FOR_KW,
+    #[token("continue")]
+    CONTINUE_KW,
+    #[token("break")]
+    BREAK_KW,
+    #[token("while")]
+    WHILE_KW,
+    #[token("loop")]
+    LOOP_KW,
+    #[token("in")]
+    IN_KW,
+    #[token("struct")]
+    STRUCT_KW,
+    #[token("enum")]
+    ENUM_KW,
+    #[token("impl")]
+    IMPL_KW,
+    #[token("match")]
+    MATCH_KW,
+    #[token("self")]
+    SELF_KW,
+    #[token("Self")]
+    SELF_TYPE_KW,
+    #[token("const")]
+    CONST_KW,
+    #[token("static")]
+    STATIC_KW,
     #[token("fn")]
     FN_KW @KEYWORD_LAST,
 
@@ -155,6 +255,7 @@ def! {
 
     FN_ITEM,
 
+    NAME,
     ARG,
     ARG_LIST,
     PARAM_LIST,
@@ -173,6 +274,41 @@ def! {
     RETURN_EXPR,
     BLOCK_EXPR,
     BINARY_EXPR,
+    UNARY_EXPR,
+}
+
+impl Syntax {
+    pub fn prefix_bp(self) -> Option<u8> {
+        Some(match self {
+            T![!] => 17,
+            T![-] => 18,
+            _ => return None,
+        })
+    }
+
+    pub fn infix_bp(self) -> Option<(u8, u8)> {
+        Some(match self {
+            T![or] => (1, 2),
+            T![and] => (3, 4),
+            T![==] | T![!=] => (5, 6),
+            T![<] | T![<=] | T![>] | T![>=] => (7, 8),
+            T![+] | T![-] => (9, 10),
+            T![*] | T![/] | T![%] => (11, 12),
+            _ => return None,
+        })
+    }
+
+    pub fn is_whitespace(self) -> bool {
+        (Self::WHITESPACE_FIRST as u16..=Self::WHITESPACE_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_keyword(self) -> bool {
+        (Self::KEYWORD_FIRST as u16..=Self::KEYWORD_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_symbol(self) -> bool {
+        (Self::SYMBOL_FIRST as u16..=Self::SYMBOL_LAST as u16).contains(&(self as u16))
+    }
 }
 
 fn lex_string(lex: &mut logos::Lexer<Syntax>) -> bool {
@@ -189,69 +325,6 @@ fn lex_string(lex: &mut logos::Lexer<Syntax>) -> bool {
     }
     false
 }
-
-// #[allow(non_camel_case_types)]
-// #[derive(Logos, Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Hash)]
-// #[repr(u16)]
-// pub enum Syntax {
-//     #[token("(")]
-//     LeftParen,
-//     #[token(")")]
-//     RightParen,
-//     #[token("[")]
-//     LeftBracket,
-//     #[token("]")]
-//     RightBracket,
-//     #[token("{")]
-//     LeftBrace,
-//     #[token("}")]
-//     RightBrace,
-//     #[token("|")]
-//     Bar,
-//     #[token("=")]
-//     Eq,
-//     #[token(",")]
-//     Comma,
-//     #[token(".")]
-//     Dot,
-//     #[token("+")]
-//     Plus,
-//     #[token("-")]
-//     Minus,
-//     #[token("/")]
-//     Slash,
-//     #[token("*")]
-//     Star,
-//     #[token(";")]
-//     Semi,
-//     #[token(":")]
-//     Colon,
-//     #[token("let")]
-//     Let_KW,
-//     #[token("true")]
-//     True_KW,
-//     #[token("false")]
-//     False_KW,
-//     #[token("nil")]
-//     Nil_KW,
-//     #[token("return")]
-//     Return_KW,
-//     #[token("fn")]
-//     Fn_KW,
-//     #[token("->")]
-//     Arrow,
-//     #[regex(r"[_]?[A-Za-z_][0-9A-Za-z_]*")]
-//     Ident,
-//     #[regex(r"[\d][\d|_]*")]
-//     Int,
-//     #[regex(r"[\d][\d|_]*\.[\d]+")]
-//     Flo
-//     #[regex(r"\s+")]
-//     Whitespaces,
-//     Error,
-//     #[end]
-//     EndOfFile,
-// }
 
 impl From<Syntax> for rowan::SyntaxKind {
     fn from(value: Syntax) -> Self {
@@ -286,6 +359,24 @@ mod test {
                 Syntax::INT,
                 Syntax::SEMI,
                 Syntax::R_BRACE,
+            ]
+        );
+    }
+
+    #[test]
+    fn comment() {
+        let lex = Syntax::lexer("--hello there\nlet x = 1")
+            .map(|t| t.unwrap())
+            .filter(|t| *t != Syntax::WHITESPACE)
+            .collect_vec();
+        assert_eq!(
+            lex.as_slice(),
+            &[
+                Syntax::COMMENT,
+                Syntax::LET_KW,
+                Syntax::IDENT,
+                Syntax::EQ,
+                Syntax::INT
             ]
         );
     }
