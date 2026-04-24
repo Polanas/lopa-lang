@@ -1,7 +1,7 @@
 pub mod lower;
 pub mod module;
 
-use crate::parsing::ast::{BinaryOpKind, LiteralKind, SyntaxNodePtr};
+use crate::parsing::ast::{BinaryOpKind, LiteralKind, SyntaxNodePtr, UnaryOpKind};
 use paste::paste;
 
 macro_rules! structs {
@@ -72,24 +72,29 @@ pub enum Primitive {
 }
 
 structs! {
-    Ident {
-        value: String,
+    File {
+        items: Vec<Item>,
     },
     FnItem {
-        name: Ident,
+        name: Name,
         params: Vec<FnParam>,
         output: ReturnType,
         body: BlockExpr,
     },
     FnParam {
-        ident: Option<Ident>,
+        name: Option<Ident>,
         ty: TypeExpr,
         default_value: Option<Expr>,
     },
     ReturnType {
         value: Option<TypeExpr>,
     },
-    StmtExpr {
+    ExprStmt {
+        expr: Expr,
+    },
+    LetStmt {
+        ident: Ident,
+        ty: TypeExpr,
         expr: Expr,
     },
     NilableType {
@@ -99,9 +104,27 @@ structs! {
     LitType {
         kind: LiteralKind,
     },
-
-    LitExpr {
-        kind: LiteralKind,
+    UnaryExpr {
+        expr: Box<Expr>,
+        kind: UnaryOpKind,
+    },
+    ReturnExpr {
+        expr: Box<Expr>,
+    },
+    IndexExpr {
+        base: Box<Expr>,
+        index: Box<Expr>,
+    },
+    Arg {
+        name: Option<Name>,
+        value: Expr,
+    },
+    CallExpr {
+        func: Box<Expr>,
+        args: Vec<Arg>,
+    },
+    ParenExpr {
+        expr: Box<Expr>,
     },
     BinaryExpr {
         left: Box<Expr>,
@@ -110,27 +133,41 @@ structs! {
     },
     BlockExpr {
         stmts: Vec<Stmt>,
-    }
+    },
+    LitExpr {
+        kind: LiteralKind,
+    },
+    Name {
+        value: Ident,
+    },
+    Ident {
+        value: String,
+    },
 }
 
 enums! {
     Item {
         FnItem,
     },
-    TypeExpr {
-        NilableType,
-        AnyType,
-        LitType,
-    },
-
     Stmt {
-        StmtExpr,
+        LetStmt,
+        ExprStmt,
     },
     Expr {
         LitExpr,
         BinaryExpr,
+        UnaryExpr,
         BlockExpr,
-    }
+        IndexExpr,
+        CallExpr,
+        ParenExpr,
+    },
+    TypeExpr {
+        Ident,
+        NilableType,
+        LitType,
+        AnyType,
+    },
 }
 
 pub trait WithNodePtr {

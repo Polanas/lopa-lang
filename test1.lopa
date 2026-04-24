@@ -1,2 +1,7 @@
-fn test() {
+fn test2() {
+  let x = "";
 }
+
+
+
+

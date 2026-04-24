@@ -266,9 +266,25 @@ impl<'a> Parser<'a> {
     }
 
     fn type_expr(&mut self) {
-        self.with(Syntax::TYPE_EXPR, |this| {
-            this.expect(IDENT);
-        });
+        #[allow(clippy::match_single_binding)]
+        match self.input.peek() {
+            _ => {
+                let checkpoint = self.builder.checkpoint();
+
+                let next_span = self.input.nth_span(0);
+                self.expect(IDENT);
+                match &self.input.content[next_span] {
+                    "int" | "float" | "string" | "bool" => {
+                        self.with_at(Syntax::LIT_TYPE, checkpoint, |_| {})
+                    }
+                    "any" => self.with_at(Syntax::ANY_TYPE, checkpoint, |_| {}),
+                    _ => {}
+                }
+                if self.ate(T![?]) {
+                    self.with_at(Syntax::NILABLE_TYPE, checkpoint, |_| {});
+                }
+            }
+        }
     }
 
     fn stmt_expr(&mut self) {
@@ -660,7 +676,26 @@ mod test {
     fn func() {
         assert_children_eq!(
             parse("fn test(){}", |p| p.file()),
-            ["FILE: 0..11", "FN_ITEM: 0..11", "NAME: 3..7", "PARAM_LIST: 7..9", "BLOCK_EXPR: 9..11"]
+            [
+                "FILE: 0..11",
+                    "FN_ITEM: 0..11",
+                        "NAME: 3..7",
+                        "PARAM_LIST: 7..9",
+                        "BLOCK_EXPR: 9..11"
+            ]
+        );
+        assert_children_eq!(
+            parse("fn test()->int?{}", |p| p.file()),
+            [
+                    "FILE: 0..17",
+                        "FN_ITEM: 0..17",
+                            "NAME: 3..7",
+                            "PARAM_LIST: 7..9",
+                            "RETURN_TYPE: 9..15",
+                                "NILABLE_TYPE: 11..15",
+                                    "LIT_TYPE: 11..14",
+                            "BLOCK_EXPR: 15..17"
+            ]
         );
         assert_children_eq!(
             parse("fn test(){
@@ -716,12 +751,9 @@ mod test {
         assert_children_eq!(
             parse("a()", |p| p.expr()),
             [
-                "BINARY_EXPR: 0..10",
-                    "LIT_EXPR: 0..2",
-                    "BINARY_EXPR: 4..10",
-                        "UNARY_EXPR: 4..7",
-                            "LIT_EXPR: 5..7",
-                        "LIT_EXPR: 9..10"
+                "CALL_EXPR: 0..3",
+                    "IDENT: 0..1",
+                    "ARG_LIST: 1..3"
             ]
         );
     }

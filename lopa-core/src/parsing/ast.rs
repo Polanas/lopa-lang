@@ -3,6 +3,7 @@ use crate::T;
 use rowan::NodeOrToken;
 use rowan::ast::support::{child, children, token};
 use rowan::ast::{AstChildren, AstNode};
+use ustr::Ustr;
 
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
 pub type SyntaxToken = rowan::SyntaxToken<parser::Lang>;
@@ -137,12 +138,78 @@ macro_rules! enums {
         )*
     };
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiteralKind {
+    Int,
+    Float,
+    String,
+    Bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum BinaryOpKind {
+    Add,
+    Mul,
+    Div,
+    DivInt,
+    Rem,
+    Or,
+    Shl,
+    Shr,
+    BitXor,
+    BitAnd,
+    Sub,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+    NotEqual,
+    Equal,
+    And,
+    BitOr,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    DivIntAssign,
+    RemAssign,
+    BitXorAssign,
+    BitAndAssign,
+    BitOrAssign,
+    ShlAssign,
+    ShrAssign,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum UnaryOpKind {
+    Not,
+    Neg,
+}
+
 structs! {
     FILE = File {
         items: [Item],
     },
     FN_ITEM = FnItem {
-
+        fn_token: T![fn],
+        name: Name,
+        params: ParamList,
+        output: ReturnType,
+        body: BlockExpr,
+    },
+    RETURN_TYPE = ReturnType {
+        arrow_token: T![->],
+        ty: TypeExpr,
+    },
+    PARAM_LIST = ParamList {
+        params: [Param],
+    },
+    PARAM = Param {
+        name: Name,
+        colon_token: T![:],
+        ty: TypeExpr,
+        default_value: Expr,
     },
     EXPR_STMT = ExprStmt {
         expr: Expr,
@@ -153,6 +220,16 @@ structs! {
         expr: Expr,
 
         eq_token: T![=],
+    },
+    NILABLE_TYPE = NilableType {
+        mark_token: T![?],
+        ty: TypeExpr,
+    },
+    ANY_TYPE = AnyType {
+        ty: TypeExpr,
+    },
+    LIT_TYPE = LitType {
+        ty: TypeExpr,
     },
     UNARY_EXPR = UnaryExpr {
         expr: Expr,
@@ -229,18 +306,38 @@ structs! {
             })
         }
     },
+    RETURN_EXPR = ReturnExpr {
+        expr: Expr,
+    },
+    INDEX_EXPR = IndexExpr {
+        base: Expr,
+        index[1]: Expr,
+    },
+    ARG_LIST = ArgList {
+        args: [Arg],
+    },
+    ARG = Arg {
+        name: Name,
+        colon_token: T![:],
+        value: Expr,
+    },
     CALL_EXPR = CallExpr {
-
+        func: Expr,
+        args: ArgList,
     },
     PAREN_EXPR = ParenExpr {
         expr: Expr,
     },
-    BLOCK_EXPR = Block {
-        exprs: [ExprStmt],
+    BLOCK_EXPR = BlockExpr {
+        exprs: [Stmt],
     },
-    LIT_EXPR = LiteralExpr {
+    LIT_EXPR = LitExpr {
         pub fn token(&self) -> Option<SyntaxToken> {
             self.0.children_with_tokens().find_map(NodeOrToken::into_token)
+        }
+
+        pub fn text(&self) -> Option<Ustr> {
+            self.token().map(|t| t.text().into())
         }
 
         pub fn kind(&self) -> Option<LiteralKind> {
@@ -252,9 +349,20 @@ structs! {
             })
         }
     },
+    NAME = Name {
+        ident: Ident,
+
+        pub fn text(&self) -> Option<Ustr> {
+            self.ident().and_then(|i| i.text())
+        }
+    },
     IDENT = Ident {
         pub fn token(&self) -> Option<SyntaxToken> {
             self.0.children_with_tokens().find_map(NodeOrToken::into_token)
+        }
+
+        pub fn text(&self) -> Option<Ustr> {
+            self.token().map(|t| t.text().into())
         }
     },
 }
@@ -268,218 +376,18 @@ enums! {
         ExprStmt,
     },
     Expr {
-        LiteralExpr,
+        LitExpr,
+        BinaryExpr,
+        UnaryExpr,
+        BlockExpr,
+        IndexExpr,
+        CallExpr,
+        ParenExpr,
     },
     TypeExpr {
         Ident,
+        NilableType,
+        LitType,
+        AnyType,
     },
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LiteralKind {
-    Int,
-    Float,
-    String,
-    Bool,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum BinaryOpKind {
-    Add,
-    Mul,
-    Div,
-    DivInt,
-    Rem,
-    Or,
-    Shl,
-    Shr,
-    BitXor,
-    BitAnd,
-    Sub,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-    NotEqual,
-    Equal,
-    And,
-    BitOr,
-    AddAssign,
-    SubAssign,
-    MulAssign,
-    DivAssign,
-    DivIntAssign,
-    RemAssign,
-    BitXorAssign,
-    BitAndAssign,
-    BitOrAssign,
-    ShlAssign,
-    ShrAssign,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum UnaryOpKind {
-    Not,
-    Neg,
-}
-
-macro_rules! impl_ast_node {
-    ($type:ident, $name:ident) => {
-        impl AstNode for $type {
-            type Language = parser::Lang;
-
-            fn can_cast(kind: <Self::Language as rowan::Language>::Kind) -> bool
-            where
-                Self: Sized,
-            {
-                kind == Syntax::$name
-            }
-
-            fn cast(syntax: SyntaxNode) -> Option<Self>
-            where
-                Self: Sized,
-            {
-                Self::can_cast(syntax.kind()).then(|| Self { syntax })
-            }
-
-            fn syntax(&self) -> &SyntaxNode {
-                &self.syntax
-            }
-        }
-    };
-}
-
-// macro_rules! def_ast_node {
-//     ($name:ident) => {
-//         #[derive(Debug, Clone, PartialEq, Eq)]
-//         pub struct $name {
-//             pub syntax: SyntaxNode,
-//         }
-//     };
-// }
-//
-// macro_rules! def_impl_ast_node {
-//     ($type:ident, $name:ident) => {
-//         def_ast_node!($type);
-//         impl_ast_node!($type, $name);
-//     };
-// }
-//
-// def_impl_ast_node!(FnItem, FN_ITEM);
-// def_impl_ast_node!(ParamList, PARAM_LIST);
-// def_impl_ast_node!(Param, PARAM);
-// impl FnItem {
-//     pub fn params(&self) -> impl Iterator<Item = Param> {
-//         self.syntax.children().filter_map(Param::cast)
-//     }
-//     pub fn param_list(&self) -> Option<ParamList> {
-//         self.syntax.children().find_map(ParamList::cast)
-//     }
-//     pub fn body(&self) -> Option<BlockExpr> {
-//         self.syntax.children().find_map(BlockExpr::cast)
-//     }
-// }
-//
-// def_ast_node!(LiteralExpr);
-// def_ast_node!(ParenExpr);
-// def_ast_node!(CallExpr);
-// def_ast_node!(IndexExpr);
-// def_ast_node!(ReturnExpr);
-// def_impl_ast_node!(BlockExpr, BLOCK_EXPR);
-// def_ast_node!(BinaryExpr);
-//
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub enum Expr {
-//     Literal(LiteralExpr),
-//     Paren(ParenExpr),
-//     Call(CallExpr),
-//     Index(IndexExpr),
-//     Return(ReturnExpr),
-//     Block(BlockExpr),
-//     Binary(BinaryExpr),
-// }
-//
-// impl AstNode for Expr {
-//     type Language = parser::Lang;
-//
-//     fn can_cast(kind: <Self::Language as rowan::Language>::Kind) -> bool
-//     where
-//         Self: Sized,
-//     {
-//         matches!(
-//             kind,
-//             Syntax::LIT_EXPR
-//                 | Syntax::PAREN_EXPR
-//                 | Syntax::CALL_EXPR
-//                 | Syntax::INDEX_EXPR
-//                 | Syntax::RETURN_EXPR
-//                 | Syntax::BLOCK_EXPR
-//                 | Syntax::BINARY_EXPR
-//         )
-//     }
-//
-//     fn cast(syntax: SyntaxNode) -> Option<Self>
-//     where
-//         Self: Sized,
-//     {
-//         Some(match syntax.kind() {
-//             Syntax::LIT_EXPR => Self::Literal(LiteralExpr { syntax }),
-//             Syntax::PAREN_EXPR => Self::Paren(ParenExpr { syntax }),
-//             Syntax::CALL_EXPR => Self::Call(CallExpr { syntax }),
-//             Syntax::INDEX_EXPR => Self::Index(IndexExpr { syntax }),
-//             Syntax::RETURN_EXPR => Self::Return(ReturnExpr { syntax }),
-//             Syntax::BLOCK_EXPR => Self::Block(BlockExpr { syntax }),
-//             Syntax::BINARY_EXPR => Self::Binary(BinaryExpr { syntax }),
-//             _ => return None,
-//         })
-//     }
-//
-//     fn syntax(&self) -> &SyntaxNode {
-//         match self {
-//             Expr::Literal(expr) => &expr.syntax,
-//             Expr::Paren(expr) => &expr.syntax,
-//             Expr::Call(expr) => &expr.syntax,
-//             Expr::Index(expr) => &expr.syntax,
-//             Expr::Return(expr) => &expr.syntax,
-//             Expr::Block(expr) => &expr.syntax,
-//             Expr::Binary(expr) => &expr.syntax,
-//         }
-//     }
-// }
-//
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub enum Item {
-//     Fn(FnItem),
-// }
-//
-// impl AstNode for Item {
-//     type Language = parser::Lang;
-//
-//     fn can_cast(kind: <Self::Language as rowan::Language>::Kind) -> bool
-//     where
-//         Self: Sized,
-//     {
-//         matches!(kind, Syntax::FN_ITEM)
-//     }
-//
-//     fn cast(syntax: SyntaxNode) -> Option<Self>
-//     where
-//         Self: Sized,
-//     {
-//         Some(match syntax.kind() {
-//             Syntax::FN_ITEM => Self::Fn(FnItem { syntax }),
-//             _ => return None,
-//         })
-//     }
-//
-//     fn syntax(&self) -> &SyntaxNode {
-//         todo!()
-//     }
-// }
-//
-// def_impl_ast_node!(File, FILE);
-// impl File {
-//     pub fn items(&self) -> impl Iterator<Item = Item> {
-//         self.syntax.children().filter_map(Item::cast)
-//     }
-// }

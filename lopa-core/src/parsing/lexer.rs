@@ -64,6 +64,7 @@ macro_rules! T {
     ["["] => { super::lexer::Syntax::L_BRACKET};
     ["]"] => { super::lexer::Syntax::R_BRACKET};
     [" "] => { super::lexer::Syntax::WHITESPACE};
+    [?] => { super::lexer::Syntax::MARK};
     [|] => { super::lexer::Syntax::BAR};
     [|=] => { super::lexer::Syntax::BAR_EQ};
     [=] => { super::lexer::Syntax::EQ};
@@ -196,6 +197,8 @@ def! {
     SEMI = [";"],
     #[token(":")]
     COLON = [":"],
+    #[token("?")]
+    MARK = ["?"],
     #[token("->")]
     ARROW = ["->"] @SYMBOL_LAST,
 
@@ -265,7 +268,10 @@ def! {
     LET_STMT,
     EXPR_STMT,
 
-    TYPE_EXPR,
+    NILABLE_TYPE,
+    LIT_TYPE,
+    ANY_TYPE,
+
     LIT_EXPR,
     PAREN_EXPR,
     ASSIGN_EXPR,
