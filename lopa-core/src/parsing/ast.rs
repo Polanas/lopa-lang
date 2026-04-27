@@ -8,6 +8,7 @@ use ustr::Ustr;
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
 pub type SyntaxToken = rowan::SyntaxToken<parser::Lang>;
 pub type SyntaxNodePtr = rowan::ast::SyntaxNodePtr<parser::Lang>;
+pub type AstPtr<N: rowan::ast::AstNode> = rowan::ast::AstPtr<N>;
 
 //used for the matches! check in can_cast for enums
 trait NodeWrapper {
@@ -139,7 +140,7 @@ macro_rules! enums {
     };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LiteralKind {
     Int,
     Float,
@@ -147,7 +148,7 @@ pub enum LiteralKind {
     Bool,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum BinaryOpKind {
     Add,
     Mul,
@@ -181,7 +182,7 @@ pub enum BinaryOpKind {
     ShrAssign,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum UnaryOpKind {
     Not,
     Neg,

@@ -61,7 +61,9 @@ pub enum DiagnosticKind {
 
 pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
+
     let parse = parse(db, file);
-    diagnostics.extend(parse.errors(db).into_iter().map(Diagnostic::from));
+    diagnostics.extend(parse.errors.clone().into_iter().map(Diagnostic::from));
+
     diagnostics
 }

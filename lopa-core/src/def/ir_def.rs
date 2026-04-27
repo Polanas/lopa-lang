@@ -1,6 +1,3 @@
-pub mod lower;
-pub mod module;
-
 use crate::parsing::ast::{BinaryOpKind, LiteralKind, SyntaxNodePtr, UnaryOpKind};
 use paste::paste;
 
@@ -14,9 +11,9 @@ macro_rules! structs {
     ) => {
         $(
 
-            #[derive(Clone, Debug, PartialEq, Eq)]
+            #[derive(Clone, Debug, PartialEq, Eq, Hash)]
             pub struct $name {
-                node_ptr: SyntaxNodePtr,
+                pub node_ptr: SyntaxNodePtr,
                 $(
                     pub $field_name: $field_type
                 ),*
@@ -42,7 +39,7 @@ macro_rules! enums {
         ),+ $(,)?
     ) => {
         $(
-            #[derive(Clone, Debug, PartialEq, Eq)]
+            #[derive(Clone, Debug, PartialEq, Eq, Hash)]
             pub enum $name {
                 $($variant($variant)),*
             }

@@ -1,9 +1,12 @@
 pub mod base;
 pub mod diagnostics;
 
+use rowan::ast::AstNode;
 use salsa::{Database, Setter};
 
+use crate::def::lower::{self};
 use crate::ide::diagnostics::Diagnostic;
+use crate::parsing::ast::{self, SyntaxNode};
 use crate::parsing::parser;
 use std::fmt::Display;
 use std::ops::Range;
@@ -104,12 +107,20 @@ impl FileContent {
     }
 }
 
-#[salsa::tracked(debug)]
-pub struct Parse<'db> {
-    #[tracked]
-    #[returns(ref)]
+#[derive(salsa::Update, PartialEq, Eq, Clone, Debug)]
+pub struct Parse {
     pub node: parser::Cst,
     pub errors: Vec<parser::ParseError>,
+}
+
+impl Parse {
+    pub fn syntax_node(&self) -> SyntaxNode {
+        SyntaxNode::new_root(self.node.clone())
+    }
+
+    pub fn file(&self) -> ast::File {
+        ast::File::cast(self.syntax_node()).unwrap()
+    }
 }
 
 #[salsa::input]
@@ -120,10 +131,16 @@ pub struct File {
 }
 
 #[salsa::tracked]
-fn parse(db: &dyn salsa::Database, file: File) -> Parse<'_> {
+pub fn parse(db: &dyn salsa::Database, file: File) -> Arc<Parse> {
     let contents = file.contents(db).read().unwrap();
     let (node, errors) = parser::parse(contents.as_str());
-    Parse::new(db, node, errors)
+    Parse { node, errors }.into()
+}
+
+#[salsa::tracked]
+pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> Arc<lower::IrFile> {
+    let parse = parse(db, file);
+    Arc::new(lower::lower_file(parse))
 }
 
 #[salsa::db]
@@ -142,12 +159,14 @@ pub struct Analysis {
 
 impl Analysis {
     pub fn diagnostics(&self, file: File) -> Vec<Diagnostic> {
+        //TODO: use Cancelled::catch
         diagnostics::diagnostics(&self.db, file)
     }
 
     pub fn apply_change(&mut self, file: File) {
         //cancel any ongoing analysis
         self.db.trigger_cancellation();
+
         let contents = file.contents(&self.db).clone();
         file.set_contents(&mut self.db).to(contents);
     }

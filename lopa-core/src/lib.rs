@@ -1,3 +1,6 @@
 pub mod parsing;
-pub mod hir;
+#[macro_use]
+pub mod indexmap_hash;
+pub mod def;
 pub mod ide;
+pub mod ty;

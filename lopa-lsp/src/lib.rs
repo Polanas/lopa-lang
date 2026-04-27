@@ -194,6 +194,7 @@ impl Backend {
         let task = task::spawn_blocking(move || {
             let state = State { analysis, vfs };
             handler::diagnostics(state, &uri_clone)
+
         });
         //TODO: termiante previous diagnostics if present (see opened_files)
         task::spawn({
