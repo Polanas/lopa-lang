@@ -1,13 +1,12 @@
 pub mod base;
 pub mod diagnostics;
 
-use rowan::ast::AstNode;
 use salsa::{Database, Setter};
 
 use crate::def::lower::{self};
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
-use crate::parsing::parser;
+use crate::parsing::parser::{self, Parse};
 use std::fmt::Display;
 use std::ops::Range;
 use std::sync::{Arc, RwLock};
@@ -107,22 +106,6 @@ impl FileContent {
     }
 }
 
-#[derive(salsa::Update, PartialEq, Eq, Clone, Debug)]
-pub struct Parse {
-    pub node: parser::Cst,
-    pub errors: Vec<parser::ParseError>,
-}
-
-impl Parse {
-    pub fn syntax_node(&self) -> SyntaxNode {
-        SyntaxNode::new_root(self.node.clone())
-    }
-
-    pub fn file(&self) -> ast::File {
-        ast::File::cast(self.syntax_node()).unwrap()
-    }
-}
-
 #[salsa::input]
 #[derive(Debug)]
 pub struct File {
@@ -133,8 +116,7 @@ pub struct File {
 #[salsa::tracked]
 pub fn parse(db: &dyn salsa::Database, file: File) -> Arc<Parse> {
     let contents = file.contents(db).read().unwrap();
-    let (node, errors) = parser::parse(contents.as_str());
-    Parse { node, errors }.into()
+    parser::parse(contents.as_str()).into()
 }
 
 #[salsa::tracked]

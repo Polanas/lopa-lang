@@ -1,26 +1,28 @@
 use crate::parsing::ast::{BinaryOpKind, LiteralKind, SyntaxNodePtr, UnaryOpKind};
 use paste::paste;
+use ustr::Ustr;
 
 macro_rules! structs {
     (
         $(
+          $(#[$m:meta])*
           $name: ident {
               $($field_name:ident : $field_type:ty),* $(,)?
           }
         ),+ $(,)?
     ) => {
         $(
-
+            $(#[$m])*
             #[derive(Clone, Debug, PartialEq, Eq, Hash)]
             pub struct $name {
-                pub node_ptr: SyntaxNodePtr,
+                pub node_ptr: Option<SyntaxNodePtr>,
                 $(
                     pub $field_name: $field_type
                 ),*
             }
 
             impl WithNodePtr for $name {
-                fn node_ptr(&self) -> SyntaxNodePtr {
+                fn node_ptr(&self) -> Option<SyntaxNodePtr> {
                     self.node_ptr
                 }
             }
@@ -45,7 +47,7 @@ macro_rules! enums {
             }
 
             impl WithNodePtr for $name {
-                fn node_ptr(&self) -> SyntaxNodePtr {
+                fn node_ptr(&self) -> Option<SyntaxNodePtr > {
                     match self {
                         $(
                             #[allow(non_snake_case)]
@@ -69,28 +71,30 @@ pub enum Primitive {
 }
 
 structs! {
+    #[derive(Default)]
+    Missing {},
     File {
         items: Vec<Item>,
     },
     FnItem {
         name: Name,
         params: Vec<FnParam>,
-        output: ReturnType,
+        output: Option<ReturnType>,
         body: BlockExpr,
     },
     FnParam {
-        name: Option<Ident>,
+        name: Name,
         ty: TypeExpr,
         default_value: Option<Expr>,
     },
     ReturnType {
-        value: Option<TypeExpr>,
+        value: TypeExpr,
     },
     ExprStmt {
         expr: Expr,
     },
     LetStmt {
-        ident: Ident,
+        name: Name,
         ty: TypeExpr,
         expr: Expr,
     },
@@ -100,6 +104,9 @@ structs! {
     AnyType {},
     LitType {
         kind: LiteralKind,
+    },
+    NameExpr {
+        value: Name,
     },
     UnaryExpr {
         expr: Box<Expr>,
@@ -128,6 +135,7 @@ structs! {
         right: Box<Expr>,
         op: BinaryOpKind,
     },
+    #[derive(Default)]
     BlockExpr {
         stmts: Vec<Stmt>,
     },
@@ -135,10 +143,7 @@ structs! {
         kind: LiteralKind,
     },
     Name {
-        value: Ident,
-    },
-    Ident {
-        value: String,
+        value: Ustr,
     },
 }
 
@@ -151,6 +156,7 @@ enums! {
         ExprStmt,
     },
     Expr {
+        Missing,
         LitExpr,
         BinaryExpr,
         UnaryExpr,
@@ -158,9 +164,11 @@ enums! {
         IndexExpr,
         CallExpr,
         ParenExpr,
+        ReturnExpr,
+        NameExpr,
     },
     TypeExpr {
-        Ident,
+        Name,
         NilableType,
         LitType,
         AnyType,
@@ -168,5 +176,5 @@ enums! {
 }
 
 pub trait WithNodePtr {
-    fn node_ptr(&self) -> SyntaxNodePtr;
+    fn node_ptr(&self) -> Option<SyntaxNodePtr>;
 }

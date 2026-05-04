@@ -28,6 +28,10 @@ macro_rules! structs {
 
             impl $name {
                 struct_impl!($($impl)*);
+
+                pub fn node_ptr(&self) -> SyntaxNodePtr {
+                    SyntaxNodePtr::new(&self.0)
+                }
             }
 
             impl NodeWrapper for $name {
@@ -108,6 +112,14 @@ macro_rules! enums {
             #[derive(Clone, Debug, PartialEq, Eq, Hash)]
             pub enum $name {
                 $($variant($variant$(<$generic>)*),)*
+            }
+
+            impl $name {
+                pub fn node_ptr(&self) -> SyntaxNodePtr {
+                    match self {
+                        $(Self::$variant(e) => e.node_ptr()),*
+                    }
+                }
             }
 
             impl AstNode for $name {
@@ -195,7 +207,9 @@ structs! {
     FN_ITEM = FnItem {
         fn_token: T![fn],
         name: Name,
+        left_paren_token: T!["("],
         params: ParamList,
+        right_paren_token: T![")"],
         output: ReturnType,
         body: BlockExpr,
     },
@@ -204,33 +218,47 @@ structs! {
         ty: TypeExpr,
     },
     PARAM_LIST = ParamList {
-        params: [Param],
+        params: [FnParam],
     },
-    PARAM = Param {
+    PARAM = FnParam {
         name: Name,
         colon_token: T![:],
         ty: TypeExpr,
+        eq_token: T![=],
         default_value: Expr,
     },
     EXPR_STMT = ExprStmt {
         expr: Expr,
+        semi: T![;],
     },
     LET_STMT = LetStmt {
-        ident: Ident,
+        let_token: T![let],
+        name: Name,
+        colon_token: T![:],
         ty: TypeExpr,
-        expr: Expr,
-
         eq_token: T![=],
+        expr: Expr,
+        semi: T![;],
     },
     NILABLE_TYPE = NilableType {
+        ty: TypeExpr,
         mark_token: T![?],
-        ty: TypeExpr,
     },
-    ANY_TYPE = AnyType {
-        ty: TypeExpr,
-    },
+    ANY_TYPE = AnyType { },
     LIT_TYPE = LitType {
-        ty: TypeExpr,
+        pub fn kind(&self) -> Option<LiteralKind> {
+            let token = self.syntax().first_token()?;
+            let Syntax::IDENT = token.kind() else {
+                return None;
+            };
+            Some(match token.text() {
+                "string" => LiteralKind::String,
+                "int" => LiteralKind::Int,
+                "float" => LiteralKind::Float,
+                "bool" => LiteralKind::Bool,
+                _ => return None,
+            })
+        }
     },
     UNARY_EXPR = UnaryExpr {
         expr: Expr,
@@ -254,6 +282,9 @@ structs! {
                 Some((token, op))
             })
         }
+    },
+    NAME_EXPR = NameExpr {
+        name: Name,
     },
     BINARY_EXPR = BinaryExpr {
         lhs: Expr,
@@ -308,11 +339,14 @@ structs! {
         }
     },
     RETURN_EXPR = ReturnExpr {
+        return_token: T![return],
         expr: Expr,
     },
     INDEX_EXPR = IndexExpr {
         base: Expr,
+        neft_bracket_token: T!["["],
         index[1]: Expr,
+        right_bracket_token: T!["]"],
     },
     ARG_LIST = ArgList {
         args: [Arg],
@@ -324,13 +358,19 @@ structs! {
     },
     CALL_EXPR = CallExpr {
         func: Expr,
+        left_paren_token: T!["("],
         args: ArgList,
+        right_paren_token: T![")"],
     },
     PAREN_EXPR = ParenExpr {
+        left_paren_token: T!["("],
         expr: Expr,
+        right_paren_token: T![")"],
     },
     BLOCK_EXPR = BlockExpr {
-        exprs: [Stmt],
+        left_curly: T!["{"],
+        stmts: [Stmt],
+        right_curly: T!["}"],
     },
     LIT_EXPR = LitExpr {
         pub fn token(&self) -> Option<SyntaxToken> {
@@ -346,24 +386,16 @@ structs! {
                 Syntax::INT => LiteralKind::Int,
                 Syntax::FLOAT => LiteralKind::Float,
                 Syntax::STRING => LiteralKind::String,
+                Syntax::TRUE_KW | Syntax::FALSE_KW => LiteralKind::Bool,
                 _ => return None,
             })
         }
     },
     NAME = Name {
-        ident: Ident,
+        ident: T![ident],
 
         pub fn text(&self) -> Option<Ustr> {
-            self.ident().and_then(|i| i.text())
-        }
-    },
-    IDENT = Ident {
-        pub fn token(&self) -> Option<SyntaxToken> {
-            self.0.children_with_tokens().find_map(NodeOrToken::into_token)
-        }
-
-        pub fn text(&self) -> Option<Ustr> {
-            self.token().map(|t| t.text().into())
+            self.ident().map(|t| Ustr::from(t.text()))
         }
     },
 }
@@ -377,16 +409,18 @@ enums! {
         ExprStmt,
     },
     Expr {
-        LitExpr,
+        NameExpr,
         BinaryExpr,
         UnaryExpr,
         BlockExpr,
         IndexExpr,
         CallExpr,
         ParenExpr,
+        ReturnExpr,
+        LitExpr,
     },
     TypeExpr {
-        Ident,
+        Name,
         NilableType,
         LitType,
         AnyType,

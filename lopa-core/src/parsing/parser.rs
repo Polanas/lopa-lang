@@ -1,4 +1,5 @@
 use Syntax::*;
+use rowan::ast::AstNode;
 use std::ops::Range;
 use std::{fmt, iter::Peekable};
 
@@ -8,6 +9,7 @@ use rowan::{
     TextSize,
 };
 
+use crate::parsing::ast;
 use crate::parsing::token_set::TokenSet;
 
 use super::lexer::Syntax;
@@ -53,8 +55,25 @@ impl Prettify for SyntaxNode<Lang> {
     }
 }
 
-pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
-    Parser::new(input).parse()
+#[derive(salsa::Update, PartialEq, Eq, Clone, Debug)]
+pub struct Parse {
+    pub node: Cst,
+    pub errors: Vec<ParseError>,
+}
+
+impl Parse {
+    pub fn syntax_node(&self) -> ast::SyntaxNode {
+        SyntaxNode::new_root(self.node.clone())
+    }
+
+    pub fn file(&self) -> ast::File {
+        ast::File::cast(self.syntax_node()).unwrap()
+    }
+}
+
+pub fn parse(input: &str) -> Parse {
+    let (node, errors) = Parser::new(input).parse();
+    Parse { node, errors }
 }
 
 const STMT_RECOVERY: TokenSet = TokenSet::new(&[T![fn]]);
@@ -78,7 +97,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
 ]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
 
-struct Parser<'a> {
+pub struct Parser<'a> {
     input: Input<'a>,
     builder: GreenNodeBuilder<'static>,
     errors: Vec<ParseError>,
@@ -241,7 +260,7 @@ impl<'a> Parser<'a> {
 
     fn param(&mut self) {
         self.with(Syntax::PARAM, |this| {
-            this.expect(IDENT);
+            this.name();
             this.expect(T![:]);
             this.type_expr();
             this.ate(T![,]);
@@ -272,7 +291,7 @@ impl<'a> Parser<'a> {
                 let checkpoint = self.builder.checkpoint();
 
                 let next_span = self.input.nth_span(0);
-                self.expect(IDENT);
+                self.name();
                 match &self.input.content[next_span] {
                     "int" | "float" | "string" | "bool" => {
                         self.with_at(Syntax::LIT_TYPE, checkpoint, |_| {})
@@ -327,9 +346,7 @@ impl<'a> Parser<'a> {
                 self.builder.finish_node();
             }
             IDENT => {
-                self.builder.start_node(Syntax::IDENT.into());
-                self.expect(IDENT);
-                self.builder.finish_node();
+                self.with(Syntax::NAME_EXPR, |this| this.name());
             }
             _ => {
                 self.advance_with_err(ErrorKind::ExpectedExpression);
@@ -447,7 +464,7 @@ impl<'a> Parser<'a> {
     fn stmt_let(&mut self) {
         self.with(Syntax::LET_STMT, |this| {
             this.expect(T![let]);
-            this.expect(IDENT);
+            this.name();
             this.expect(T![=]);
             this.expect_expr();
             this.expect(T![;]);

@@ -116,6 +116,7 @@ macro_rules! T {
     [Self] => { super::lexer::Syntax::SELF_TYPE_KW};
     [const] => { super::lexer::Syntax::CONST_KW};
     [static] => { super::lexer::Syntax::STATIC_KW};
+    [ident] => { super::lexer::Syntax::IDENT }
 }
 
 def! {
@@ -272,6 +273,7 @@ def! {
     LIT_TYPE,
     ANY_TYPE,
 
+    NAME_EXPR,
     LIT_EXPR,
     PAREN_EXPR,
     ASSIGN_EXPR,
