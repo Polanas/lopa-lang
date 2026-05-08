@@ -1,0 +1,36 @@
+---
+source: lopa-core/src/def/lower.rs
+expression: lower_file(parse).ir
+---
+File {
+    items: [
+        FnItem {
+            name: Name {
+                value: u!("test"),
+            },
+            params: [],
+            output: None,
+            body: BlockExpr {
+                stmts: [
+                    ExprStmt {
+                        expr: CallExpr {
+                            func: NameExpr {
+                                value: Name {
+                                    value: u!("print"),
+                                },
+                            },
+                            args: [
+                                Arg {
+                                    name: None,
+                                    value: LitExpr {
+                                        kind: String,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        },
+    ],
+}

@@ -17,3 +17,6 @@ ustr.workspace = true
 indexmap.workspace = true
 paste = "1.0.15"
 notify-rust = "4.13.1"
+
+[dev-dependencies]
+insta.workspace = true

@@ -1,10 +1,11 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
+    def::lower::lower_file,
     ide::{File, FileContent, base::FileRange, parse},
     parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
 };
-use rowan::TextRange;
+use rowan::{TextRange, TextSize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Severity {
@@ -64,6 +65,14 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
 
     let parse = parse(db, file);
     diagnostics.extend(parse.errors.clone().into_iter().map(Diagnostic::from));
+
+    //TODO: provide type diagnostics
+
+    let ir = lower_file(parse);
+    // diagnostics.push(Diagnostic::new(
+    //     TextRange::new(TextSize::new(0), TextSize::new(1)),
+    //     DiagnosticKind::SyntaxError(SyntaxErrorKind::Other(format!("{:#?}", ir))),
+    // ));
 
     diagnostics
 }

@@ -245,10 +245,11 @@ impl<'a> Parser<'a> {
     }
 
     fn name(&mut self) {
-        assert!(self.input.at(IDENT));
-        self.with(Syntax::NAME, |this| {
-            this.expect(IDENT);
-        })
+        if self.input.at(Syntax::IDENT) {
+            self.with(Syntax::NAME, |this| {
+                this.expect(IDENT);
+            })
+        }
     }
 
     fn return_type(&mut self) {
@@ -511,6 +512,7 @@ pub enum ErrorKind {
     ExpectedParameter,
     ExpectedPattern,
     ExpectedItem,
+    Other(String),
 }
 
 impl fmt::Display for ErrorKind {
@@ -526,6 +528,7 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedParameter => "expected parameter",
             Self::ExpectedPattern => "expected pattern",
             Self::ExpectedItem => "expected item",
+            Self::Other(text) => text,
         }
         .fmt(f)
     }
@@ -711,38 +714,45 @@ mod test {
                             "RETURN_TYPE: 9..15",
                                 "NILABLE_TYPE: 11..15",
                                     "LIT_TYPE: 11..14",
-                            "BLOCK_EXPR: 15..17"
+                                        "NAME: 11..14",
+                                "BLOCK_EXPR: 15..17"
+                ]
+            );
+            assert_children_eq!(
+                parse("fn test(){
+                    let x = (1);
+                }", |p| p.file()),
+                [
+                    "FILE: 0..61",
+                        "FN_ITEM: 0..61",
+                            "NAME: 3..7",
+                            "PARAM_LIST: 7..9",
+                            "BLOCK_EXPR: 9..61",
+                                "LET_STMT: 31..60",
+                                    "NAME: 35..37",
+                                    "PAREN_EXPR: 39..42",
+                                        "LIT_EXPR: 40..41"
             ]
         );
         assert_children_eq!(
-            parse("fn test(){
-                let x = get();
-            }", |p| p.file()),
+            parse(
+                "fn test(){
+                    let x = get();
+                }",
+                |p| p.file()
+            ),
             [
-                "FILE: 0..55",
-                    "FN_ITEM: 0..55",
+                "FILE: 0..63",
+                    "FN_ITEM: 0..63",
                         "NAME: 3..7",
                         "PARAM_LIST: 7..9",
-                        "BLOCK_EXPR: 9..55",
-                            "LET_STMT: 27..54",
-                                "CALL_EXPR: 35..40",
-                                    "IDENT: 35..38",
-                                    "ARG_LIST: 38..40"
-            ]
-        );
-        assert_children_eq!(
-            parse("fn test(){
-                let x = (1);
-            }", |p| p.file()),
-            [
-                "FILE: 0..53",
-                    "FN_ITEM: 0..53",
-                        "NAME: 3..7",
-                        "PARAM_LIST: 7..9",
-                            "BLOCK_EXPR: 9..53",
-                                "LET_STMT: 27..52",
-                                    "PAREN_EXPR: 35..38",
-                                        "LIT_EXPR: 36..37"
+                            "BLOCK_EXPR: 9..63",
+                            "LET_STMT: 31..62",
+                                "NAME: 35..37",
+                                "CALL_EXPR: 39..44",
+                                    "NAME_EXPR: 39..42",
+                                        "NAME: 39..42",
+                                "ARG_LIST: 42..44"
             ]
         );
     }
@@ -769,7 +779,8 @@ mod test {
             parse("a()", |p| p.expr()),
             [
                 "CALL_EXPR: 0..3",
-                    "IDENT: 0..1",
+                    "NAME_EXPR: 0..1",
+                        "NAME: 0..1",
                     "ARG_LIST: 1..3"
             ]
         );

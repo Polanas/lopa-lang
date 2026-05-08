@@ -2,8 +2,8 @@ use ustr::Ustr;
 
 use crate::{parsing::ast::SyntaxNodePtr, ty};
 
-#[salsa::tracked]
-#[derive(Debug, PartialOrd, Ord)]
+#[salsa::tracked(debug)]
+#[derive(PartialOrd, Ord)]
 pub struct Function<'db> {
     pub name: Ustr,
     pub params: Vec<FnParam>,
