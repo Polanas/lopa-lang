@@ -55,25 +55,8 @@ impl Prettify for SyntaxNode<Lang> {
     }
 }
 
-#[derive(salsa::Update, PartialEq, Eq, Clone, Debug)]
-pub struct Parse {
-    pub node: Cst,
-    pub errors: Vec<ParseError>,
-}
-
-impl Parse {
-    pub fn syntax_node(&self) -> ast::SyntaxNode {
-        SyntaxNode::new_root(self.node.clone())
-    }
-
-    pub fn file(&self) -> ast::File {
-        ast::File::cast(self.syntax_node()).unwrap()
-    }
-}
-
-pub fn parse(input: &str) -> Parse {
-    let (node, errors) = Parser::new(input).parse();
-    Parse { node, errors }
+pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
+    Parser::new(input).parse()
 }
 
 const STMT_RECOVERY: TokenSet = TokenSet::new(&[T![fn]]);

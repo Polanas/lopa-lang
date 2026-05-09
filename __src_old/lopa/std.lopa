@@ -1,3 +1,0 @@
-extern(lua) {
-    fn print(value: any);
-}

@@ -14,7 +14,7 @@ pub enum Severity {
     Info,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Diagnostic {
     pub range: TextRange,
     pub kind: DiagnosticKind,
@@ -55,7 +55,7 @@ impl From<ParseError> for Diagnostic {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DiagnosticKind {
     SyntaxError(SyntaxErrorKind),
 }

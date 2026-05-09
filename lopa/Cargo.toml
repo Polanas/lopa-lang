@@ -9,4 +9,3 @@ itertools.workspace = true
 logos.workspace = true
 lopa-core = { path = "../lopa-core"}
 rowan.workspace = true
-crop = "0.4.3"

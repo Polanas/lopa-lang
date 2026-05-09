@@ -15,6 +15,7 @@ strum_macros.workspace = true
 itertools.workspace = true
 ustr.workspace = true
 indexmap.workspace = true
+dashmap.workspace = true
 paste = "1.0.15"
 notify-rust = "4.13.1"
 

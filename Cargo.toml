@@ -10,11 +10,12 @@ derive_more = { version = "2.1.1", features = ["add", "add_assign", "from", "deb
 strum = { version = "0.27.2", features = ["derive"] }
 strum_macros = "0.27.2"
 itertools = "0.14.0"
-salsa = { version = "0.26.1" }
+salsa = { version = "0.26.2" }
 slotmap = "1.1.1"
 ustr = "1.1.0"
 indexmap = "2"
 insta = { version = "1.47.2", features = ["yaml"] }
+dashmap = "6.1.0"
 
 [profile.dev.package.insta]
 opt-level = 3

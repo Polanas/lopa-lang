@@ -1,39 +1,93 @@
 use itertools::Itertools;
 
 use crate::{
-    def::ir_def::{self},
-    ide::diagnostics::Diagnostic,
-    parsing::{
-        ast::{self, SyntaxNodePtr},
-        parser::Parse,
-    },
+    def::ir::{self, Function},
+    ide::{self, diagnostics::Diagnostic, file_by_cst},
+    parsing::{ast, parser},
 };
-use std::sync::Arc;
+indexmap_hash! {
+    FunctionMap<'db>(indexmap::IndexMap<u64, ir::Function<'db>>)
+}
 
-#[derive(salsa::Update, PartialEq, Eq, Clone, Debug)]
-pub struct IrFile {
-    // pub ir: ir_def::File,
+#[salsa::tracked]
+pub struct IrFile<'db> {
+    pub functions: FunctionMap<'db>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-struct LowerContext {
+pub struct LowerContext<'db> {
+    pub db: &'db dyn salsa::Database,
     pub diagnostics: Vec<Diagnostic>,
+    pub functions: Vec<ir::Function<'db>>,
+    pub ast_file: ast::File,
 }
 
-impl LowerContext {
-    // fn new() -> Self {
-    //     Self {
-    //         diagnostics: Default::default(),
-    //     }
-    // }
-    //
-    // fn file(&self, file: ast::File) -> ir_def::File {
-    //     ir_def::File {
-    //         node_ptr: Some(file.node_ptr()),
-    //         items: file.items().filter_map(|i| self.item(i)).collect::<_>(),
-    //     }
-    // }
-    //
+impl<'db> LowerContext<'db> {
+    pub fn new(db: &'db dyn salsa::Database, parse: ide::Parse<'db>, file: ide::File) -> Self {
+        Self {
+            diagnostics: Default::default(),
+            functions: Default::default(),
+            ast_file: parse.file(db),
+            db,
+        }
+    }
+
+    pub fn lower(&self, file: ast::File) {
+        for item in file.items() {
+            self.item(item);
+        }
+    }
+
+    fn item(&self, item: ast::Item) {
+        match item {
+            ast::Item::FnItem(fn_item) => self.fn_item(fn_item),
+        };
+        // let fn_item = ir::Function::new(db, )
+    }
+
+    fn fn_item(&self, fn_item: ast::FnItem) -> Option<ir::Function<'db>> {
+        Some(ir::Function::new(
+            self.db,
+            fn_item.name()?.text()?,
+            fn_item
+                .params()?
+                .params()
+                .filter_map(|p| self.param(p))
+                .collect_vec(),
+            fn_item
+                .output()
+                .and_then(|o| o.ty())
+                .and_then(|o| self.type_expr(o)),
+            ast::AstPtr::new(&fn_item),
+            file_by_cst(self.db, self.root.clone())?,
+        ))
+    }
+
+    fn param(&self, param: ast::FnParam) -> Option<ir::FnParam<'db>> {
+        Some(ir::FnParam::new(
+            self.db,
+            param.name()?.text()?,
+            self.type_expr(param.ty()?)?,
+        ))
+    }
+
+    fn type_expr(&self, item: ast::TypeExpr) -> Option<ir::TypeExpr> {
+        Some(match item {
+            ast::TypeExpr::Name(name) => ir::TypeExpr::NameType(self.name_type(name)?),
+            ast::TypeExpr::NilableType(nilable_type) => {
+                ir::TypeExpr::NilableType(self.nilable_type(nilable_type)?)
+            }
+            ast::TypeExpr::LitType(lit_type) => ir::TypeExpr::LitType(self.lit_type(lit_type)?),
+            ast::TypeExpr::AnyType(any_type) => ir::TypeExpr::AnyType(self.any_type(any_type)?),
+        })
+    }
+
+    fn name_type(&self, item: ast::Name) -> Option<ir::NameType> {
+        Some(ir::NameType {
+            value: item.text()?,
+        })
+    }
+
     // fn item(&self, item: ast::Item) -> Option<ir_def::Item> {
     //     Some(match item {
     //         ast::Item::FnItem(fn_item) => ir_def::Item::FnItem(self.fn_item(fn_item)?),
@@ -53,12 +107,6 @@ impl LowerContext {
     //     })
     // }
     //
-    // fn output(&self, item: ast::ReturnType) -> Option<ir_def::ReturnType> {
-    //     Some(ir_def::ReturnType {
-    //         node_ptr: Some(item.node_ptr()),
-    //         value: self.type_expr(item.ty()?)?,
-    //     })
-    // }
     //
     // fn body(&self, item: ast::BlockExpr) -> Option<ir_def::BlockExpr> {
     //     match self.expr(ast::Expr::BlockExpr(item))? {
@@ -80,36 +128,26 @@ impl LowerContext {
     //     })
     // }
     //
-    // fn type_expr(&self, item: ast::TypeExpr) -> Option<ir_def::TypeExpr> {
-    //     Some(match item {
-    //         ast::TypeExpr::Name(name) => ir_def::TypeExpr::Name(self.name(name)?),
-    //         ast::TypeExpr::NilableType(nilable_type) => {
-    //             ir_def::TypeExpr::NilableType(self.nilable_type(nilable_type)?)
-    //         }
-    //         ast::TypeExpr::LitType(lit_type) => ir_def::TypeExpr::LitType(self.lit_type(lit_type)?),
-    //         ast::TypeExpr::AnyType(any_type) => ir_def::TypeExpr::AnyType(self.any_type(any_type)?),
-    //     })
-    // }
     //
-    // fn lit_type(&self, item: ast::LitType) -> Option<ir_def::LitType> {
-    //     Some(ir_def::LitType {
-    //         node_ptr: Some(item.node_ptr()),
-    //         kind: item.kind()?,
-    //     })
-    // }
-    //
-    // fn any_type(&self, item: ast::AnyType) -> Option<ir_def::AnyType> {
-    //     Some(ir_def::AnyType {
-    //         node_ptr: Some(item.node_ptr()),
-    //     })
-    // }
-    //
-    // fn nilable_type(&self, item: ast::NilableType) -> Option<ir_def::NilableType> {
-    //     Some(ir_def::NilableType {
-    //         node_ptr: Some(item.node_ptr()),
-    //         expr: self.type_expr(item.ty()?)?.into(),
-    //     })
-    // }
+    fn lit_type(&self, item: ast::LitType) -> Option<ir_def::LitType> {
+        Some(ir_def::LitType {
+            node_ptr: Some(item.node_ptr()),
+            kind: item.kind()?,
+        })
+    }
+
+    fn any_type(&self, item: ast::AnyType) -> Option<ir_def::AnyType> {
+        Some(ir_def::AnyType {
+            node_ptr: Some(item.node_ptr()),
+        })
+    }
+
+    fn nilable_type(&self, item: ast::NilableType) -> Option<ir_def::NilableType> {
+        Some(ir_def::NilableType {
+            node_ptr: Some(item.node_ptr()),
+            expr: self.type_expr(item.ty()?)?.into(),
+        })
+    }
     //
     // fn expr(&self, item: ast::Expr) -> Option<ir_def::Expr> {
     //     Some(match item {
@@ -260,22 +298,6 @@ impl LowerContext {
     //     })
     // }
     //
-    // fn name(&self, item: ast::Name) -> Option<ir_def::Name> {
-    //     Some(ir_def::Name {
-    //         node_ptr: Some(item.node_ptr()),
-    //         value: item.text()?,
-    //     })
-    // }
-}
-
-pub fn lower_file(parse: Arc<Parse>) -> IrFile {
-    todo!()
-    // let ctx = LowerContext::new();
-
-    // IrFile {
-    //     ir: ctx.file(parse.file()),
-    //     diagnostics: ctx.diagnostics,
-    // }
 }
 
 #[cfg(test)]

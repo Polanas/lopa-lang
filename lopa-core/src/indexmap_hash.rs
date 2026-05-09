@@ -9,7 +9,7 @@ macro_rules! indexmap_hash {
             #[derive(Clone, Default, salsa::Update, PartialEq, Eq)]
             #[repr(transparent)]
             pub struct $name $(<$generics>)?(pub $indexmap);
-            impl$(<$generics>)? Hash for $name $(<$generics>)? {
+            impl$(<$generics>)? std::hash::Hash for $name $(<$generics>)? {
                 fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
                     self.0.iter().for_each(|e| e.hash(state));
                 }
@@ -28,7 +28,17 @@ macro_rules! indexmap_hash {
                     &mut self.0
                 }
             }
-
+            // unsafe impl<'db> salsa::Update for $name<'db> {
+            //     unsafe fn maybe_update(old_pointer: *mut Self, new_value: Self) -> bool {
+            //         unsafe {
+            //             <$indexmap>::maybe_update(
+            //                 old_pointer as *mut _,
+            //                 new_value.0,
+            //             )
+            //         }
+            //     }
+            // }
+            //
         )+
     };
 }

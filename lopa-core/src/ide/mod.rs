@@ -1,12 +1,14 @@
 pub mod base;
 pub mod diagnostics;
 
+use rowan::ast::AstNode as _;
 use salsa::{Database, Setter};
 
 use crate::def::lower::{self};
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
-use crate::parsing::parser::{self, Parse};
+use crate::parsing::parser::{self};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::Range;
 use std::sync::{Arc, RwLock};
@@ -113,16 +115,53 @@ pub struct File {
     pub contents: Arc<RwLock<FileContent>>,
 }
 
+//A singleton input that associates green nodes with file ids
+#[salsa::input]
+pub struct FileRootMap {
+    pub map: dashmap::DashMap<parser::Cst, File>,
+}
+
+//0 argument query -> return value always memoized
 #[salsa::tracked]
-pub fn parse(db: &dyn salsa::Database, file: File) -> Arc<Parse> {
-    let contents = file.contents(db).read().unwrap();
-    parser::parse(contents.as_str()).into()
+fn file_root_map(db: &dyn salsa::Database) -> FileRootMap {
+    FileRootMap::new(db, Default::default())
+}
+
+//TODO: remove this
+pub fn file_by_cst(db: &dyn salsa::Database, cst: parser::Cst) -> Option<File> {
+    file_root_map(db).map(db).get(&cst).map(|f| f.clone())
 }
 
 #[salsa::tracked]
-pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> Arc<lower::IrFile> {
+pub struct Parse<'db> {
+    pub node: parser::Cst,
+    #[returns(ref)]
+    pub errors: Vec<parser::ParseError>,
+}
+
+impl Parse<'_> {
+    pub fn syntax_node(&self, db: &dyn salsa::Database) -> ast::SyntaxNode {
+        SyntaxNode::new_root(self.node(db).clone())
+    }
+
+    pub fn file(&self, db: &dyn salsa::Database) -> ast::File {
+        ast::File::cast(self.syntax_node(db)).unwrap()
+    }
+}
+
+pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
+    let contents = file.contents(db).read().unwrap();
+    let parse = parser::parse(contents.as_str());
+
+    file_root_map(db).map(db).insert(parse.0.clone(), file);
+    Parse::new(db, parse.0, parse.1)
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> lower::IrFile<'db> {
     let parse = parse(db, file);
-    Arc::new(lower::lower_file(parse))
+    let ctx = lower::LowerContext::new(db, parse, file);
+    todo!()
 }
 
 #[salsa::db]
