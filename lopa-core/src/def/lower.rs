@@ -19,7 +19,10 @@ impl std::hash::Hash for FunctionName {
 }
 
 indexmap_hash! {
-    FunctionMap<'db>(indexmap::IndexMap<FunctionName, ir::Function<'db>, identity_hash::BuildIdentityHasher<FunctionName>>)
+    FunctionMap<'db>(indexmap::IndexMap<
+        FunctionName,
+        ir::Function<'db>,
+        identity_hash::BuildIdentityHasher<FunctionName>>)
 }
 
 #[salsa::tracked]
@@ -70,6 +73,7 @@ impl<'db> LowerContext<'db> {
                     self.functions.push(item);
                 }
             }
+            ast::Item::ModItem(mod_item) => {}
         };
     }
 
@@ -101,7 +105,7 @@ impl<'db> LowerContext<'db> {
 
     fn type_expr(&self, item: ast::TypeExpr) -> Option<ir::TypeExpr> {
         Some(match item {
-            ast::TypeExpr::Name(name) => ir::TypeExpr::NameType(self.name_type(name)?),
+            ast::TypeExpr::PathType(path) => ir::TypeExpr::PathType(self.path_type(path)?),
             ast::TypeExpr::NilableType(nilable_type) => {
                 ir::TypeExpr::NilableType(self.nilable_type(nilable_type)?)
             }
@@ -110,9 +114,15 @@ impl<'db> LowerContext<'db> {
         })
     }
 
-    fn name_type(&self, item: ast::Name) -> Option<ir::NameType> {
-        Some(ir::NameType {
-            value: item.text()?,
+    fn path_type(&self, item: ast::PathType) -> Option<ir::PathType> {
+        Some(ir::PathType {
+            value: self.path(item.value()?)?,
+        })
+    }
+
+    fn path(&self, item: ast::Path) -> Option<ir::Path> {
+        Some(ir::Path {
+            segments: item.segments().collect_vec(),
         })
     }
 

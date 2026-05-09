@@ -93,6 +93,7 @@ macro_rules! T {
     [%=] => { super::lexer::Syntax::PERCENT_EQ};
     [->] => { super::lexer::Syntax::ARROW};
     [fn] => { super::lexer::Syntax::FN_KW};
+    [mod] => { super::lexer::Syntax::MOD_KW};
     [let] => { super::lexer::Syntax::LET_KW};
     [nil] => { super::lexer::Syntax::NIL_KW};
     [true] => { super::lexer::Syntax::TRUE_KW};
@@ -249,6 +250,8 @@ def! {
     CONST_KW,
     #[token("static")]
     STATIC_KW,
+    #[token("mod")]
+    MOD_KW,
     #[token("fn")]
     FN_KW @KEYWORD_LAST,
 
@@ -258,7 +261,9 @@ def! {
     FILE,
 
     FN_ITEM,
+    MOD_ITEM,
 
+    PATH,
     NAME,
     ARG,
     ARG_LIST,
@@ -272,8 +277,10 @@ def! {
     NILABLE_TYPE,
     LIT_TYPE,
     ANY_TYPE,
+    PATH_TYPE,
 
     NAME_EXPR,
+    PATH_EXPR,
     LIT_EXPR,
     PAREN_EXPR,
     ASSIGN_EXPR,

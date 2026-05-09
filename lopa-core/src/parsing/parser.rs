@@ -79,6 +79,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T!["("],
 ]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
+const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod]]);
 
 pub struct Parser<'a> {
     input: Input<'a>,
@@ -192,14 +193,40 @@ impl<'a> Parser<'a> {
         self.with(Syntax::FILE, |this| {
             this.whitespace();
             while !this.input.at(EOF) {
-                match this.input.peek() {
-                    T!(fn) => this.fn_item(),
-                    _ => {
-                        this.advance_with_err(ErrorKind::ExpectedItem);
-                    }
-                };
+                this.item();
             }
         });
+    }
+
+    fn item(&mut self) {
+        if self.input.at_any(ITEM_FIRST) {
+            match self.input.peek() {
+                T![fn] => self.fn_item(),
+                T![mod] => self.mod_item(),
+                _ => {
+                    unreachable!();
+                }
+            };
+        } else {
+            self.advance_with_err(ErrorKind::ExpectedItem);
+        }
+    }
+
+    fn mod_item(&mut self) {
+        self.with(Syntax::MOD_ITEM, |this| {
+            this.expect(T![mod]);
+            this.name();
+
+            if this.ate(T![;]) {
+                return;
+            }
+
+            this.expect(T!["{"]);
+            while !this.input.at(T!["}"]) && !this.input.at(EOF) {
+                this.item();
+            }
+            this.expect(T!["}"]);
+        })
     }
 
     fn fn_item(&mut self) {
@@ -227,6 +254,19 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn path(&mut self) {
+        if self.input.at(Syntax::IDENT) {
+            self.with(Syntax::PATH, |this| {
+                this.expect(IDENT);
+                while this.at_path_sep(0) && !this.input.at(EOF) {
+                    this.expect(T![:]);
+                    this.expect(T![:]);
+                    this.expect(IDENT);
+                }
+            });
+        }
+    }
+
     fn name(&mut self) {
         if self.input.at(Syntax::IDENT) {
             self.with(Syntax::NAME, |this| {
@@ -247,6 +287,9 @@ impl<'a> Parser<'a> {
             this.name();
             this.expect(T![:]);
             this.type_expr();
+            if this.ate(T![=]) {
+                this.expect_expr();
+            }
             this.ate(T![,]);
         })
     }
@@ -269,25 +312,31 @@ impl<'a> Parser<'a> {
     }
 
     fn type_expr(&mut self) {
-        if self.input.at_any(EXPR_FIRST)
-        #[allow(clippy::match_single_binding)]
-        match self.input.peek() {
-            _ => {
-                let checkpoint = self.builder.checkpoint();
+        if self.input.at_any(EXPR_FIRST) {
+            #[allow(clippy::match_single_binding)]
+            match self.input.peek() {
+                _ => {
+                    let checkpoint = self.builder.checkpoint();
 
-                let next_span = self.input.nth_span(0);
-                self.name();
-                match &self.input.content[next_span] {
-                    "int" | "float" | "string" | "bool" => {
-                        self.with_at(Syntax::LIT_TYPE, checkpoint, |_| {})
+                    let next_span = self.input.nth_span(0);
+                    let is_path = self.at_path_sep(1);
+                    self.path();
+                    if !is_path {
+                        match &self.input.content[next_span] {
+                            "int" | "float" | "string" | "bool" => {
+                                self.with_at(Syntax::LIT_TYPE, checkpoint, |_| {})
+                            }
+                            "any" => self.with_at(Syntax::ANY_TYPE, checkpoint, |_| {}),
+                            _ => {}
+                        }
                     }
-                    "any" => self.with_at(Syntax::ANY_TYPE, checkpoint, |_| {}),
-                    _ => {}
-                }
-                if self.ate(T![?]) {
-                    self.with_at(Syntax::NILABLE_TYPE, checkpoint, |_| {});
+                    if self.ate(T![?]) {
+                        self.with_at(Syntax::NILABLE_TYPE, checkpoint, |_| {});
+                    }
                 }
             }
+        } else {
+            self.advance_with_err(ErrorKind::ExpectedType);
         }
     }
 
@@ -331,7 +380,13 @@ impl<'a> Parser<'a> {
                 self.builder.finish_node();
             }
             IDENT => {
-                self.with(Syntax::NAME_EXPR, |this| this.name());
+                if self.at_path_sep(1) {
+                    self.with(Syntax::PATH_EXPR, |this| {
+                        this.path();
+                    });
+                } else {
+                    self.with(Syntax::NAME_EXPR, |this| this.name());
+                }
             }
             _ => {
                 self.advance_with_err(ErrorKind::ExpectedExpression);
@@ -450,6 +505,9 @@ impl<'a> Parser<'a> {
         self.with(Syntax::LET_STMT, |this| {
             this.expect(T![let]);
             this.name();
+            if this.ate(T![:]) {
+                this.type_expr();
+            }
             this.expect(T![=]);
             this.expect_expr();
             this.expect(T![;]);
@@ -481,6 +539,10 @@ impl<'a> Parser<'a> {
 
             this.expect(T!["}"]);
         });
+    }
+
+    fn at_path_sep(&self, offset: usize) -> bool {
+        self.input.nth(offset) == self.input.nth(1 + offset) && self.input.nth(offset) == T![:]
     }
 }
 

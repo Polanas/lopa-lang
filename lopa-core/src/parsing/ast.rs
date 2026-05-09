@@ -23,7 +23,7 @@ macro_rules! structs {
       ),*
     ) => {
         $(
-            #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+            #[derive(Clone, PartialEq, Eq, Hash, Debug)]
             pub struct $name(pub SyntaxNode);
 
             impl $name {
@@ -204,6 +204,11 @@ structs! {
     FILE = File {
         items: [Item],
     },
+    MOD_ITEM = ModItem {
+        mod_token: T![mod],
+        semi: T![;],
+        items: [FnItem],
+    },
     FN_ITEM = FnItem {
         fn_token: T![fn],
         name: Name,
@@ -229,7 +234,7 @@ structs! {
     },
     EXPR_STMT = ExprStmt {
         expr: Expr,
-        semi: T![;],
+        semi_token: T![;],
     },
     LET_STMT = LetStmt {
         let_token: T![let],
@@ -259,6 +264,9 @@ structs! {
                 _ => return None,
             })
         }
+    },
+    PATH_TYPE = PathType {
+        value: Path,
     },
     UNARY_EXPR = UnaryExpr {
         expr: Expr,
@@ -391,6 +399,12 @@ structs! {
             })
         }
     },
+    PATH = Path {
+        pub fn segments(&self) -> impl Iterator<Item = Ustr> {
+            self.0.children_with_tokens().filter_map(|t| t.into_token()).filter(|t| t.kind() == Syntax::IDENT.into())
+                .map(|t| Ustr::from(t.text()))
+        }
+    },
     NAME = Name {
         ident: T![ident],
 
@@ -403,6 +417,7 @@ structs! {
 enums! {
     Item {
         FnItem,
+        ModItem,
     },
     Stmt {
         LetStmt,
@@ -420,7 +435,7 @@ enums! {
         LitExpr,
     },
     TypeExpr {
-        Name,
+        PathType,
         NilableType,
         LitType,
         AnyType,
