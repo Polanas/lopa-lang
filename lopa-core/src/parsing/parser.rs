@@ -269,6 +269,7 @@ impl<'a> Parser<'a> {
     }
 
     fn type_expr(&mut self) {
+        if self.input.at_any(EXPR_FIRST)
         #[allow(clippy::match_single_binding)]
         match self.input.peek() {
             _ => {

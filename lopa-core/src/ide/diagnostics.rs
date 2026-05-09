@@ -1,10 +1,10 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    def::lower::lower_file,
-    ide::{File, FileContent, base::FileRange, parse},
+    ide::{File, base::FileRange, lower_file, parse},
     parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
 };
+use itertools::Itertools;
 use rowan::{TextRange, TextSize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -64,11 +64,11 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
 
     let parse = parse(db, file);
-    diagnostics.extend(parse.errors.clone().into_iter().map(Diagnostic::from));
+    diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
 
     //TODO: provide type diagnostics
 
-    let ir = lower_file(parse);
+    let ir = lower_file(db, file);
     // diagnostics.push(Diagnostic::new(
     //     TextRange::new(TextSize::new(0), TextSize::new(1)),
     //     DiagnosticKind::SyntaxError(SyntaxErrorKind::Other(format!("{:#?}", ir))),

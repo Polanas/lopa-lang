@@ -8,7 +8,6 @@ use crate::def::lower::{self};
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
 use crate::parsing::parser::{self};
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::Range;
 use std::sync::{Arc, RwLock};
@@ -116,21 +115,21 @@ pub struct File {
 }
 
 //A singleton input that associates green nodes with file ids
-#[salsa::input]
-pub struct FileRootMap {
-    pub map: dashmap::DashMap<parser::Cst, File>,
-}
+// #[salsa::input]
+// pub struct FileRootMap {
+//     pub map: dashmap::DashMap<parser::Cst, File>,
+// }
 
-//0 argument query -> return value always memoized
-#[salsa::tracked]
-fn file_root_map(db: &dyn salsa::Database) -> FileRootMap {
-    FileRootMap::new(db, Default::default())
-}
+// //0 argument query -> return value always memoized
+// #[salsa::tracked]
+// fn file_root_map(db: &dyn salsa::Database) -> FileRootMap {
+//     FileRootMap::new(db, Default::default())
+// }
 
-//TODO: remove this
-pub fn file_by_cst(db: &dyn salsa::Database, cst: parser::Cst) -> Option<File> {
-    file_root_map(db).map(db).get(&cst).map(|f| f.clone())
-}
+// TODO: remove this
+// pub fn file_by_cst(db: &dyn salsa::Database, cst: parser::Cst) -> Option<File> {
+//     file_root_map(db).map(db).get(&cst).map(|f| f.clone())
+// }
 
 #[salsa::tracked]
 pub struct Parse<'db> {
@@ -149,11 +148,12 @@ impl Parse<'_> {
     }
 }
 
+#[salsa::tracked]
 pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
     let contents = file.contents(db).read().unwrap();
     let parse = parser::parse(contents.as_str());
 
-    file_root_map(db).map(db).insert(parse.0.clone(), file);
+    // file_root_map(db).map(db).insert(parse.0.clone(), file);
     Parse::new(db, parse.0, parse.1)
 }
 
@@ -161,7 +161,7 @@ pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
 pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> lower::IrFile<'db> {
     let parse = parse(db, file);
     let ctx = lower::LowerContext::new(db, parse, file);
-    todo!()
+    ctx.lower(parse.file(db))
 }
 
 #[salsa::db]

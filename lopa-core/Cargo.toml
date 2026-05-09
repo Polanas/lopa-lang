@@ -18,6 +18,7 @@ indexmap.workspace = true
 dashmap.workspace = true
 paste = "1.0.15"
 notify-rust = "4.13.1"
+identity-hash = "0.1.0"
 
 [dev-dependencies]
 insta.workspace = true

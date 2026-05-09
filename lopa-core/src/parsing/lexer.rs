@@ -19,7 +19,7 @@ macro_rules! def {
         }
 
         impl Syntax {
-            $($(const $anchor: Self = Self::$variant;)?)*
+            $($(pub(crate) const $anchor: Self = Self::$variant;)?)*
         }
 
         impl fmt::Display for Syntax {

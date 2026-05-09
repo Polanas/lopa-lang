@@ -15,6 +15,12 @@ macro_rules! indexmap_hash {
                 }
             }
 
+            impl$(<$generics>)? std::convert::From<$indexmap> for $name $(<$generics>)? {
+                fn from(map: $indexmap) -> Self {
+                    Self(map)
+                }
+            }
+
             impl<'db> std::ops::Deref for $name<'db> {
                 type Target = $indexmap;
 

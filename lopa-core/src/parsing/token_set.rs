@@ -1,10 +1,12 @@
-//! A bit-set of `SyntaxKind`s.
-
 use crate::parsing::lexer::Syntax;
 
-/// A bit-set of `Syntax`s
+/// A bit-set of `Syntax`
 #[derive(Clone, Copy)]
 pub(crate) struct TokenSet(u128);
+
+const _: () = const {
+    assert!(Syntax::KEYWORD_LAST as u16 <= 128);
+};
 
 impl TokenSet {
     pub(crate) const fn new(kinds: &[Syntax]) -> TokenSet {

@@ -1,17 +1,30 @@
 use itertools::Itertools;
+use ustr::Ustr;
 
 use crate::{
     def::ir::{self, Function},
-    ide::{self, diagnostics::Diagnostic, file_by_cst},
+    ide::{self, diagnostics::Diagnostic},
     parsing::{ast, parser},
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
+pub struct FunctionName(pub Ustr);
+
+impl identity_hash::IdentityHashable for FunctionName {}
+
+impl std::hash::Hash for FunctionName {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.0.precomputed_hash());
+    }
+}
+
 indexmap_hash! {
-    FunctionMap<'db>(indexmap::IndexMap<u64, ir::Function<'db>>)
+    FunctionMap<'db>(indexmap::IndexMap<FunctionName, ir::Function<'db>, identity_hash::BuildIdentityHasher<FunctionName>>)
 }
 
 #[salsa::tracked]
 pub struct IrFile<'db> {
-    pub functions: FunctionMap<'db>,
+    pub functions: Vec<ir::Function<'db>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -20,6 +33,7 @@ pub struct LowerContext<'db> {
     pub diagnostics: Vec<Diagnostic>,
     pub functions: Vec<ir::Function<'db>>,
     pub ast_file: ast::File,
+    pub file: ide::File,
 }
 
 impl<'db> LowerContext<'db> {
@@ -28,21 +42,35 @@ impl<'db> LowerContext<'db> {
             diagnostics: Default::default(),
             functions: Default::default(),
             ast_file: parse.file(db),
+            file,
             db,
         }
     }
 
-    pub fn lower(&self, file: ast::File) {
+    pub fn lower(mut self, file: ast::File) -> IrFile<'db> {
         for item in file.items() {
             self.item(item);
         }
+        IrFile::new(
+            self.db,
+            self.functions,
+            // self.functions
+            //     .into_iter()
+            //     .map(|f| (FunctionName(f.name(self.db)), f))
+            //     .collect::<indexmap::IndexMap<_, _, identity_hash::BuildIdentityHasher<FunctionName>>>()
+            //     .into(),
+            self.diagnostics,
+        )
     }
 
-    fn item(&self, item: ast::Item) {
+    fn item(&mut self, item: ast::Item) {
         match item {
-            ast::Item::FnItem(fn_item) => self.fn_item(fn_item),
+            ast::Item::FnItem(fn_item) => {
+                if let Some(item) = self.fn_item(fn_item) {
+                    self.functions.push(item);
+                }
+            }
         };
-        // let fn_item = ir::Function::new(db, )
     }
 
     fn fn_item(&self, fn_item: ast::FnItem) -> Option<ir::Function<'db>> {
@@ -59,7 +87,7 @@ impl<'db> LowerContext<'db> {
                 .and_then(|o| o.ty())
                 .and_then(|o| self.type_expr(o)),
             ast::AstPtr::new(&fn_item),
-            file_by_cst(self.db, self.root.clone())?,
+            self.file,
         ))
     }
 
@@ -129,23 +157,17 @@ impl<'db> LowerContext<'db> {
     // }
     //
     //
-    fn lit_type(&self, item: ast::LitType) -> Option<ir_def::LitType> {
-        Some(ir_def::LitType {
-            node_ptr: Some(item.node_ptr()),
-            kind: item.kind()?,
-        })
+    fn lit_type(&self, item: ast::LitType) -> Option<ir::LitType> {
+        Some(ir::LitType { kind: item.kind()? })
     }
 
-    fn any_type(&self, item: ast::AnyType) -> Option<ir_def::AnyType> {
-        Some(ir_def::AnyType {
-            node_ptr: Some(item.node_ptr()),
-        })
+    fn any_type(&self, item: ast::AnyType) -> Option<ir::AnyType> {
+        Some(ir::AnyType {})
     }
 
-    fn nilable_type(&self, item: ast::NilableType) -> Option<ir_def::NilableType> {
-        Some(ir_def::NilableType {
-            node_ptr: Some(item.node_ptr()),
-            expr: self.type_expr(item.ty()?)?.into(),
+    fn nilable_type(&self, item: ast::NilableType) -> Option<ir::NilableType> {
+        Some(ir::NilableType {
+            value: self.type_expr(item.ty()?)?.into(),
         })
     }
     //
@@ -304,11 +326,11 @@ impl<'db> LowerContext<'db> {
 mod test {
     use std::sync::Arc;
 
-    use super::*;
-    use crate::{
-        def::lower::{IrFile, lower_file},
-        parsing::parser::{self, Parse},
-    };
+    // use super::*;
+    // use crate::{
+    //     def::lower::{IrFile, lower_file},
+    //     parsing::parser::{self, Parse},
+    // };
 
     #[test]
     fn func() {
