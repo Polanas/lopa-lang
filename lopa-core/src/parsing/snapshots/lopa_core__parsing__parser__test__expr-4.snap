@@ -2,8 +2,8 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"(1)\", |p| p.expr())"
 ---
-PATH_EXPR: 0..3
-  (: 0..1
-  LIT_EXPR: 1..2
-    int: 1..2
-  ): 2..3
+PATH_EXPR: 0..3 
+  L_PAREN: 0..1 "("
+  LIT_EXPR: 1..2 
+    INT: 1..2 "1"
+  R_PAREN: 2..3 ")"

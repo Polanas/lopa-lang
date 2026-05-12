@@ -279,7 +279,7 @@ impl<'a> Parser<'a> {
             this.expect(T![:]);
             this.type_expr();
             if this.ate(T![=]) {
-                this.expect_expr();
+                this.expr();
             }
             this.ate(T![,]);
         })
@@ -425,7 +425,7 @@ impl<'a> Parser<'a> {
             T!["("] => {
                 self.with(Syntax::PATH_EXPR, |this| {
                     this.expect(T!["("]);
-                    this.expect_expr();
+                    this.expr();
                     this.expect(T![")"]);
                 });
             }
@@ -469,33 +469,26 @@ impl<'a> Parser<'a> {
 
     fn index(&mut self) {
         self.expect(T!["["]);
-        self.expect_expr();
+        self.expr();
         self.expect(T!["]"]);
     }
 
     fn arg(&mut self) {
         self.with(Syntax::ARG, |this| {
-            if this.input.nth(1) == T![:] {
+            let has_label = this.input.nth(1) == T![:];
+            if has_label {
                 this.name();
                 this.expect(T![:]);
             }
-            this.expect_expr();
+            if this.input.at_any(EXPR_FIRST) || !has_label {
+                this.expr();
+            }
             this.ate(T![,]);
         });
     }
 
     fn expr(&mut self) {
         self.expr_bp(0);
-    }
-
-    fn expect_expr(&mut self) -> Option<()> {
-        if self.input.at_any(EXPR_FIRST) {
-            self.expr();
-            Some(())
-        } else {
-            self.advance_with_err(ErrorKind::ExpectedExpression);
-            None
-        }
     }
 
     fn expr_bp(&mut self, min_bp: u8) {
@@ -570,7 +563,7 @@ impl<'a> Parser<'a> {
                 this.type_expr();
             }
             this.expect(T![=]);
-            this.expect_expr();
+            this.expr();
             this.expect(T![;]);
         })
     }
@@ -755,18 +748,36 @@ impl rowan::Language for Lang {
 
 #[cfg(test)]
 mod test {
-    use rowan::{GreenNode, NodeOrToken, SyntaxToken};
+    use rowan::{GreenNode, NodeOrToken, SyntaxKind, SyntaxToken};
 
     use crate::parsing::{
         ast::SyntaxNode,
-        parser::{Lang, ParseError, Parser},
+        parser::{Lang, Parser},
     };
 
-    #[track_caller]
-    fn try_parse(source: &str, f: impl FnOnce(&mut Parser)) -> (SyntaxNode, Vec<ParseError>) {
-        let mut parser = Parser::new(source);
-        f(&mut parser);
-        (SyntaxNode::new_root(parser.builder.finish()), parser.errors)
+    fn parse_rec(
+        child: NodeOrToken<SyntaxNode, SyntaxToken<Lang>>,
+        result: &mut String,
+        depth: usize,
+    ) {
+        (0..depth).for_each(|_| result.push_str("  "));
+        result.push_str(&format!(
+            "{:?}: {}..{}{}",
+            child.kind(),
+            u32::from(child.text_range().start()),
+            u32::from(child.text_range().end()),
+            match &child {
+                NodeOrToken::Token(t) if t.kind() != super::WHITESPACE =>
+                    format!(" \"{}\"", t.text()),
+                _ => String::from(" "),
+            }
+        ));
+        result.push('\n');
+        if let NodeOrToken::Node(node) = child {
+            for child in node.children_with_tokens() {
+                parse_rec(child, result, depth + 1);
+            }
+        }
     }
 
     #[track_caller]
@@ -779,28 +790,29 @@ mod test {
         let node = SyntaxNode::new_root(parser.builder.finish());
         let mut result = String::new();
 
-        fn parse_rec(
-            child: NodeOrToken<SyntaxNode, SyntaxToken<Lang>>,
-            result: &mut String,
-            depth: usize,
-        ) {
-            (0..depth).for_each(|_| result.push_str("  "));
-            result.push_str(&format!(
-                "{}: {}..{}",
-                child.kind(),
-                u32::from(child.text_range().start()),
-                u32::from(child.text_range().end())
-            ));
-            result.push('\n');
-            if let NodeOrToken::Node(node) = child {
-                for child in node.children_with_tokens() {
-                    parse_rec(child, result, depth + 1);
-                }
-            }
-        }
-
         parse_rec(NodeOrToken::Node(node), &mut result, 0);
         result
+    }
+
+    #[track_caller]
+    fn try_parse(source: &str, f: impl FnOnce(&mut Parser)) -> (String, Vec<super::ParseError>) {
+        let mut parser = Parser::new(source);
+        f(&mut parser);
+        let node = SyntaxNode::new_root(parser.builder.finish());
+        let mut result = String::new();
+
+        parse_rec(NodeOrToken::Node(node), &mut result, 0);
+        (result, parser.errors)
+    }
+
+    #[test]
+    fn arg_list() {
+        println!(
+            "{}",
+            try_parse("fn f() { let x = foo(1, let not_garbage = 92;}", |p| p
+                .item())
+            .0
+        );
     }
 
     #[test]
@@ -884,6 +896,7 @@ mod test {
         insta::assert_snapshot!(parse("\"a string\"", |p| p.expr()));
         insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
         insta::assert_snapshot!(parse("a = b = c", |p| p.expr()));
+        insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
     }
 
     #[test]

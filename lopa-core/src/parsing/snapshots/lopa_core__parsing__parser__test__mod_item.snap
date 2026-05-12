@@ -2,25 +2,25 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"mod my_mod { fn some_item() {} }\", |p| p.mod_item())"
 ---
-MOD_ITEM: 0..32
-  mod: 0..3
-  WHITESPACE: 3..4
-  NAME: 4..11
-    identifier: 4..10
-    WHITESPACE: 10..11
-  {: 11..12
-  WHITESPACE: 12..13
-  FN_ITEM: 13..31
-    fn: 13..15
-    WHITESPACE: 15..16
-    NAME: 16..25
-      identifier: 16..25
-    PARAM_LIST: 25..28
-      (: 25..26
-      ): 26..27
-      WHITESPACE: 27..28
-    BLOCK_EXPR: 28..31
-      {: 28..29
-      }: 29..30
-      WHITESPACE: 30..31
-  }: 31..32
+MOD_ITEM: 0..32 
+  MOD_KW: 0..3 "mod"
+  WHITESPACE: 3..4 
+  NAME: 4..11 
+    IDENT: 4..10 "my_mod"
+    WHITESPACE: 10..11 
+  L_BRACE: 11..12 "{"
+  WHITESPACE: 12..13 
+  FN_ITEM: 13..31 
+    FN_KW: 13..15 "fn"
+    WHITESPACE: 15..16 
+    NAME: 16..25 
+      IDENT: 16..25 "some_item"
+    PARAM_LIST: 25..28 
+      L_PAREN: 25..26 "("
+      R_PAREN: 26..27 ")"
+      WHITESPACE: 27..28 
+    BLOCK_EXPR: 28..31 
+      L_BRACE: 28..29 "{"
+      R_BRACE: 29..30 "}"
+      WHITESPACE: 30..31 
+  R_BRACE: 31..32 "}"

@@ -2,11 +2,11 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"param: type\", |p| p.param())"
 ---
-PARAM: 0..11
-  NAME_PATTERN: 0..5
-    NAME: 0..5
-      identifier: 0..5
-  :: 5..6
-  WHITESPACE: 6..7
-  PATH: 7..11
-    identifier: 7..11
+PARAM: 0..11 
+  NAME_PATTERN: 0..5 
+    NAME: 0..5 
+      IDENT: 0..5 "param"
+  COLON: 5..6 ":"
+  WHITESPACE: 6..7 
+  PATH: 7..11 
+    IDENT: 7..11 "type"

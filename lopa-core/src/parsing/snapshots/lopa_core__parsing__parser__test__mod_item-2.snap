@@ -2,9 +2,9 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"mod my_mod;\", |p| p.mod_item())"
 ---
-MOD_ITEM: 0..11
-  mod: 0..3
-  WHITESPACE: 3..4
-  NAME: 4..10
-    identifier: 4..10
-  ;: 10..11
+MOD_ITEM: 0..11 
+  MOD_KW: 0..3 "mod"
+  WHITESPACE: 3..4 
+  NAME: 4..10 
+    IDENT: 4..10 "my_mod"
+  SEMI: 10..11 ";"

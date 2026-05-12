@@ -2,47 +2,47 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"fn test(a: int, b: string)->int { stmt; }\", |p| p.fn_item())"
 ---
-FN_ITEM: 0..41
-  fn: 0..2
-  WHITESPACE: 2..3
-  NAME: 3..7
-    identifier: 3..7
-  PARAM_LIST: 7..26
-    (: 7..8
-    PARAM: 8..16
-      NAME_PATTERN: 8..9
-        NAME: 8..9
-          identifier: 8..9
-      :: 9..10
-      WHITESPACE: 10..11
-      LIT_TYPE: 11..14
-        PATH: 11..14
-          identifier: 11..14
-      ,: 14..15
-      WHITESPACE: 15..16
-    PARAM: 16..25
-      NAME_PATTERN: 16..17
-        NAME: 16..17
-          identifier: 16..17
-      :: 17..18
-      WHITESPACE: 18..19
-      LIT_TYPE: 19..25
-        PATH: 19..25
-          identifier: 19..25
-    ): 25..26
-  RETURN_TYPE: 26..32
-    ->: 26..28
-    LIT_TYPE: 28..32
-      PATH: 28..32
-        identifier: 28..31
-        WHITESPACE: 31..32
-  BLOCK_EXPR: 32..41
-    {: 32..33
-    WHITESPACE: 33..34
-    EXPR_STMT: 34..40
-      NAME_EXPR: 34..38
-        NAME: 34..38
-          identifier: 34..38
-      ;: 38..39
-      WHITESPACE: 39..40
-    }: 40..41
+FN_ITEM: 0..41 
+  FN_KW: 0..2 "fn"
+  WHITESPACE: 2..3 
+  NAME: 3..7 
+    IDENT: 3..7 "test"
+  PARAM_LIST: 7..26 
+    L_PAREN: 7..8 "("
+    PARAM: 8..16 
+      NAME_PATTERN: 8..9 
+        NAME: 8..9 
+          IDENT: 8..9 "a"
+      COLON: 9..10 ":"
+      WHITESPACE: 10..11 
+      LIT_TYPE: 11..14 
+        PATH: 11..14 
+          IDENT: 11..14 "int"
+      COMMA: 14..15 ","
+      WHITESPACE: 15..16 
+    PARAM: 16..25 
+      NAME_PATTERN: 16..17 
+        NAME: 16..17 
+          IDENT: 16..17 "b"
+      COLON: 17..18 ":"
+      WHITESPACE: 18..19 
+      LIT_TYPE: 19..25 
+        PATH: 19..25 
+          IDENT: 19..25 "string"
+    R_PAREN: 25..26 ")"
+  RETURN_TYPE: 26..32 
+    ARROW: 26..28 "->"
+    LIT_TYPE: 28..32 
+      PATH: 28..32 
+        IDENT: 28..31 "int"
+        WHITESPACE: 31..32 
+  BLOCK_EXPR: 32..41 
+    L_BRACE: 32..33 "{"
+    WHITESPACE: 33..34 
+    EXPR_STMT: 34..40 
+      NAME_EXPR: 34..38 
+        NAME: 34..38 
+          IDENT: 34..38 "stmt"
+      SEMI: 38..39 ";"
+      WHITESPACE: 39..40 
+    R_BRACE: 40..41 "}"

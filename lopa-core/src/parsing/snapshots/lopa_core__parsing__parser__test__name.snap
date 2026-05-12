@@ -2,5 +2,5 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"some_name\", |p| p.name())"
 ---
-NAME: 0..9
-  identifier: 0..9
+NAME: 0..9 
+  IDENT: 0..9 "some_name"

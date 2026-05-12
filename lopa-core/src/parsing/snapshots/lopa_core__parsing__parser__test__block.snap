@@ -2,7 +2,7 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"{ }\", |p| p.block())"
 ---
-BLOCK_EXPR: 0..3
-  {: 0..1
-  WHITESPACE: 1..2
-  }: 2..3
+BLOCK_EXPR: 0..3 
+  L_BRACE: 0..1 "{"
+  WHITESPACE: 1..2 
+  R_BRACE: 2..3 "}"

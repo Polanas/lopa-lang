@@ -2,5 +2,5 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"1_000_000\", |p| p.expr())"
 ---
-LIT_EXPR: 0..9
-  int: 0..9
+LIT_EXPR: 0..9 
+  INT: 0..9 "1_000_000"

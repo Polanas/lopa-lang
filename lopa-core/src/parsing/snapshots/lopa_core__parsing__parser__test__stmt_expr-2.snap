@@ -2,11 +2,11 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"1+1;\", |p| p.stmt_expr())"
 ---
-EXPR_STMT: 0..4
-  BINARY_EXPR: 0..3
-    LIT_EXPR: 0..1
-      int: 0..1
-    +: 1..2
-    LIT_EXPR: 2..3
-      int: 2..3
-  ;: 3..4
+EXPR_STMT: 0..4 
+  BINARY_EXPR: 0..3 
+    LIT_EXPR: 0..1 
+      INT: 0..1 "1"
+    PLUS: 1..2 "+"
+    LIT_EXPR: 2..3 
+      INT: 2..3 "1"
+  SEMI: 3..4 ";"
