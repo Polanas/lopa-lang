@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"10.10\", |p| p.expr())"
+---
+LIT_EXPR: 0..5
+  float: 0..5

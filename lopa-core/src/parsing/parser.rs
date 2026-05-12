@@ -62,6 +62,7 @@ const PARAM_LIST_RECOVERY: TokenSet =
     TokenSet::new(&[T![->], T!["{"], T![fn]]).union(STMT_RECOVERY);
 const STMT_EXPR_RECOVERY: TokenSet =
     TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(STMT_RECOVERY);
+const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
 const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
     T![-],
@@ -452,13 +453,14 @@ impl<'a> Parser<'a> {
         self.with(Syntax::ARG_LIST, |this| {
             this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
-                if this
-                    .input
-                    .at_any(TokenSet::new(&[Syntax::IDENT]).union(EXPR_FIRST))
-                {
+                if this.input.at_any(EXPR_FIRST) {
                     this.arg();
                 } else {
-                    break;
+                    if this.input.at_any(ARG_LIST_RECOVERY) {
+                        break;
+                    } else {
+                        this.advance_with_err(ErrorKind::ExpectedArgument);
+                    }
                 }
             }
             this.expect(T![")"]);
@@ -877,10 +879,16 @@ mod test {
         insta::assert_snapshot!(parse("1+1*3/4%3", |p| p.expr()));
         insta::assert_snapshot!(parse("(1)", |p| p.expr()));
         insta::assert_snapshot!(parse("1 + { 1 }", |p| p.expr()));
-        insta::assert_snapshot!(parse("if true {} else {}", |p| p.expr()));
+        insta::assert_snapshot!(parse("if not true {} else {}", |p| p.expr()));
         insta::assert_snapshot!(parse("if true {} else if VALUE { yo_mister_white }", |p| p.expr()));
         insta::assert_snapshot!(parse("\"a string\"", |p| p.expr()));
         insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
         insta::assert_snapshot!(parse("a = b = c", |p| p.expr()));
+    }
+
+    #[test]
+    fn numbers() {
+        insta::assert_snapshot!(parse("10.10", |p| p.expr()));
+        insta::assert_snapshot!(parse("1_000_000", |p| p.expr()));
     }
 }
