@@ -1,4 +1,4 @@
 fn no() {
-  print("hi")
+  print();
 }
 

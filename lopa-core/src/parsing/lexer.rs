@@ -100,6 +100,7 @@ macro_rules! T {
     [false] => { super::lexer::Syntax::FALSE_KW};
     [and] => { super::lexer::Syntax::AND_KW};
     [or] => { super::lexer::Syntax::OR_KW};
+    [not] => { super::lexer::Syntax::NOT_KW};
     [return] => { super::lexer::Syntax::RETURN_KW};
     [if] => { super::lexer::Syntax::IF_KW};
     [else] => { super::lexer::Syntax::ELSE_KW};
@@ -214,6 +215,8 @@ def! {
     AND_KW,
     #[token("or")]
     OR_KW,
+    #[token("not")]
+    NOT_KW,
     #[token("nil")]
     NIL_KW,
     #[token("return")]
@@ -287,15 +290,17 @@ def! {
     CALL_EXPR,
     INDEX_EXPR,
     RETURN_EXPR,
+    IF_EXPR,
     BLOCK_EXPR,
     BINARY_EXPR,
     UNARY_EXPR,
+    TRY_EXPR,
 }
 
 impl Syntax {
     pub fn prefix_bp(self) -> Option<u8> {
         Some(match self {
-            T![!] => 17,
+            T![not] => 17,
             T![-] => 18,
             _ => return None,
         })
@@ -303,12 +308,20 @@ impl Syntax {
 
     pub fn infix_bp(self) -> Option<(u8, u8)> {
         Some(match self {
-            T![or] => (1, 2),
-            T![and] => (3, 4),
-            T![==] | T![!=] => (5, 6),
-            T![<] | T![<=] | T![>] | T![>=] => (7, 8),
-            T![+] | T![-] => (9, 10),
+            T![=] => (1, 2),
+            T![or] => (2, 3),
+            T![and] => (4, 5),
+            T![==] | T![!=] => (6, 7),
+            T![<] | T![<=] | T![>] | T![>=] => (8, 9),
+            T![+] | T![-] => (10, 11),
             T![*] | T![/] | T![%] => (11, 12),
+            _ => return None,
+        })
+    }
+
+    pub fn postfix_bp(self) -> Option<u8> {
+        Some(match self {
+            T![?] => 19,
             _ => return None,
         })
     }

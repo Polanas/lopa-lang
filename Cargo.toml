@@ -16,6 +16,7 @@ ustr = "1.1.0"
 indexmap = "2"
 insta = { version = "1.47.2", features = ["yaml"] }
 dashmap = "6.1.0"
+bimap = "0.6.3"
 
 [profile.dev.package.insta]
 opt-level = 3

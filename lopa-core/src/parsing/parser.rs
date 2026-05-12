@@ -1,5 +1,4 @@
 use Syntax::*;
-use rowan::ast::AstNode;
 use std::ops::Range;
 use std::{fmt, iter::Peekable};
 
@@ -9,7 +8,6 @@ use rowan::{
     TextSize,
 };
 
-use crate::parsing::ast;
 use crate::parsing::token_set::TokenSet;
 
 use super::lexer::Syntax;
@@ -67,7 +65,7 @@ const STMT_EXPR_RECOVERY: TokenSet =
 const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
     T![-],
-    T![!],
+    T![not],
     INT,
     FLOAT,
     STRING,
@@ -268,11 +266,9 @@ impl<'a> Parser<'a> {
     }
 
     fn name(&mut self) {
-        if self.input.at(Syntax::IDENT) {
-            self.with(Syntax::NAME, |this| {
-                this.expect(IDENT);
-            })
-        }
+        self.with(Syntax::NAME, |this| {
+            this.expect(IDENT);
+        })
     }
 
     fn return_type(&mut self) {
@@ -351,16 +347,34 @@ impl<'a> Parser<'a> {
 
     fn prefix_expr(&mut self) -> Option<()> {
         match self.input.peek() {
-            T![return] => self.ret(),
+            T![return] => self.return_expr(),
+            T![if] => self.if_expr(),
             _ => return self.expr_primary(),
         }
         Some(())
     }
 
-    fn ret(&mut self) {
+    fn if_expr(&mut self) {
+        self.with(Syntax::IF_EXPR, |this| {
+            this.expect(T![if]);
+            this.expr();
+            this.block();
+            if this.ate(T![else]) {
+                if this.input.at(T![if]) {
+                    this.if_expr();
+                } else {
+                    this.block();
+                }
+            }
+        });
+    }
+
+    fn return_expr(&mut self) {
         self.with(Syntax::RETURN_EXPR, |this| {
             this.expect(T![return]);
-            this.expect_expr();
+            if this.input.at_any(EXPR_FIRST) {
+                this.expr();
+            }
         })
     }
 
@@ -475,7 +489,22 @@ impl<'a> Parser<'a> {
         loop {
             let op = self.input.peek();
 
-            let Some((left_bp, right_bp)) = self.infix_binding_power(op) else {
+            if let Some(postfix_bp) = op.postfix_bp() {
+                if postfix_bp < min_bp {
+                    break;
+                }
+                match op {
+                    T![?] => {
+                        self.with_at(Syntax::TRY_EXPR, checkpoint, |this| {
+                            this.expect(op);
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+                continue;
+            }
+
+            let Some((left_bp, right_bp)) = op.infix_bp() else {
                 break;
             };
 
@@ -491,14 +520,6 @@ impl<'a> Parser<'a> {
                 self.advance_with_err(ErrorKind::ExpectedExpression);
             }
         }
-    }
-
-    fn infix_binding_power(&self, op: Syntax) -> Option<(u8, u8)> {
-        Some(match op {
-            T![+] | T![-] => (1, 2),
-            T![*] | T![/] => (3, 4),
-            _ => return None,
-        })
     }
 
     fn stmt_let(&mut self) {
@@ -830,5 +851,14 @@ mod test {
                     "ARG_LIST: 1..3"
             ]
         );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn unary() {
+        dbg!(try_parse("fn test1(a: std::vec2) {
+              not 1;
+        }
+        ", |p| p.item()));
     }
 }
