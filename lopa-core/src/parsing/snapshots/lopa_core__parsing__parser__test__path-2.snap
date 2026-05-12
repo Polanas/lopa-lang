@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"simple_path\", |p| p.path())"
+---
+PATH: 0..11
+  identifier: 0..11

@@ -1,0 +1,16 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"fn some_func(){}\", |p| p.file())"
+---
+FILE: 0..16
+  FN_ITEM: 0..16
+    fn: 0..2
+    WHITESPACE: 2..3
+    NAME: 3..12
+      identifier: 3..12
+    PARAM_LIST: 12..14
+      (: 12..13
+      ): 13..14
+    BLOCK_EXPR: 14..16
+      {: 14..15
+      }: 15..16

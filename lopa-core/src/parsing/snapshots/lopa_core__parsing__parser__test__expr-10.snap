@@ -1,0 +1,21 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"a = b = c\", |p| p.expr())"
+---
+BINARY_EXPR: 0..9
+  BINARY_EXPR: 0..6
+    NAME_EXPR: 0..2
+      NAME: 0..2
+        identifier: 0..1
+        WHITESPACE: 1..2
+    =: 2..3
+    WHITESPACE: 3..4
+    NAME_EXPR: 4..6
+      NAME: 4..6
+        identifier: 4..5
+        WHITESPACE: 5..6
+  =: 6..7
+  WHITESPACE: 7..8
+  NAME_EXPR: 8..9
+    NAME: 8..9
+      identifier: 8..9

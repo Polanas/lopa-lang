@@ -1,0 +1,8 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"{ }\", |p| p.block())"
+---
+BLOCK_EXPR: 0..3
+  {: 0..1
+  WHITESPACE: 1..2
+  }: 2..3

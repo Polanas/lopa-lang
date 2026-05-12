@@ -1,0 +1,9 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"a;\", |p| p.stmt_expr())"
+---
+EXPR_STMT: 0..2
+  NAME_EXPR: 0..1
+    NAME: 0..1
+      identifier: 0..1
+  ;: 1..2

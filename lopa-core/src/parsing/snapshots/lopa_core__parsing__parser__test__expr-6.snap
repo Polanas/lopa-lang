@@ -1,0 +1,19 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"if true {} else {}\", |p| p.expr())"
+---
+IF_EXPR: 0..18
+  if: 0..2
+  WHITESPACE: 2..3
+  LIT_EXPR: 3..8
+    true: 3..7
+    WHITESPACE: 7..8
+  BLOCK_EXPR: 8..11
+    {: 8..9
+    }: 9..10
+    WHITESPACE: 10..11
+  else: 11..15
+  WHITESPACE: 15..16
+  BLOCK_EXPR: 16..18
+    {: 16..17
+    }: 17..18

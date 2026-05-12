@@ -160,8 +160,7 @@ pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
 #[salsa::tracked(returns(ref))]
 pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> lower::IrFile<'db> {
     let parse = parse(db, file);
-    let ctx = lower::LowerContext::new(db, parse, file);
-    ctx.lower(parse.file(db))
+    lower::lower_file(db, parse, file)
 }
 
 #[salsa::db]

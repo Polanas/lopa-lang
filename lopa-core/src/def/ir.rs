@@ -90,8 +90,8 @@ pub type PatternId = Idx<Pattern>;
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Pattern {
     Missing,
-    Local {
-        name: Ustr,
+    Name {
+        value: Ustr,
     }
 }
 

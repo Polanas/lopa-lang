@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"\\\"a string\\\"\", |p| p.expr())"
+---
+LIT_EXPR: 0..10
+  string: 0..10

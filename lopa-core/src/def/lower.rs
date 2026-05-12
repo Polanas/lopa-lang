@@ -31,15 +31,15 @@ pub struct IrFile<'db> {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-pub struct LowerContext<'db> {
-    pub db: &'db dyn salsa::Database,
-    pub diagnostics: Vec<Diagnostic>,
-    pub functions: Vec<ir::Function<'db>>,
-    pub ast_file: ast::File,
-    pub file: ide::File,
+struct LowerCtx<'db> {
+    db: &'db dyn salsa::Database,
+    diagnostics: Vec<Diagnostic>,
+    functions: Vec<ir::Function<'db>>,
+    ast_file: ast::File,
+    file: ide::File,
 }
 
-impl<'db> LowerContext<'db> {
+impl<'db> LowerCtx<'db> {
     pub fn new(db: &'db dyn salsa::Database, parse: ide::Parse<'db>, file: ide::File) -> Self {
         Self {
             diagnostics: Default::default(),
@@ -330,6 +330,15 @@ impl<'db> LowerContext<'db> {
     //     })
     // }
     //
+}
+
+pub fn lower_file<'db>(
+    db: &'db dyn salsa::Database,
+    parse: ide::Parse<'db>,
+    file: ide::File,
+) -> IrFile<'db> {
+    let ctx = LowerCtx::new(db, parse, file);
+    ctx.lower(parse.file(db))
 }
 
 #[cfg(test)]

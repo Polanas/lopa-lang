@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"NotInt\", |p| p.type_expr())"
+---
+PATH: 0..6
+  identifier: 0..6

@@ -1,0 +1,32 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"if true {} else if VALUE { yo_mister_white }\", |p| p.expr())"
+---
+IF_EXPR: 0..44
+  if: 0..2
+  WHITESPACE: 2..3
+  LIT_EXPR: 3..8
+    true: 3..7
+    WHITESPACE: 7..8
+  BLOCK_EXPR: 8..11
+    {: 8..9
+    }: 9..10
+    WHITESPACE: 10..11
+  else: 11..15
+  WHITESPACE: 15..16
+  IF_EXPR: 16..44
+    if: 16..18
+    WHITESPACE: 18..19
+    NAME_EXPR: 19..25
+      NAME: 19..25
+        identifier: 19..24
+        WHITESPACE: 24..25
+    BLOCK_EXPR: 25..44
+      {: 25..26
+      WHITESPACE: 26..27
+      EXPR_STMT: 27..43
+        NAME_EXPR: 27..43
+          NAME: 27..43
+            identifier: 27..42
+            WHITESPACE: 42..43
+      }: 43..44

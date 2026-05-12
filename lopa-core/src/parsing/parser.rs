@@ -58,7 +58,7 @@ pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
 }
 
 const STMT_RECOVERY: TokenSet = TokenSet::new(&[T![fn]]);
-const PARAM_LIST_RECOVREY: TokenSet =
+const PARAM_LIST_RECOVERY: TokenSet =
     TokenSet::new(&[T![->], T!["{"], T![fn]]).union(STMT_RECOVERY);
 const STMT_EXPR_RECOVERY: TokenSet =
     TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(STMT_RECOVERY);
@@ -78,6 +78,8 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
 ]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
 const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod]]);
+const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
+const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 
 pub struct Parser<'a> {
     input: Input<'a>,
@@ -229,18 +231,10 @@ impl<'a> Parser<'a> {
 
     fn fn_item(&mut self) {
         self.with(Syntax::FN_ITEM, |this| {
-            this.expect(T!(fn));
+            this.expect(T![fn]);
 
-            if this.input.at(IDENT) {
-                this.name();
-            } else {
-                this.add_error(ErrorKind::ExpectedIdentifier, None);
-            }
-            if this.input.at(T!["("]) {
-                this.param_list();
-            } else {
-                this.add_error(ErrorKind::ExpectedToken(T!["("]), None);
-            }
+            this.name();
+            this.param_list();
             if this.input.at(T![->]) {
                 this.return_type();
             }
@@ -280,7 +274,7 @@ impl<'a> Parser<'a> {
 
     fn param(&mut self) {
         self.with(Syntax::PARAM, |this| {
-            this.name();
+            this.pattern();
             this.expect(T![:]);
             this.type_expr();
             if this.ate(T![=]) {
@@ -297,7 +291,7 @@ impl<'a> Parser<'a> {
                 if this.input.at(IDENT) {
                     this.param();
                 } else {
-                    if this.input.at_any(PARAM_LIST_RECOVREY) {
+                    if this.input.at_any(PARAM_LIST_RECOVERY) {
                         break;
                     }
                     this.advance_with_err(ErrorKind::ExpectedParameter);
@@ -308,9 +302,12 @@ impl<'a> Parser<'a> {
     }
 
     fn type_expr(&mut self) {
-        if self.input.at_any(EXPR_FIRST) {
+        if self.input.at_any(TYPE_FIRST) {
             #[allow(clippy::match_single_binding)]
             match self.input.peek() {
+                T![fn] => {
+                    self.fn_type();
+                }
                 _ => {
                     let checkpoint = self.builder.checkpoint();
 
@@ -334,6 +331,44 @@ impl<'a> Parser<'a> {
         } else {
             self.advance_with_err(ErrorKind::ExpectedType);
         }
+    }
+
+    fn fn_type(&mut self) {
+        self.with(Syntax::FN_TYPE, |this| {
+            this.expect(T![fn]);
+            this.fn_type_param_list();
+            if this.input.at(T![->]) {
+                this.return_type();
+            }
+        });
+    }
+
+    fn fn_type_param_list(&mut self) {
+        self.with(Syntax::PARAM_LIST, |this| {
+            this.expect(T!["("]);
+            while !this.input.at(T![")"]) && !this.input.at(EOF) {
+                if this.input.at_any(TYPE_FIRST) || this.input.at(IDENT) {
+                    this.fn_type_param();
+                } else {
+                    if this.input.at_any(PARAM_LIST_RECOVERY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedParameter);
+                }
+            }
+            this.expect(T!(")"));
+        })
+    }
+
+    fn fn_type_param(&mut self) {
+        self.with(Syntax::PARAM, |this| {
+            if this.input.nth(1) == T![:] {
+                this.name();
+                this.expect(T![:]);
+            }
+            this.type_expr();
+            this.ate(T![,]);
+        })
     }
 
     fn stmt_expr(&mut self) {
@@ -382,16 +417,19 @@ impl<'a> Parser<'a> {
         let token = self.input.peek();
         match token {
             INT | FLOAT | STRING | TRUE_KW | FALSE_KW | NIL_KW => {
-                self.builder.start_node(LIT_EXPR.into());
-                self.ate(token);
-                self.builder.finish_node();
+                self.with(Syntax::LIT_EXPR, |this| {
+                    this.ate(token);
+                });
             }
             T!["("] => {
-                self.builder.start_node(PAREN_EXPR.into());
-                self.expect(T!["("]);
-                self.expect_expr();
-                self.expect(T![")"]);
-                self.builder.finish_node();
+                self.with(Syntax::PATH_EXPR, |this| {
+                    this.expect(T!["("]);
+                    this.expect_expr();
+                    this.expect(T![")"]);
+                });
+            }
+            T!["{"] => {
+                self.block();
             }
             IDENT => {
                 if self.at_path_sep(1) {
@@ -525,7 +563,7 @@ impl<'a> Parser<'a> {
     fn stmt_let(&mut self) {
         self.with(Syntax::LET_STMT, |this| {
             this.expect(T![let]);
-            this.name();
+            this.pattern();
             if this.ate(T![:]) {
                 this.type_expr();
             }
@@ -533,6 +571,20 @@ impl<'a> Parser<'a> {
             this.expect_expr();
             this.expect(T![;]);
         })
+    }
+
+    fn pattern(&mut self) {
+        match self.input.peek() {
+            IDENT => {
+                self.with(Syntax::NAME_PATTERN, |this| {
+                    this.name();
+                });
+            }
+            _ => {
+                self.add_error(ErrorKind::ExpectedPattern, None);
+                return;
+            }
+        }
     }
 
     fn block(&mut self) {
@@ -575,7 +627,6 @@ pub enum ErrorKind {
     ExpectedArgument,
     ExpectedStatement,
     ExpectedType,
-    ExpectedIdentifier,
     ExpectedParameter,
     ExpectedPattern,
     ExpectedItem,
@@ -588,7 +639,6 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedToken(tok) => return write!(f, "expected {}", tok),
             Self::ExpectedTokens(toks) => return write!(f, "expecteded any of: {:?}", toks),
             Self::ExpectedArgument => "expected argument",
-            Self::ExpectedIdentifier => "expected identifier",
             Self::ExpectedStatement => "expected statement",
             Self::ExpectedType => "expected type",
             Self::ExpectedExpression => "expected expression",
@@ -710,155 +760,127 @@ mod test {
         parser::{Lang, ParseError, Parser},
     };
 
+    #[track_caller]
     fn try_parse(source: &str, f: impl FnOnce(&mut Parser)) -> (SyntaxNode, Vec<ParseError>) {
         let mut parser = Parser::new(source);
         f(&mut parser);
         (SyntaxNode::new_root(parser.builder.finish()), parser.errors)
     }
 
-    fn parse(source: &str, f: impl FnOnce(&mut Parser)) -> SyntaxNode {
+    #[track_caller]
+    fn parse(source: &str, f: impl FnOnce(&mut Parser)) -> String {
         let mut parser = Parser::new(source);
         f(&mut parser);
         if !parser.errors.is_empty() {
             panic!("{:?}", parser.errors);
         }
-        SyntaxNode::new_root(parser.builder.finish())
-    }
+        let node = SyntaxNode::new_root(parser.builder.finish());
+        let mut result = String::new();
 
-    fn children_rec(root: SyntaxNode) -> Vec<String> {
-        fn children_recursive(
+        fn parse_rec(
             child: NodeOrToken<SyntaxNode, SyntaxToken<Lang>>,
-            out: &mut Vec<String>,
+            result: &mut String,
+            depth: usize,
         ) {
-            if child.as_token().is_none() {
-                out.push(format!("{:?}: {:?}", child.kind(), child.text_range()));
-            }
-            if let Some(node) = child.as_node() {
+            (0..depth).for_each(|_| result.push_str("  "));
+            result.push_str(&format!(
+                "{}: {}..{}",
+                child.kind(),
+                u32::from(child.text_range().start()),
+                u32::from(child.text_range().end())
+            ));
+            result.push('\n');
+            if let NodeOrToken::Node(node) = child {
                 for child in node.children_with_tokens() {
-                    children_recursive(child, out);
+                    parse_rec(child, result, depth + 1);
                 }
             }
         }
 
-        let mut vec = vec![];
-        children_recursive(NodeOrToken::Node(root), &mut vec);
-        vec
-    }
-
-    macro_rules! assert_children_eq {
-        ($node:expr, [$($syntax:expr ),* $(,)?] ) => {
-            assert_eq!(
-                children_rec($node),
-                vec![
-                    $(
-                        $syntax.to_string()
-                    ),*
-                ]
-            );
-        };
+        parse_rec(NodeOrToken::Node(node), &mut result, 0);
+        result
     }
 
     #[test]
-    #[rustfmt::skip]
-    fn func() {
-        assert_children_eq!(
-            parse("fn test(){}", |p| p.file()),
-            [
-                "FILE: 0..11",
-                    "FN_ITEM: 0..11",
-                        "NAME: 3..7",
-                        "PARAM_LIST: 7..9",
-                        "BLOCK_EXPR: 9..11"
-            ]
-        );
-        assert_children_eq!(
-            parse("fn test()->int?{}", |p| p.file()),
-            [
-                    "FILE: 0..17",
-                        "FN_ITEM: 0..17",
-                            "NAME: 3..7",
-                            "PARAM_LIST: 7..9",
-                            "RETURN_TYPE: 9..15",
-                                "NILABLE_TYPE: 11..15",
-                                    "LIT_TYPE: 11..14",
-                                        "NAME: 11..14",
-                                "BLOCK_EXPR: 15..17"
-                ]
-            );
-            assert_children_eq!(
-                parse("fn test(){
-                    let x = (1);
-                }", |p| p.file()),
-                [
-                    "FILE: 0..61",
-                        "FN_ITEM: 0..61",
-                            "NAME: 3..7",
-                            "PARAM_LIST: 7..9",
-                            "BLOCK_EXPR: 9..61",
-                                "LET_STMT: 31..60",
-                                    "NAME: 35..37",
-                                    "PAREN_EXPR: 39..42",
-                                        "LIT_EXPR: 40..41"
-            ]
-        );
-        assert_children_eq!(
-            parse(
-                "fn test(){
-                    let x = get();
-                }",
-                |p| p.file()
-            ),
-            [
-                "FILE: 0..63",
-                    "FN_ITEM: 0..63",
-                        "NAME: 3..7",
-                        "PARAM_LIST: 7..9",
-                            "BLOCK_EXPR: 9..63",
-                            "LET_STMT: 31..62",
-                                "NAME: 35..37",
-                                "CALL_EXPR: 39..44",
-                                    "NAME_EXPR: 39..42",
-                                        "NAME: 39..42",
-                                "ARG_LIST: 42..44"
-            ]
-        );
+    fn file() {
+        insta::assert_snapshot!(parse("fn some_func(){}", |p| p.file()));
     }
 
     #[test]
-    #[rustfmt::skip]
+    fn mod_item() {
+        insta::assert_snapshot!(parse("mod my_mod { fn some_item() {} }", |p| p.mod_item()));
+        insta::assert_snapshot!(parse("mod my_mod;", |p| p.mod_item()));
+    }
+
+    #[test]
+    fn func_item() {
+        insta::assert_snapshot!(parse("fn test(a: int, b: string)->int { stmt; }", |p| p.fn_item()));
+    }
+
+    #[test]
+    fn path() {
+        insta::assert_snapshot!(parse("a::b::c", |p| p.path()));
+        insta::assert_snapshot!(parse("simple_path", |p| p.path()));
+    }
+
+    #[test]
+    fn name() {
+        insta::assert_snapshot!(parse("some_name", |p| p.name()));
+    }
+
+    #[test]
+    fn return_type() {
+        insta::assert_snapshot!(parse("-> SomeType", |p| p.return_type()));
+    }
+
+    #[test]
+    fn param() {
+        insta::assert_snapshot!(parse("param: type", |p| p.param()));
+    }
+
+    #[test]
+    fn param_list() {
+        insta::assert_snapshot!(parse("(a: int, b: string)", |p| p.param_list()));
+    }
+
+    #[test]
+    fn type_expr() {
+        insta::assert_snapshot!(parse("int", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("NotInt", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("fn(a: int, string) -> Result", |p| p.type_expr()));
+    }
+
+    #[test]
+    fn stmt_expr() {
+        insta::assert_snapshot!(parse("a;", |p| p.stmt_expr()));
+        insta::assert_snapshot!(parse("1+1;", |p| p.stmt_expr()));
+        insta::assert_snapshot!(parse("print();", |p| p.stmt_expr()));
+        insta::assert_snapshot!(parse("no_semi % idk", |p| p.stmt_expr()));
+    }
+
+    #[test]
+    fn stmt_let() {
+        insta::assert_snapshot!(parse("let x = 1;", |p| p.stmt_let()));
+    }
+
+    #[test]
+    fn block() {
+        insta::assert_snapshot!(parse("{ }", |p| p.block()));
+        insta::assert_snapshot!(parse("{ 1 }", |p| p.block()));
+        insta::assert_snapshot!(parse("{ something; something_else; }", |p| p.block()));
+    }
+
+    #[test]
     fn expr() {
-        assert_children_eq!(
-            parse("1 + 2", |p| p.expr()),
-            ["BINARY_EXPR: 0..5", "LIT_EXPR: 0..2", "LIT_EXPR: 4..5"]
-        );
-        assert_children_eq!(
-            parse("1 + -2 * 3", |p| p.expr()),
-            [
-                "BINARY_EXPR: 0..10",
-                    "LIT_EXPR: 0..2",
-                    "BINARY_EXPR: 4..10",
-                        "UNARY_EXPR: 4..7",
-                            "LIT_EXPR: 5..7",
-                        "LIT_EXPR: 9..10"
-            ]
-        );
-        assert_children_eq!(
-            parse("a()", |p| p.expr()),
-            [
-                "CALL_EXPR: 0..3",
-                    "NAME_EXPR: 0..1",
-                        "NAME: 0..1",
-                    "ARG_LIST: 1..3"
-            ]
-        );
-    }
-
-    #[test]
-    #[rustfmt::skip]
-    fn unary() {
-        dbg!(try_parse("fn test1(a: std::vec2) {
-              not 1;
-        }
-        ", |p| p.item()));
+        insta::assert_snapshot!(parse("1", |p| p.expr()));
+        insta::assert_snapshot!(parse("1+1", |p| p.expr()));
+        insta::assert_snapshot!(parse("1+1*3/4%3", |p| p.expr()));
+        insta::assert_snapshot!(parse("(1)", |p| p.expr()));
+        insta::assert_snapshot!(parse("1 + { 1 }", |p| p.expr()));
+        insta::assert_snapshot!(parse("if true {} else {}", |p| p.expr()));
+        insta::assert_snapshot!(parse("if true {} else if VALUE { yo_mister_white }", |p| p.expr()));
+        insta::assert_snapshot!(parse("\"a string\"", |p| p.expr()));
+        insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
+        insta::assert_snapshot!(parse("a = b = c", |p| p.expr()));
     }
 }

@@ -1,0 +1,29 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"fn(a: int, string) -> Result\", |p| p.type_expr())"
+---
+FN_TYPE: 0..28
+  fn: 0..2
+  PARAM_LIST: 2..19
+    (: 2..3
+    PARAM: 3..11
+      NAME: 3..4
+        identifier: 3..4
+      :: 4..5
+      WHITESPACE: 5..6
+      LIT_TYPE: 6..9
+        PATH: 6..9
+          identifier: 6..9
+      ,: 9..10
+      WHITESPACE: 10..11
+    PARAM: 11..17
+      LIT_TYPE: 11..17
+        PATH: 11..17
+          identifier: 11..17
+    ): 17..18
+    WHITESPACE: 18..19
+  RETURN_TYPE: 19..28
+    ->: 19..21
+    WHITESPACE: 21..22
+    PATH: 22..28
+      identifier: 22..28

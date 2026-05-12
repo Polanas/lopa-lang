@@ -67,11 +67,11 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
 
     let ir = lower_file(db, file);
-    notify_rust::Notification::new()
-        .summary("functions")
-        .body(&ir.functions(db).iter().map(|f| f.name(db)).join(" "))
-        .show()
-        .unwrap();
+    // notify_rust::Notification::new()
+    //     .summary("functions")
+    //     .body(&ir.functions(db).iter().map(|f| f.name(db)).join(" "))
+    //     .show()
+    //     .unwrap();
 
     diagnostics
 }

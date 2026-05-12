@@ -1,0 +1,24 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"a[1](2)[3]\", |p| p.expr())"
+---
+INDEX_EXPR: 0..10
+  CALL_EXPR: 0..7
+    INDEX_EXPR: 0..4
+      NAME_EXPR: 0..1
+        NAME: 0..1
+          identifier: 0..1
+      [: 1..2
+      LIT_EXPR: 2..3
+        int: 2..3
+      ]: 3..4
+    ARG_LIST: 4..7
+      (: 4..5
+      ARG: 5..6
+        LIT_EXPR: 5..6
+          int: 5..6
+      ): 6..7
+  [: 7..8
+  LIT_EXPR: 8..9
+    int: 8..9
+  ]: 9..10

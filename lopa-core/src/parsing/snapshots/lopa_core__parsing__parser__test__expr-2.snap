@@ -1,0 +1,10 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"1+1\", |p| p.expr())"
+---
+BINARY_EXPR: 0..3
+  LIT_EXPR: 0..1
+    int: 0..1
+  +: 1..2
+  LIT_EXPR: 2..3
+    int: 2..3

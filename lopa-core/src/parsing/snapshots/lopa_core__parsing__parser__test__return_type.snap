@@ -1,0 +1,9 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"-> SomeType\", |p| p.return_type())"
+---
+RETURN_TYPE: 0..11
+  ->: 0..2
+  WHITESPACE: 2..3
+  PATH: 3..11
+    identifier: 3..11

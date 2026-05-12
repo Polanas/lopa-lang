@@ -380,6 +380,18 @@ structs! {
         stmts: [Stmt],
         right_curly: T!["}"],
     },
+    IF_EXPR = IfExpr {
+        if_token: T![if],
+        if_condition: Expr,
+        if_branch: BlockExpr,
+        else_token: T![else],
+        else_block[1]: BlockExpr,
+        else_if_expr: IfExpr,
+    },
+    TRY_EXPR = TryExpr {
+        expr: Expr,
+        mark_token: T![?],
+    },
     LIT_EXPR = LitExpr {
         pub fn token(&self) -> Option<SyntaxToken> {
             self.0.children_with_tokens().find_map(NodeOrToken::into_token)
@@ -433,11 +445,82 @@ enums! {
         ParenExpr,
         ReturnExpr,
         LitExpr,
+        TryExpr,
     },
+    // Pattern {
+    //     NamePattern,
+    // },
     TypeExpr {
         PathType,
         NilableType,
         LitType,
         AnyType,
     },
+}
+
+#[cfg(test)]
+mod test {
+    use rowan::ast::AstNode;
+
+    use crate::parsing::{
+        ast::{IfExpr, SyntaxNode, SyntaxToken},
+        parser::Lang,
+    };
+
+    trait AstTest {
+        fn should_eq(&self, expect: &str);
+    }
+
+    impl AstTest for SyntaxNode {
+        #[track_caller]
+        fn should_eq(&self, expect: &str) {
+            assert_eq!(self.to_string().trim(), expect);
+        }
+    }
+
+    impl AstTest for SyntaxToken {
+        #[track_caller]
+        fn should_eq(&self, expect: &str) {
+            assert_eq!(self.to_string(), expect);
+        }
+    }
+
+    #[track_caller]
+    fn parse<N: AstNode<Language = Lang>>(src: &str) -> N {
+        let parse = crate::parsing::parser::parse(src);
+        assert_eq!(parse.1, vec![]);
+        SyntaxNode::new_root(parse.0)
+            .descendants()
+            .find_map(N::cast)
+            .unwrap()
+    }
+
+    #[test]
+    fn if_expr() {
+        let expr = parse::<IfExpr>(
+            "fn main() {
+            if true {1} else {2}
+        }",
+        );
+        assert!(expr.if_token().is_some());
+        assert!(expr.else_token().is_some());
+        expr.if_branch().unwrap().syntax().should_eq("{1}");
+        expr.if_condition().unwrap().syntax().should_eq("true");
+        expr.else_block().unwrap().syntax().should_eq("{2}");
+    }
+
+    #[test]
+    fn else_if_expr() {
+        let expr = parse::<IfExpr>(
+            "fn main() {
+            if true {1} else if false {2}
+        }",
+        );
+        assert!(expr.if_token().is_some());
+        assert!(expr.else_token().is_some());
+        expr.if_branch().unwrap().syntax().should_eq("{1}");
+        expr.if_condition().unwrap().syntax().should_eq("true");
+        assert!(expr.else_block().is_none());
+        expr.else_if_expr().unwrap().syntax().should_eq("if false {2}");
+    }
 }

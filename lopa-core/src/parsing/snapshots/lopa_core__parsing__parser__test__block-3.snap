@@ -1,0 +1,20 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"{ something; something_else; }\", |p| p.block())"
+---
+BLOCK_EXPR: 0..30
+  {: 0..1
+  WHITESPACE: 1..2
+  EXPR_STMT: 2..13
+    NAME_EXPR: 2..11
+      NAME: 2..11
+        identifier: 2..11
+    ;: 11..12
+    WHITESPACE: 12..13
+  EXPR_STMT: 13..29
+    NAME_EXPR: 13..27
+      NAME: 13..27
+        identifier: 13..27
+    ;: 27..28
+    WHITESPACE: 28..29
+  }: 29..30

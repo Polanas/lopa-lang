@@ -128,135 +128,197 @@ def! {
     COMMENT @WHITESPACE_LAST,
 
     #[regex(r"[_]?[A-Za-z_][0-9A-Za-z_]*")]
-    IDENT,
+    IDENT = ["identifier"],
+
     #[regex(r"[\d][\d|_]*\.[\d]+")]
-    FLOAT,
+    FLOAT = ["float"],
+
     #[regex(r"[\d][\d|_]*")]
-    INT,
+    INT = ["int"],
+
     #[regex(r#"""#, lex_string)]
-    STRING,
+    STRING = ["string"],
 
     #[token("(")]
     L_PAREN = ["("] @SYMBOL_FIRST,
+
     #[token(")")]
     R_PAREN = [")"],
+
     #[token("[")]
     L_BRACKET = ["["],
+
     #[token("]")]
     R_BRACKET = ["]"],
+
     #[token("{")]
     L_BRACE = ["{"],
+
     #[token("}")]
-    R_BRACE = ["{"],
+    R_BRACE = ["}"],
+
     #[token("|")]
     BAR = ["|"],
+
     #[token("|=")]
     BAR_EQ = ["|="],
+
     #[token("=")]
     EQ = ["="],
+
     #[token("==")]
     EQ2 = ["=="],
+
     #[token("<")]
-    LT,
+    LT = ["<"],
+
     #[token(">")]
-    GT,
+    GT = [">"],
+
     #[token("<=")]
-    LESS_EQ,
+    LESS_EQ = ["<="],
+
     #[token(">=")]
-    GREATER_EQ,
+    GREATER_EQ = [">="],
+
     #[token("!=")]
     NOT_EQ = ["!="],
+
     #[token(",")]
     COMMA = [","],
+
     #[token("!")]
     BANG = ["!"],
+
     #[token(".")]
     DOT = ["."],
+
     #[token("+")]
     PLUS = ["+"],
+
     #[token("+=")]
     PLUS_EQ = ["+="],
+
     #[token("-")]
     MINUS = ["-"],
+
     #[token("-=")]
     MINUS_EQ = ["-="],
+
     #[token("/")]
-    SLASH = ["/="],
+    SLASH = ["/"],
+
     #[token("/=")]
-    SLASH_EQ = ["/"],
+    SLASH_EQ = ["/="],
+
     #[token("//")]
     SLASH2 = ["//"],
+
     #[token("//=")]
     SLASH2_EQ = ["//="],
+
     #[token("*")]
     STAR = ["*"],
+
     #[token("*=")]
     STAR_EQ = ["*="],
+
     #[token("%")]
     PERCENT = ["%"],
+
     #[token("%=")]
     PERCENT_EQ = ["%="],
+
     #[token(";")]
     SEMI = [";"],
+
     #[token(":")]
     COLON = [":"],
+
     #[token("?")]
     MARK = ["?"],
+
     #[token("->")]
     ARROW = ["->"] @SYMBOL_LAST,
 
+
     #[token("let")]
-    LET_KW @KEYWORD_FIRST,
+    LET_KW = ["let"]  @KEYWORD_FIRST,
+
     #[token("true")]
-    TRUE_KW,
+    TRUE_KW = ["true"],
+
     #[token("false")]
-    FALSE_KW,
+    FALSE_KW = ["false"],
+
     #[token("and")]
-    AND_KW,
+    AND_KW = ["and"],
+
     #[token("or")]
-    OR_KW,
+    OR_KW = ["or"],
+
     #[token("not")]
-    NOT_KW,
+    NOT_KW = ["not"],
+
     #[token("nil")]
-    NIL_KW,
+    NIL_KW = ["nil"],
+
     #[token("return")]
-    RETURN_KW,
+    RETURN_KW = ["return"],
+
     #[token("if")]
-    IF_KW,
+    IF_KW = ["if"],
+
     #[token("else")]
-    ELSE_KW,
+    ELSE_KW = ["else"],
+
     #[token("for")]
-    FOR_KW,
+    FOR_KW = ["for"],
+
     #[token("continue")]
-    CONTINUE_KW,
+    CONTINUE_KW = ["continue"],
+
     #[token("break")]
-    BREAK_KW,
+    BREAK_KW = ["break"],
+
     #[token("while")]
-    WHILE_KW,
+    WHILE_KW = ["while"],
+
     #[token("loop")]
-    LOOP_KW,
+    LOOP_KW = ["loop"],
+
     #[token("in")]
-    IN_KW,
+    IN_KW = ["in"],
+
     #[token("struct")]
-    STRUCT_KW,
+    STRUCT_KW = ["struct"],
+
     #[token("enum")]
-    ENUM_KW,
+    ENUM_KW = ["enum"],
+
     #[token("impl")]
-    IMPL_KW,
+    IMPL_KW = ["impl"],
+
     #[token("match")]
-    MATCH_KW,
+    MATCH_KW = ["match"],
+
     #[token("self")]
-    SELF_KW,
+    SELF_KW = ["self"],
+
     #[token("Self")]
-    SELF_TYPE_KW,
+    SELF_TYPE_KW = ["Self"],
+
     #[token("const")]
-    CONST_KW,
+    CONST_KW = ["const"],
+
     #[token("static")]
-    STATIC_KW,
+    STATIC_KW = ["static"],
+
     #[token("mod")]
-    MOD_KW,
+    MOD_KW = ["mod"],
+
     #[token("fn")]
-    FN_KW @KEYWORD_LAST,
+    FN_KW = ["fn"] @KEYWORD_LAST,
 
     EOF,
     ERROR,
@@ -281,6 +343,7 @@ def! {
     LIT_TYPE,
     ANY_TYPE,
     PATH_TYPE,
+    FN_TYPE,
 
     NAME_EXPR,
     PATH_EXPR,
@@ -295,6 +358,8 @@ def! {
     BINARY_EXPR,
     UNARY_EXPR,
     TRY_EXPR,
+
+    NAME_PATTERN,
 }
 
 impl Syntax {
