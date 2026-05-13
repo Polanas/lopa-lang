@@ -352,7 +352,7 @@ structs! {
     },
     INDEX_EXPR = IndexExpr {
         base: Expr,
-        neft_bracket_token: T!["["],
+        left_bracket_token: T!["["],
         index[1]: Expr,
         right_bracket_token: T!["]"],
     },

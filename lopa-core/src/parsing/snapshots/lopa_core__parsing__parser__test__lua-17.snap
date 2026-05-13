@@ -1,6 +1,6 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"lua { print('1'); }\", |p| p.lua_block())"
+expression: "parse(\"lua { print(...); }\", |p| { p.lua_block(); })"
 ---
 LUA_BLOCK_EXPR: 0..19 
   LUA_KW: 0..3 "lua"
@@ -16,7 +16,7 @@ LUA_BLOCK_EXPR: 0..19
           L_PAREN: 11..12 "("
           LUA_ARG: 12..15 
             LUA_LIT_EXPR: 12..15 
-              SINGLE_STRING: 12..15 "'1'"
+              DOT3: 12..15 "..."
           R_PAREN: 15..16 ")"
     SEMI: 16..17 ";"
     WHITESPACE: 17..18 

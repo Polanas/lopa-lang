@@ -7,17 +7,17 @@ LUA_BLOCK_EXPR: 0..41
   WHITESPACE: 3..4 
   L_BRACE: 4..5 "{"
   WHITESPACE: 5..6 
-  IDENT: 6..11 "local"
-  WHITESPACE: 11..12 
-  EXPR_STMT: 12..40 
-    BINARY_EXPR: 12..38 
-      LIT_EXPR: 12..19 
-        IDENT: 12..18 "string"
-        WHITESPACE: 18..19 
-      EQ: 19..20 "="
-      WHITESPACE: 20..21 
-      LIT_EXPR: 21..38 
+  LUA_LOCAL_STMT: 6..38 
+    IDENT: 6..11 "local"
+    WHITESPACE: 11..12 
+    LUA_NAME: 12..19 
+      IDENT: 12..18 "string"
+      WHITESPACE: 18..19 
+    EQ: 19..20 "="
+    WHITESPACE: 20..21 
+    LUA_MULTI_EXPR: 21..38 
+      LUA_LIT_EXPR: 21..38 
         BRACKET_STRING: 21..38 "[[ hello there ]]"
-    SEMI: 38..39 ";"
-    WHITESPACE: 39..40 
+  SEMI: 38..39 ";"
+  WHITESPACE: 39..40 
   R_BRACE: 40..41 "}"

@@ -1,0 +1,27 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua { repeat print() until false }\", |p| { p.lua_block(); })"
+---
+LUA_BLOCK_EXPR: 0..34 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..6 
+  LUA_REPEAT_STMT: 6..33 
+    IDENT: 6..12 "repeat"
+    WHITESPACE: 12..13 
+    LUA_STMT_EXPR: 13..21 
+      LUA_PREFIX_MULTI_EXPR: 13..21 
+        LUA_FIELD_CALL_EXPR: 13..21 
+          LUA_LIT_EXPR: 13..18 
+            IDENT: 13..18 "print"
+          LUA_ARG_LIST: 18..21 
+            L_PAREN: 18..19 "("
+            R_PAREN: 19..20 ")"
+            WHITESPACE: 20..21 
+    IDENT: 21..26 "until"
+    WHITESPACE: 26..27 
+    LUA_LIT_EXPR: 27..33 
+      FALSE_KW: 27..32 "false"
+      WHITESPACE: 32..33 
+  R_BRACE: 33..34 "}"

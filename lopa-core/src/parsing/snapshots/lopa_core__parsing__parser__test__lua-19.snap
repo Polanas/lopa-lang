@@ -1,0 +1,56 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua {\n                if true then\n                    yan()\n                elseif false then\n                    yay()\n                else \n                    nay()\n                end\n            }\",\n|p| { p.lua_block(); })"
+---
+LUA_BLOCK_EXPR: 0..202 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..22 
+  LUA_IF_STMT: 22..201 
+    IF_KW: 22..24 "if"
+    WHITESPACE: 24..25 
+    LUA_LIT_EXPR: 25..30 
+      TRUE_KW: 25..29 "true"
+      WHITESPACE: 29..30 
+    IDENT: 30..34 "then"
+    WHITESPACE: 34..55 
+    LUA_STMT_EXPR: 55..77 
+      LUA_PREFIX_MULTI_EXPR: 55..77 
+        LUA_FIELD_CALL_EXPR: 55..77 
+          LUA_LIT_EXPR: 55..58 
+            IDENT: 55..58 "yan"
+          LUA_ARG_LIST: 58..77 
+            L_PAREN: 58..59 "("
+            R_PAREN: 59..60 ")"
+            WHITESPACE: 60..77 
+    IDENT: 77..83 "elseif"
+    WHITESPACE: 83..84 
+    LUA_LIT_EXPR: 84..90 
+      FALSE_KW: 84..89 "false"
+      WHITESPACE: 89..90 
+    IDENT: 90..94 "then"
+    WHITESPACE: 94..115 
+    LUA_STMT_EXPR: 115..137 
+      LUA_PREFIX_MULTI_EXPR: 115..137 
+        LUA_FIELD_CALL_EXPR: 115..137 
+          LUA_LIT_EXPR: 115..118 
+            IDENT: 115..118 "yay"
+          LUA_ARG_LIST: 118..137 
+            L_PAREN: 118..119 "("
+            R_PAREN: 119..120 ")"
+            WHITESPACE: 120..137 
+    ELSE_KW: 137..141 "else"
+    WHITESPACE: 141..163 
+    LUA_STMT_EXPR: 163..185 
+      LUA_PREFIX_MULTI_EXPR: 163..185 
+        LUA_FIELD_CALL_EXPR: 163..185 
+          LUA_LIT_EXPR: 163..166 
+            IDENT: 163..166 "nay"
+          LUA_ARG_LIST: 166..185 
+            L_PAREN: 166..167 "("
+            R_PAREN: 167..168 ")"
+            WHITESPACE: 168..185 
+    IDENT: 185..188 "end"
+    WHITESPACE: 188..201 
+  R_BRACE: 201..202 "}"

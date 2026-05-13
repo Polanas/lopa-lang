@@ -7,43 +7,48 @@ LUA_BLOCK_EXPR: 0..51
   WHITESPACE: 3..4 
   L_BRACE: 4..5 "{"
   WHITESPACE: 5..6 
-  LUA_FUNCTION: 6..50 
+  LUA_FUNCTION_STMT: 6..50 
     IDENT: 6..14 "function"
     WHITESPACE: 14..15 
-    NAME: 15..19 
+    LUA_NAME: 15..19 
       IDENT: 15..19 "test"
     COLON: 19..20 ":"
-    NAME: 20..24 
+    LUA_NAME: 20..24 
       IDENT: 20..24 "func"
-    PARAM_LIST: 24..32 
+    LUA_PARAM_LIST: 24..32 
       L_PAREN: 24..25 "("
-      IDENT: 25..26 "a"
+      LUA_PARAM: 25..26 
+        IDENT: 25..26 "a"
       COMMA: 26..27 ","
-      IDENT: 27..28 "b"
+      LUA_PARAM: 27..28 
+        IDENT: 27..28 "b"
       COMMA: 28..29 ","
-      IDENT: 29..30 "c"
+      LUA_PARAM: 29..30 
+        IDENT: 29..30 "c"
       R_PAREN: 30..31 ")"
       WHITESPACE: 31..32 
-    LUA_BLOCK: 32..50 
-      EXPR_STMT: 32..39 
-        BINARY_EXPR: 32..37 
-          LIT_EXPR: 32..34 
+    LUA_BLOCK_STMT: 32..50 
+      LUA_STMT_EXPR: 32..39 
+        LUA_PREFIX_MULTI_EXPR: 32..34 
+          LUA_LIT_EXPR: 32..34 
             IDENT: 32..33 "a"
             WHITESPACE: 33..34 
-          EQ: 34..35 "="
-          WHITESPACE: 35..36 
-          LIT_EXPR: 36..37 
+        EQ: 34..35 "="
+        WHITESPACE: 35..36 
+        LUA_MULTI_EXPR: 36..37 
+          LUA_LIT_EXPR: 36..37 
             INT: 36..37 "1"
         SEMI: 37..38 ";"
         WHITESPACE: 38..39 
-      EXPR_STMT: 39..46 
-        BINARY_EXPR: 39..44 
-          LIT_EXPR: 39..41 
+      LUA_STMT_EXPR: 39..46 
+        LUA_PREFIX_MULTI_EXPR: 39..41 
+          LUA_LIT_EXPR: 39..41 
             IDENT: 39..40 "b"
             WHITESPACE: 40..41 
-          EQ: 41..42 "="
-          WHITESPACE: 42..43 
-          LIT_EXPR: 43..44 
+        EQ: 41..42 "="
+        WHITESPACE: 42..43 
+        LUA_MULTI_EXPR: 43..44 
+          LUA_LIT_EXPR: 43..44 
             INT: 43..44 "2"
         SEMI: 44..45 ";"
         WHITESPACE: 45..46 

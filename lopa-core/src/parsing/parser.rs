@@ -90,6 +90,7 @@ pub struct Parser<'a> {
     errors: Vec<ParseError>,
 }
 
+//TODO: goto's
 pub struct LuaParser<'a, 'b> {
     parser: &'b mut Parser<'a>,
 }
@@ -177,7 +178,18 @@ impl<'a> Parser<'a> {
             Some(self.input.nth_span(0)),
         );
     }
+
+    fn expect_advance(&mut self, token: Syntax) {
+        if self.ate(token) {
+            return;
+        }
+
+        self.advance_with_err(ErrorKind::ExpectedToken(token));
+    }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Semicolon;
 
 impl<'a> Parser<'a> {
     fn parse(mut self) -> (Cst, Vec<ParseError>) {
@@ -361,13 +373,11 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn stmt_expr(&mut self) {
+    fn stmt_expr(&mut self) -> Option<Semicolon> {
         self.with(Syntax::EXPR_STMT, |this| {
             this.expr();
-            if this.input.at(T![;]) {
-                this.expect(T![;]);
-            }
-        });
+            this.ate(T![;]).then_some(Semicolon)
+        })
     }
 
     fn prefix_expr(&mut self) -> Option<()> {
@@ -435,7 +445,7 @@ impl<'a> Parser<'a> {
     }
 
     fn arg_list(&mut self) {
-        self.with(Syntax::ARG_LIST, |this| {
+        self.with(ARG_LIST, |this| {
             this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(EXPR_FIRST) {
@@ -582,7 +592,9 @@ impl<'a> Parser<'a> {
                     }
                     _ => {
                         if this.input.at_any(EXPR_FIRST) {
-                            this.stmt_expr()
+                            if this.stmt_expr().is_none() {
+                                break;
+                            }
                         } else {
                             if this.input.at_any(STMT_EXPR_RECOVERY) {
                                 break;
@@ -639,10 +651,27 @@ impl<'a, 'b> LuaParser<'a, 'b> {
             this.parser.expect(T!["{"]);
 
             while !this.parser.input.at(T!["}"]) && !this.parser.input.at(EOF) {
-                this.stmt();
+                if this.stmt().is_none() {
+                    break;
+                }
             }
             this.parser.expect(T!["}"]);
         });
+    }
+
+    fn expect_advance_ident(&mut self, ident: &str) {
+        let next_span = self.parser.input.nth_span(0);
+        if !self.parser.input.at(IDENT) {
+            self.parser
+                .advance_with_err(ErrorKind::Other(format!("expected {}", ident)));
+            return;
+        }
+
+        self.parser.expect(IDENT);
+        if &self.parser.input.content[next_span] != ident {
+            self.parser
+                .advance_with_err(ErrorKind::Other(format!("expected {}", ident)));
+        }
     }
 
     fn expect_ident(&mut self, ident: &str) {
@@ -655,66 +684,174 @@ impl<'a, 'b> LuaParser<'a, 'b> {
         }
     }
 
-    fn stmt(&mut self) {
+    fn stmt(&mut self) -> Option<Semicolon> {
         match self.parser.input.peek() {
             T![return] => {
                 self.return_stmt();
+                Some(Semicolon)
             }
             T![break] => {
                 self.break_stmt();
+                Some(Semicolon)
+            }
+            T![while] => {
+                self.while_stmt();
+                Some(Semicolon)
+            }
+            T![if] => {
+                self.if_stmt();
+                Some(Semicolon)
+            }
+            T![for] => {
+                self.for_stmt();
+                Some(Semicolon)
             }
             T![;] => {
                 self.parser.expect(T![;]);
+                Some(Semicolon)
             }
             IDENT => {
                 let Some(next) = self.parser.input.nth_token_text_skip_whitespace(0) else {
                     //TODO: test this branch
                     self.parser.advance_with_err(ErrorKind::ExpectedExpression);
-                    return;
+                    return Some(Semicolon);
                 };
 
                 match next {
-                    "do" => self.with(LUA_BLOCK, |this| {
+                    "do" => self.with(LUA_BLOCK_STMT, |this| {
                         this.expect_ident("do");
-                        this.block();
+                        this.block(|t| t == "end");
+                        this.expect_ident("end");
+                        Some(Semicolon)
                     }),
+                    "repeat" => {
+                        self.repeat_stmt();
+                        Some(Semicolon)
+                    }
                     "local" => {
                         self.local_stmt();
+                        Some(Semicolon)
                     }
                     "function" => {
                         self.function_stmt();
+                        Some(Semicolon)
                     }
-                    a => {
-                        self.stmt_expr();
-                    }
+                    _ => self.stmt_expr(),
                 }
             }
-            _ => {
-                self.stmt_expr();
-            }
+            _ => self.stmt_expr(),
         }
     }
 
     fn break_stmt(&mut self) {
-        self.parser.expect(T![break]);
+        self.with(LUA_BREAK_EXPR, |this| {
+            this.parser.expect(T![break]);
+            this.parser.expect(T![;]);
+        });
+    }
+
+    fn if_stmt(&mut self) {
+        self.with(LUA_IF_STMT, |this| {
+            this.parser.expect(T![if]);
+            this.expr();
+            this.expect_ident("then");
+            loop {
+                this.block(|t| t == "else" || t == "elseif" || t == "end");
+                match this.parser.input.nth_token_text_skip_whitespace(0) {
+                    Some("elseif") => {
+                        this.expect_ident("elseif");
+                        this.expr();
+                        this.expect_ident("then");
+                    }
+                    Some("else") => {
+                        this.parser.expect_advance(T![else]);
+                    }
+                    Some("end") => {
+                        this.expect_advance_ident("end");
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+        })
+    }
+    fn for_stmt(&mut self) {
+        self.with(LUA_FOR_STMT, |this| {
+            this.parser.expect(T![for]);
+            if this.parser.input.nth_skip_whitespace(1) == T![=] {
+                this.name();
+                this.parser.expect(T![=]);
+
+                this.expr();
+                if this.parser.ate(T![,]) {
+                    this.expr();
+                }
+                if this.parser.ate(T![,]) {
+                    this.expr();
+                }
+
+                this.expect_ident("do");
+                this.block(|t| t == "end");
+                this.expect_ident("end");
+            } else {
+                this.name();
+                while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
+                    this.name();
+                }
+                this.parser.expect(T![in]);
+                this.expr();
+                this.expect_ident("do");
+                this.block(|t| t == "end");
+                this.expect_ident("end");
+            }
+        });
+    }
+
+    fn while_stmt(&mut self) {
+        self.with(LUA_WHILE_STMT, |this| {
+            this.parser.expect(T![while]);
+            this.expr();
+            this.expect_ident("do");
+            this.block(|t| t == "end");
+            this.expect_ident("end");
+        });
+    }
+
+    fn repeat_stmt(&mut self) {
+        self.with(LUA_REPEAT_STMT, |this| {
+            this.expect_ident("repeat");
+            this.block(|t| t == "until");
+            this.expect_ident("until");
+            this.expr();
+        });
     }
 
     fn local_stmt(&mut self) {
-        self.expect_ident("local");
+        self.with(LUA_LOCAL_STMT, |this| {
+            this.expect_ident("local");
+            this.name();
+            while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
+                this.name();
+            }
+            this.parser.expect(T![=]);
+            this.expr_multi();
+            this.parser.expect(T![;]);
+        });
     }
 
     fn function_stmt(&mut self) {
-        self.with(LUA_FUNCTION, |this| {
+        self.with(LUA_FUNCTION_STMT, |this| {
             this.expect_ident("function");
-            this.parser.name();
+            this.name();
 
             if let token @ (T![.] | T![:]) = this.parser.input.peek() {
                 this.parser.expect(token);
-                this.parser.name();
+                this.name();
             }
             this.param_list();
-            this.with(LUA_BLOCK, |this| {
-                this.block();
+            this.with(LUA_BLOCK_STMT, |this| {
+                this.block(|t| t == "end");
+                this.expect_ident("end");
             });
             this.parser.ate(T![;]);
         });
@@ -722,27 +859,64 @@ impl<'a, 'b> LuaParser<'a, 'b> {
 
     //TODO: implement recovery
     fn param_list(&mut self) {
-        self.with(PARAM_LIST, |this| {
+        self.with(LUA_PARAM_LIST, |this| {
             this.parser.expect(T!["("]);
 
             if !this.parser.input.at(T![")"]) {
-                this.parser.expect(IDENT);
+                this.param();
                 while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
-                    this.parser.expect(IDENT);
+                    this.param();
                 }
             }
             this.parser.expect(T![")"]);
         });
     }
 
-    fn return_stmt(&mut self) {
-        self.parser.expect(T![return]);
+    fn param(&mut self) {
+        self.with(LUA_PARAM, |this| {
+            this.parser.expect(IDENT);
+        })
     }
 
-    fn stmt_expr(&mut self) {
-        self.with(EXPR_STMT, |this| {
+    fn return_stmt(&mut self) {
+        self.with(LUA_RETURN_STMT, |this| {
+            this.parser.expect(T![return]);
+            this.expr_multi();
+            this.parser.expect(T![;]);
+        })
+    }
+
+    fn stmt_expr(&mut self) -> Option<Semicolon> {
+        self.with(LUA_STMT_EXPR, |this| {
+            this.prefix_expr_multi();
+            if this.parser.ate(T![=]) {
+                this.expr_multi();
+            }
+            this.parser.ate(T![;]).then_some(Semicolon)
+        })
+    }
+
+    fn prefix_expr_multi(&mut self) {
+        self.with(LUA_PREFIX_MULTI_EXPR, |this| {
+            this.prefix_expr();
+            if this.parser.ate(T![,]) {
+                this.prefix_expr();
+                while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
+                    this.prefix_expr();
+                }
+            }
+        });
+    }
+
+    fn expr_multi(&mut self) {
+        self.with(LUA_MULTI_EXPR, |this| {
             this.expr();
-            this.parser.ate(T![;]);
+            if this.parser.ate(T![,]) {
+                this.expr();
+                while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
+                    this.expr();
+                }
+            }
         });
     }
 
@@ -753,7 +927,7 @@ impl<'a, 'b> LuaParser<'a, 'b> {
     fn expr_bp(&mut self, min_bp: u8) {
         let checkpoint = self.parser.builder.checkpoint();
         match Self::prefix_bp(self.parser.input.peek()) {
-            Some(rbp) => self.with(Syntax::UNARY_EXPR, |this| {
+            Some(rbp) => self.with(LUA_UNARY_EXPR, |this| {
                 this.parser.expect(this.parser.input.peek());
                 this.expr_bp(rbp);
             }),
@@ -767,26 +941,6 @@ impl<'a, 'b> LuaParser<'a, 'b> {
         loop {
             let op = self.parser.input.peek();
 
-            if matches!(op, T![.] | T![:]) {
-                self.with_at(LUA_FIELD_ACCESS, checkpoint, |this| {
-                    this.parser.expect(op);
-                    this.parser.name();
-
-                    loop {
-                        match this.parser.input.peek() {
-                            T!["("] => {
-                                this.with_at(Syntax::CALL_EXPR, checkpoint, |this| this.arg_list());
-                            }
-                            T!["["] => {
-                                this.with_at(Syntax::INDEX_EXPR, checkpoint, |this| this.index());
-                            }
-                            _ => break,
-                        }
-                    }
-                });
-                continue;
-            }
-
             let Some((left_bp, rigth_bp)) = Self::infix_bp(op) else {
                 break;
             };
@@ -798,7 +952,7 @@ impl<'a, 'b> LuaParser<'a, 'b> {
             self.parser.expect(op);
 
             if self.at_expr() {
-                self.with_at(BINARY_EXPR, checkpoint, |this| {
+                self.with_at(LUA_BINARY_EXPR, checkpoint, |this| {
                     this.expr_bp(rigth_bp);
                 })
             } else {
@@ -834,18 +988,24 @@ impl<'a, 'b> LuaParser<'a, 'b> {
         self.expr();
         self.parser.expect(T!["]"]);
     }
+
     fn arg_list(&mut self) {
-        self.with(Syntax::ARG_LIST, |this| {
+        self.with(LUA_ARG_LIST, |this| {
             this.parser.expect(T!["("]);
             if !this.parser.input.at(T![")"]) {
-                this.parser.expr();
-
+                this.arg();
                 while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
-                    this.parser.expr();
+                    this.arg();
                 }
             }
             this.parser.expect(T![")"]);
         })
+    }
+
+    fn arg(&mut self) {
+        self.with(LUA_ARG, |this| {
+            this.expr();
+        });
     }
 
     fn prefix_expr(&mut self) -> Option<()> {
@@ -862,16 +1022,27 @@ impl<'a, 'b> LuaParser<'a, 'b> {
             | FALSE_KW
             | NIL_KW
             | T![...] => {
-                self.parser.with(LIT_EXPR, |this| {
-                    this.ate(token);
-                });
+                if self.parser.input.peek_text() == "function" {
+                    self.with(LUA_FUNCTION_EXPR, |this| {
+                        this.expect_ident("function");
+                        this.param_list();
+                        this.with(LUA_BLOCK_STMT, |this| {
+                            this.block(|t| t == "end");
+                            this.expect_ident("end");
+                        });
+                    });
+                } else {
+                    self.parser.with(LUA_LIT_EXPR, |this| {
+                        this.ate(token);
+                    });
+                }
             }
             T!["{"] => {
                 self.with(LUA_TABLE_EXPR, |this| {
                     this.parser.expect(T!["{"]);
                     while !this.parser.input.at(T!["}"]) && !this.parser.input.at(EOF) {
                         if this.parser.input.nth_skip_whitespace(1) == T![=] {
-                            this.parser.expect(IDENT);
+                            this.name();
                             this.parser.expect(T![=]);
                             this.expr_bp(2);
                         } else if this.parser.input.at(T!["["]) {
@@ -896,51 +1067,74 @@ impl<'a, 'b> LuaParser<'a, 'b> {
         loop {
             match self.parser.input.peek() {
                 T!["("] => {
-                    self.with_at(Syntax::CALL_EXPR, checkpoint, |this| this.arg_list());
+                    self.with_at(LUA_FIELD_CALL_EXPR, checkpoint, |this| this.arg_list());
                 }
                 T!["["] => {
-                    self.with_at(Syntax::INDEX_EXPR, checkpoint, |this| this.index());
+                    self.with_at(LUA_FIELD_INDEX_EXPR, checkpoint, |this| this.index());
                 }
                 _ => break,
             }
+        }
+        while matches!(self.parser.input.peek(), T![.] | T![:]) {
+            self.with_at(LUA_FIELD_ACCESS_EXPR, checkpoint, |this| {
+                this.parser.expect(this.parser.input.peek());
+                this.name();
+
+                loop {
+                    match this.parser.input.peek() {
+                        T!["("] => {
+                            this.with_at(LUA_CALL_EXPR, checkpoint, |this| this.arg_list());
+                        }
+                        T!["["] => {
+                            this.with_at(LUA_INDEX_EXPR, checkpoint, |this| this.index());
+                        }
+                        _ => break,
+                    }
+                }
+            });
         }
         Some(())
     }
 
     fn prefix_bp(syntax: Syntax) -> Option<u8> {
         Some(match syntax {
-            T![not] => 17,
-            T![-] => 18,
+            T![not] => 13,
+            T![-] => 14,
             _ => return None,
         })
     }
 
     fn infix_bp(syntax: Syntax) -> Option<(u8, u8)> {
         Some(match syntax {
-            T![,] => (1, 2),
-            T![=] => (3, 4),
-            T![or] => (5, 6),
-            T![and] => (7, 8),
-            T![<] | T![>] | T![<=] | T![>=] | T![==] | T![~=] => (9, 10),
-            T![..] => (12, 11),
-            T![+] | T![-] => (13, 14),
-            T![*] | T![/] => (15, 16),
+            T![or] => (1, 2),
+            T![and] => (3, 4),
+            T![<] | T![>] | T![<=] | T![>=] | T![==] | T![~=] => (5, 6),
+            T![..] => (8, 7),
+            T![+] | T![-] => (9, 10),
+            T![*] | T![/] => (11, 12),
             _ => return None,
         })
     }
 
-    fn block(&mut self) {
+    fn name(&mut self) {
+        self.with(LUA_NAME, |this| {
+            this.parser.expect(IDENT);
+        })
+    }
+
+    fn block(&mut self, stop_condition: impl Fn(&str) -> bool) {
         while self
             .parser
             .input
-            .nth_token_text_skip_whitespace(0)
-            .map(|t| t != "end")
+            .nth_token_text(0)
+            .map(|t| !stop_condition(t))
             .unwrap_or(false)
             && !self.parser.input.at(EOF)
         {
-            self.stmt();
+            if self.stmt().is_none() {
+                break;
+            }
         }
-        self.expect_ident("end");
     }
 }
 
@@ -949,6 +1143,7 @@ pub enum ErrorKind {
     ExpectedToken(Syntax),
     ExpectedTokens(Vec<Syntax>),
     ExpectedExpression,
+    ExpectedOperator,
     ExpectedArgument,
     ExpectedStatement,
     ExpectedType,
@@ -970,6 +1165,7 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedParameter => "expected parameter",
             Self::ExpectedPattern => "expected pattern",
             Self::ExpectedItem => "expected item",
+            Self::ExpectedOperator => "expected operator",
             Self::Other(text) => text,
         }
         .fmt(f)
@@ -1075,8 +1271,21 @@ impl<'a> Input<'a> {
         Some(&self.content[next_span])
     }
 
+    fn nth_token_text(&self, offset: usize) -> Option<&str> {
+        if self.nth(offset) == EOF {
+            return None;
+        }
+        let next_span = self.nth_span_skip_whitespace(offset);
+        Some(&self.content[next_span])
+    }
+
     fn peek(&self) -> Syntax {
         self.nth(0)
+    }
+
+    fn peek_text(&self) -> &str {
+        let span = self.nth_span(0);
+        &self.content[span]
     }
 
     fn at(&self, token: Syntax) -> bool {
@@ -1236,10 +1445,12 @@ mod test {
 
     #[test]
     fn stmt_expr() {
-        insta::assert_snapshot!(parse("a;", |p| p.stmt_expr()));
-        insta::assert_snapshot!(parse("1+1;", |p| p.stmt_expr()));
-        insta::assert_snapshot!(parse("print();", |p| p.stmt_expr()));
-        insta::assert_snapshot!(parse("no_semi % idk", |p| p.stmt_expr()));
+        insta::assert_snapshot!(parse("a;", |p| {
+            p.stmt_expr();
+        }));
+        insta::assert_snapshot!(parse("1+1;", |p| { _ = p.stmt_expr() }));
+        insta::assert_snapshot!(parse("print();", |p| { _ = p.stmt_expr() }));
+        insta::assert_snapshot!(parse("no_semi % idk", |p| { _ = p.stmt_expr() }));
     }
 
     #[test]
@@ -1272,7 +1483,6 @@ mod test {
 
     #[test]
     fn numbers() {
-
         insta::assert_snapshot!(parse("10.10", |p| p.expr()));
         insta::assert_snapshot!(parse("1_000_000", |p| p.expr()));
     }
@@ -1280,7 +1490,10 @@ mod test {
     #[test]
     fn lua() {
         insta::assert_snapshot!(parse("lua {}", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { x = { [1] = 1, 2, 3, a=1,b=3, [3]=1 }; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse(
+            "lua { x = { [1] = 1, 2, 3, a=1,b=3, [3]=1 }; }",
+            |p| p.lua_block()
+        ));
         insta::assert_snapshot!(parse(
             "lua { function func(a,b,c) a = 1; b = 2; end }",
             |p| p.lua_block()
@@ -1296,8 +1509,68 @@ mod test {
         insta::assert_snapshot!(parse("lua { call(1)[1.5](2)[2.5](3); }", |p| p.lua_block()));
         insta::assert_snapshot!(parse("lua { local string = [[ hello there ]]; }", |p| p
             .lua_block()));
-        insta::assert_snapshot!(parse("lua { x = vec2.x.y.z; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { x = vec2.x.y; }", |p| p.lua_block()));
         insta::assert_snapshot!(parse("lua { x.y = 1; }", |p| p.lua_block()));
         insta::assert_snapshot!(parse("lua { print('1'); }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { x.y()().x.x().y[1][2](),x = 1,2; }", |p| p
+            .lua_block()));
+        insta::assert_snapshot!(parse("lua { return 1,2,3; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { break; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { local a,b,c = 1, 'string', nil; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { a,b = 1,2; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { while true do print(); break; end  }", |p| p
+            .lua_block()));
+        insta::assert_snapshot!(parse("lua { print(...); }", |p| {
+            p.lua_block();
+        }));
+        insta::assert_snapshot!(parse("lua { repeat print() until false }", |p| {
+            p.lua_block();
+        }));
+        insta::assert_snapshot!(parse(
+            "lua {
+                if true then
+                    yan()
+                elseif false then
+                    yay()
+                else 
+                    nay()
+                end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                for i=1,2,3 do end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                for i = 1,10 do end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                for a,b,c,d in {} do end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                local x = function() end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
     }
 }
