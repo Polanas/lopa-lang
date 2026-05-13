@@ -1,0 +1,43 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua { call(1)[1.5](2)[2.5](3); }\", |p| p.lua_block())"
+---
+LUA_BLOCK_EXPR: 0..32 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..6 
+  EXPR_STMT: 6..31 
+    CALL_EXPR: 6..29 
+      INDEX_EXPR: 6..26 
+        CALL_EXPR: 6..21 
+          INDEX_EXPR: 6..18 
+            CALL_EXPR: 6..13 
+              LIT_EXPR: 6..10 
+                IDENT: 6..10 "call"
+              ARG_LIST: 10..13 
+                L_PAREN: 10..11 "("
+                LIT_EXPR: 11..12 
+                  INT: 11..12 "1"
+                R_PAREN: 12..13 ")"
+            L_BRACKET: 13..14 "["
+            LIT_EXPR: 14..17 
+              FLOAT: 14..17 "1.5"
+            R_BRACKET: 17..18 "]"
+          ARG_LIST: 18..21 
+            L_PAREN: 18..19 "("
+            LIT_EXPR: 19..20 
+              INT: 19..20 "2"
+            R_PAREN: 20..21 ")"
+        L_BRACKET: 21..22 "["
+        LIT_EXPR: 22..25 
+          FLOAT: 22..25 "2.5"
+        R_BRACKET: 25..26 "]"
+      ARG_LIST: 26..29 
+        L_PAREN: 26..27 "("
+        LIT_EXPR: 27..28 
+          INT: 27..28 "3"
+        R_PAREN: 28..29 ")"
+    SEMI: 29..30 ";"
+    WHITESPACE: 30..31 
+  R_BRACE: 31..32 "}"

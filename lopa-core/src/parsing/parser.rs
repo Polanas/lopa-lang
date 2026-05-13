@@ -65,16 +65,18 @@ const STMT_EXPR_RECOVERY: TokenSet =
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
 const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
-    T![-],
-    T![not],
     INT,
     FLOAT,
     STRING,
-    T!["["],
-    T!["{"],
+    T![true],
+    T![false],
+    T![not],
+    T![-],
+    T![lua],
+    T![nil],
     T![return],
     T![if],
-    T![|],
+    T!["{"],
     T!["("],
 ]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
@@ -86,6 +88,10 @@ pub struct Parser<'a> {
     input: Input<'a>,
     builder: GreenNodeBuilder<'static>,
     errors: Vec<ParseError>,
+}
+
+pub struct LuaParser<'a, 'b> {
+    parser: &'b mut Parser<'a>,
 }
 
 impl<'a> Parser<'a> {
@@ -171,17 +177,6 @@ impl<'a> Parser<'a> {
             Some(self.input.nth_span(0)),
         );
     }
-
-    fn expect_any(&mut self, tokens: &[Syntax]) {
-        if self.ate_any(tokens) {
-            return;
-        }
-
-        self.add_error(
-            ErrorKind::ExpectedTokens(tokens.into()),
-            Some(self.input.nth_span(0)),
-        );
-    }
 }
 
 impl<'a> Parser<'a> {
@@ -191,7 +186,7 @@ impl<'a> Parser<'a> {
     }
 
     fn file(&mut self) {
-        self.with(Syntax::FILE, |this| {
+        self.with(FILE, |this| {
             this.whitespace();
             while !this.input.at(EOF) {
                 this.item();
@@ -214,7 +209,7 @@ impl<'a> Parser<'a> {
     }
 
     fn mod_item(&mut self) {
-        self.with(Syntax::MOD_ITEM, |this| {
+        self.with(MOD_ITEM, |this| {
             this.expect(T![mod]);
             this.name();
 
@@ -231,7 +226,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_item(&mut self) {
-        self.with(Syntax::FN_ITEM, |this| {
+        self.with(FN_ITEM, |this| {
             this.expect(T![fn]);
 
             this.name();
@@ -249,7 +244,7 @@ impl<'a> Parser<'a> {
 
     fn path(&mut self) {
         if self.input.at(Syntax::IDENT) {
-            self.with(Syntax::PATH, |this| {
+            self.with(PATH, |this| {
                 this.expect(IDENT);
                 while this.at_path_sep(0) && !this.input.at(EOF) {
                     this.expect(T![:]);
@@ -260,34 +255,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn name(&mut self) {
-        self.with(Syntax::NAME, |this| {
-            this.expect(IDENT);
-        })
-    }
-
     fn return_type(&mut self) {
-        self.with(Syntax::RETURN_TYPE, |this| {
+        self.with(RETURN_TYPE, |this| {
             this.expect(T![->]);
             this.type_expr();
         });
     }
 
-    fn param(&mut self) {
-        self.with(Syntax::PARAM, |this| {
-            this.pattern();
-            this.expect(T![:]);
-            this.type_expr();
-            if this.ate(T![=]) {
-                this.expr();
-            }
-            this.ate(T![,]);
-        })
-    }
-
     fn param_list(&mut self) {
-        self.with(Syntax::PARAM_LIST, |this| {
-            this.expect(T!("("));
+        self.with(PARAM_LIST, |this| {
+            this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at(IDENT) {
                     this.param();
@@ -299,6 +276,18 @@ impl<'a> Parser<'a> {
                 }
             }
             this.expect(T!(")"));
+        })
+    }
+
+    fn param(&mut self) {
+        self.with(PARAM, |this| {
+            this.pattern();
+            this.expect(T![:]);
+            this.type_expr();
+            if this.ate(T![=]) {
+                this.expr();
+            }
+            this.ate(T![,]);
         })
     }
 
@@ -318,14 +307,14 @@ impl<'a> Parser<'a> {
                     if !is_path {
                         match &self.input.content[next_span] {
                             "int" | "float" | "string" | "bool" => {
-                                self.with_at(Syntax::LIT_TYPE, checkpoint, |_| {})
+                                self.with_at(LIT_TYPE, checkpoint, |_| {})
                             }
-                            "any" => self.with_at(Syntax::ANY_TYPE, checkpoint, |_| {}),
+                            "any" => self.with_at(ANY_TYPE, checkpoint, |_| {}),
                             _ => {}
                         }
                     }
                     if self.ate(T![?]) {
-                        self.with_at(Syntax::NILABLE_TYPE, checkpoint, |_| {});
+                        self.with_at(NILABLE_TYPE, checkpoint, |_| {});
                     }
                 }
             }
@@ -363,7 +352,7 @@ impl<'a> Parser<'a> {
 
     fn fn_type_param(&mut self) {
         self.with(Syntax::PARAM, |this| {
-            if this.input.nth(1) == T![:] {
+            if this.input.nth_skip_whitespace(1) == T![:] {
                 this.name();
                 this.expect(T![:]);
             }
@@ -382,10 +371,41 @@ impl<'a> Parser<'a> {
     }
 
     fn prefix_expr(&mut self) -> Option<()> {
-        match self.input.peek() {
+        let token = self.input.peek();
+        match token {
             T![return] => self.return_expr(),
             T![if] => self.if_expr(),
-            _ => return self.expr_primary(),
+            INT | FLOAT | STRING | TRUE_KW | FALSE_KW | NIL_KW | SINGLE_STRING | BRACKET_STRING => {
+                self.with(Syntax::LIT_EXPR, |this| {
+                    this.ate(token);
+                });
+            }
+            T!["("] => {
+                self.with(Syntax::PATH_EXPR, |this| {
+                    this.expect(T!["("]);
+                    this.expr();
+                    this.expect(T![")"]);
+                });
+            }
+            T!["{"] => {
+                self.block();
+            }
+            T![lua] => {
+                self.lua_block();
+            }
+            IDENT => {
+                if self.at_path_sep(1) {
+                    self.with(Syntax::PATH_EXPR, |this| {
+                        this.path();
+                    });
+                } else {
+                    self.with(Syntax::NAME_EXPR, |this| this.name());
+                }
+            }
+            _ => {
+                self.advance_with_err(ErrorKind::ExpectedExpression);
+                return None;
+            }
         }
         Some(())
     }
@@ -414,41 +434,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn expr_primary(&mut self) -> Option<()> {
-        let token = self.input.peek();
-        match token {
-            INT | FLOAT | STRING | TRUE_KW | FALSE_KW | NIL_KW => {
-                self.with(Syntax::LIT_EXPR, |this| {
-                    this.ate(token);
-                });
-            }
-            T!["("] => {
-                self.with(Syntax::PATH_EXPR, |this| {
-                    this.expect(T!["("]);
-                    this.expr();
-                    this.expect(T![")"]);
-                });
-            }
-            T!["{"] => {
-                self.block();
-            }
-            IDENT => {
-                if self.at_path_sep(1) {
-                    self.with(Syntax::PATH_EXPR, |this| {
-                        this.path();
-                    });
-                } else {
-                    self.with(Syntax::NAME_EXPR, |this| this.name());
-                }
-            }
-            _ => {
-                self.advance_with_err(ErrorKind::ExpectedExpression);
-                return None;
-            }
-        }
-        Some(())
-    }
-
     fn arg_list(&mut self) {
         self.with(Syntax::ARG_LIST, |this| {
             this.expect(T!["("]);
@@ -475,7 +460,7 @@ impl<'a> Parser<'a> {
 
     fn arg(&mut self) {
         self.with(Syntax::ARG, |this| {
-            let has_label = this.input.nth(1) == T![:];
+            let has_label = this.input.nth_skip_whitespace(1) == T![:];
             if has_label {
                 this.name();
                 this.expect(T![:]);
@@ -582,6 +567,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn lua_block(&mut self) {
+        LuaParser::new(self).chunk();
+    }
+
     fn block(&mut self) {
         self.with(Syntax::BLOCK_EXPR, |this| {
             this.expect(T!["{"]);
@@ -609,8 +598,349 @@ impl<'a> Parser<'a> {
         });
     }
 
+    fn name(&mut self) {
+        self.with(NAME, |this| {
+            this.expect(IDENT);
+        })
+    }
+
     fn at_path_sep(&self, offset: usize) -> bool {
         self.input.nth(offset) == self.input.nth(1 + offset) && self.input.nth(offset) == T![:]
+    }
+}
+
+impl<'a, 'b> LuaParser<'a, 'b> {
+    fn new(parser: &'b mut Parser<'a>) -> Self {
+        Self { parser }
+    }
+
+    fn with<R>(&mut self, syntax: Syntax, body: impl FnOnce(&mut Self) -> R) -> R {
+        self.parser.builder.start_node(syntax.into());
+        let res = body(self);
+        self.parser.builder.finish_node();
+        res
+    }
+
+    fn with_at<R>(
+        &mut self,
+        syntax: Syntax,
+        checkpoint: Checkpoint,
+        body: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        self.parser.builder.start_node_at(checkpoint, syntax.into());
+        let res = body(self);
+        self.parser.builder.finish_node();
+        res
+    }
+
+    fn chunk(&mut self) {
+        self.with(Syntax::LUA_BLOCK_EXPR, |this| {
+            this.parser.expect(T![lua]);
+            this.parser.expect(T!["{"]);
+
+            while !this.parser.input.at(T!["}"]) && !this.parser.input.at(EOF) {
+                this.stmt();
+            }
+            this.parser.expect(T!["}"]);
+        });
+    }
+
+    fn expect_ident(&mut self, ident: &str) {
+        let next_span = self.parser.input.nth_span(0);
+        self.parser.expect(IDENT);
+
+        if &self.parser.input.content[next_span] != ident {
+            self.parser
+                .add_error(ErrorKind::Other(format!("expected {}", ident)), None);
+        }
+    }
+
+    fn stmt(&mut self) {
+        match self.parser.input.peek() {
+            T![return] => {
+                self.return_stmt();
+            }
+            T![break] => {
+                self.break_stmt();
+            }
+            T![;] => {
+                self.parser.expect(T![;]);
+            }
+            IDENT => {
+                let Some(next) = self.parser.input.nth_token_text_skip_whitespace(0) else {
+                    //TODO: test this branch
+                    self.parser.advance_with_err(ErrorKind::ExpectedExpression);
+                    return;
+                };
+
+                match next {
+                    "do" => self.with(LUA_BLOCK, |this| {
+                        this.expect_ident("do");
+                        this.block();
+                    }),
+                    "local" => {
+                        self.local_stmt();
+                    }
+                    "function" => {
+                        self.function_stmt();
+                    }
+                    a => {
+                        self.stmt_expr();
+                    }
+                }
+            }
+            _ => {
+                self.stmt_expr();
+            }
+        }
+    }
+
+    fn break_stmt(&mut self) {
+        self.parser.expect(T![break]);
+    }
+
+    fn local_stmt(&mut self) {
+        self.expect_ident("local");
+    }
+
+    fn function_stmt(&mut self) {
+        self.with(LUA_FUNCTION, |this| {
+            this.expect_ident("function");
+            this.parser.name();
+
+            if let token @ (T![.] | T![:]) = this.parser.input.peek() {
+                this.parser.expect(token);
+                this.parser.name();
+            }
+            this.param_list();
+            this.with(LUA_BLOCK, |this| {
+                this.block();
+            });
+            this.parser.ate(T![;]);
+        });
+    }
+
+    //TODO: implement recovery
+    fn param_list(&mut self) {
+        self.with(PARAM_LIST, |this| {
+            this.parser.expect(T!["("]);
+
+            if !this.parser.input.at(T![")"]) {
+                this.parser.expect(IDENT);
+                while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
+                    this.parser.expect(IDENT);
+                }
+            }
+            this.parser.expect(T![")"]);
+        });
+    }
+
+    fn return_stmt(&mut self) {
+        self.parser.expect(T![return]);
+    }
+
+    fn stmt_expr(&mut self) {
+        self.with(EXPR_STMT, |this| {
+            this.expr();
+            this.parser.ate(T![;]);
+        });
+    }
+
+    fn expr(&mut self) {
+        self.expr_bp(0);
+    }
+
+    fn expr_bp(&mut self, min_bp: u8) {
+        let checkpoint = self.parser.builder.checkpoint();
+        match Self::prefix_bp(self.parser.input.peek()) {
+            Some(rbp) => self.with(Syntax::UNARY_EXPR, |this| {
+                this.parser.expect(this.parser.input.peek());
+                this.expr_bp(rbp);
+            }),
+            None => {
+                if self.prefix_expr().is_none() {
+                    return;
+                }
+            }
+        }
+
+        loop {
+            let op = self.parser.input.peek();
+
+            if matches!(op, T![.] | T![:]) {
+                self.with_at(LUA_FIELD_ACCESS, checkpoint, |this| {
+                    this.parser.expect(op);
+                    this.parser.name();
+
+                    loop {
+                        match this.parser.input.peek() {
+                            T!["("] => {
+                                this.with_at(Syntax::CALL_EXPR, checkpoint, |this| this.arg_list());
+                            }
+                            T!["["] => {
+                                this.with_at(Syntax::INDEX_EXPR, checkpoint, |this| this.index());
+                            }
+                            _ => break,
+                        }
+                    }
+                });
+                continue;
+            }
+
+            let Some((left_bp, rigth_bp)) = Self::infix_bp(op) else {
+                break;
+            };
+
+            if left_bp < min_bp {
+                break;
+            }
+
+            self.parser.expect(op);
+
+            if self.at_expr() {
+                self.with_at(BINARY_EXPR, checkpoint, |this| {
+                    this.expr_bp(rigth_bp);
+                })
+            } else {
+                self.parser.advance_with_err(ErrorKind::ExpectedExpression);
+            }
+        }
+    }
+
+    fn at_expr(&self) -> bool {
+        let token = self.parser.input.peek();
+        matches!(
+            token,
+            T![nil]
+                | T![#]
+                | T![true]
+                | T![false]
+                | T![...]
+                | T![-]
+                | T![not]
+                | T!["{"]
+                | T!["("]
+                | FLOAT
+                | INT
+                | STRING
+                | SINGLE_STRING
+                | BRACKET_STRING
+                | IDENT
+        )
+    }
+
+    fn index(&mut self) {
+        self.parser.expect(T!["["]);
+        self.expr();
+        self.parser.expect(T!["]"]);
+    }
+    fn arg_list(&mut self) {
+        self.with(Syntax::ARG_LIST, |this| {
+            this.parser.expect(T!["("]);
+            if !this.parser.input.at(T![")"]) {
+                this.parser.expr();
+
+                while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
+                    this.parser.expr();
+                }
+            }
+            this.parser.expect(T![")"]);
+        })
+    }
+
+    fn prefix_expr(&mut self) -> Option<()> {
+        let token = self.parser.input.peek();
+        let checkpoint = self.parser.builder.checkpoint();
+        match token {
+            IDENT
+            | INT
+            | FLOAT
+            | STRING
+            | SINGLE_STRING
+            | BRACKET_STRING
+            | TRUE_KW
+            | FALSE_KW
+            | NIL_KW
+            | T![...] => {
+                self.parser.with(LIT_EXPR, |this| {
+                    this.ate(token);
+                });
+            }
+            T!["{"] => {
+                self.with(LUA_TABLE_EXPR, |this| {
+                    this.parser.expect(T!["{"]);
+                    while !this.parser.input.at(T!["}"]) && !this.parser.input.at(EOF) {
+                        if this.parser.input.nth_skip_whitespace(1) == T![=] {
+                            this.parser.expect(IDENT);
+                            this.parser.expect(T![=]);
+                            this.expr_bp(2);
+                        } else if this.parser.input.at(T!["["]) {
+                            this.parser.expect(T!["["]);
+                            this.expr();
+                            this.parser.expect(T!["]"]);
+                            this.parser.expect(T![=]);
+                            this.expr_bp(2);
+                        } else {
+                            this.expr_bp(2);
+                        }
+                        this.parser.ate(T![,]);
+                    }
+                    this.parser.expect(T!["}"]);
+                });
+            }
+            _ => {
+                self.parser.advance_with_err(ErrorKind::ExpectedExpression);
+                return None;
+            }
+        };
+        loop {
+            match self.parser.input.peek() {
+                T!["("] => {
+                    self.with_at(Syntax::CALL_EXPR, checkpoint, |this| this.arg_list());
+                }
+                T!["["] => {
+                    self.with_at(Syntax::INDEX_EXPR, checkpoint, |this| this.index());
+                }
+                _ => break,
+            }
+        }
+        Some(())
+    }
+
+    fn prefix_bp(syntax: Syntax) -> Option<u8> {
+        Some(match syntax {
+            T![not] => 17,
+            T![-] => 18,
+            _ => return None,
+        })
+    }
+
+    fn infix_bp(syntax: Syntax) -> Option<(u8, u8)> {
+        Some(match syntax {
+            T![,] => (1, 2),
+            T![=] => (3, 4),
+            T![or] => (5, 6),
+            T![and] => (7, 8),
+            T![<] | T![>] | T![<=] | T![>=] | T![==] | T![~=] => (9, 10),
+            T![..] => (12, 11),
+            T![+] | T![-] => (13, 14),
+            T![*] | T![/] => (15, 16),
+            _ => return None,
+        })
+    }
+
+    fn block(&mut self) {
+        while self
+            .parser
+            .input
+            .nth_token_text_skip_whitespace(0)
+            .map(|t| t != "end")
+            .unwrap_or(false)
+            && !self.parser.input.at(EOF)
+        {
+            self.stmt();
+        }
+        self.expect_ident("end");
     }
 }
 
@@ -687,17 +1017,45 @@ impl<'a> Input<'a> {
             })
     }
 
+    fn nth_span_skip_whitespace(&self, amount: usize) -> Range<usize> {
+        self.lexer
+            .clone()
+            .filter(|(t, _)| t.map(|t| !t.is_whitespace()).unwrap_or(true))
+            .nth(amount)
+            .map(|(_, span)| span)
+            .unwrap_or_else(|| {
+                let len = self.content.len();
+
+                len..len
+            })
+    }
+
     fn nth(&self, amount: usize) -> Syntax {
         if self.fuel == 0 {
             panic!("parser got stuck")
         }
         self.lexer
             .clone()
-            .nth(amount)
             .map(|(token, _)| match token {
                 Ok(token) => token,
                 Err(_) => Syntax::ERROR,
             })
+            .nth(amount)
+            .unwrap_or(Syntax::EOF)
+    }
+
+    fn nth_skip_whitespace(&self, amount: usize) -> Syntax {
+        if self.fuel == 0 {
+            panic!("parser got stuck")
+        }
+        self.lexer
+            .clone()
+            .map(|(token, _)| match token {
+                Ok(token) => token,
+                Err(_) => Syntax::ERROR,
+            })
+            .filter(|t| !t.is_whitespace())
+            .nth(amount)
             .unwrap_or(Syntax::EOF)
     }
 
@@ -707,6 +1065,14 @@ impl<'a> Input<'a> {
         } else {
             None
         }
+    }
+
+    fn nth_token_text_skip_whitespace(&self, offset: usize) -> Option<&str> {
+        if self.nth_skip_whitespace(offset) == EOF {
+            return None;
+        }
+        let next_span = self.nth_span_skip_whitespace(offset);
+        Some(&self.content[next_span])
     }
 
     fn peek(&self) -> Syntax {
@@ -752,7 +1118,7 @@ mod test {
 
     use crate::parsing::{
         ast::SyntaxNode,
-        parser::{Lang, Parser},
+        parser::{Lang, LuaParser, Parser},
     };
 
     fn parse_rec(
@@ -795,6 +1161,20 @@ mod test {
     }
 
     #[track_caller]
+    fn lua_parse(source: &str, f: impl FnOnce(LuaParser)) -> String {
+        let mut parser = Parser::new(source);
+        f(LuaParser::new(&mut parser));
+        if !parser.errors.is_empty() {
+            panic!("{:?}", parser.errors);
+        }
+        let node = SyntaxNode::new_root(parser.builder.finish());
+        let mut result = String::new();
+
+        parse_rec(NodeOrToken::Node(node), &mut result, 0);
+        result
+    }
+
+    #[track_caller]
     fn try_parse(source: &str, f: impl FnOnce(&mut Parser)) -> (String, Vec<super::ParseError>) {
         let mut parser = Parser::new(source);
         f(&mut parser);
@@ -803,16 +1183,6 @@ mod test {
 
         parse_rec(NodeOrToken::Node(node), &mut result, 0);
         (result, parser.errors)
-    }
-
-    #[test]
-    fn arg_list() {
-        println!(
-            "{}",
-            try_parse("fn f() { let x = foo(1, let not_garbage = 92;}", |p| p
-                .item())
-            .0
-        );
     }
 
     #[test]
@@ -854,14 +1224,14 @@ mod test {
 
     #[test]
     fn param_list() {
-        insta::assert_snapshot!(parse("(a: int, b: string)", |p| p.param_list()));
+        insta::assert_snapshot!(parse("(a: int, b : string)", |p| p.param_list()));
     }
 
     #[test]
     fn type_expr() {
         insta::assert_snapshot!(parse("int", |p| p.type_expr()));
         insta::assert_snapshot!(parse("NotInt", |p| p.type_expr()));
-        insta::assert_snapshot!(parse("fn(a: int, string) -> Result", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("fn(a : int, string) -> Result", |p| p.type_expr()));
     }
 
     #[test]
@@ -889,6 +1259,7 @@ mod test {
         insta::assert_snapshot!(parse("1", |p| p.expr()));
         insta::assert_snapshot!(parse("1+1", |p| p.expr()));
         insta::assert_snapshot!(parse("1+1*3/4%3", |p| p.expr()));
+        insta::assert_snapshot!(parse("1=2 or 3 and 4 == 5 != 6 < 7 + 8 * not -9", |p| p.expr()));
         insta::assert_snapshot!(parse("(1)", |p| p.expr()));
         insta::assert_snapshot!(parse("1 + { 1 }", |p| p.expr()));
         insta::assert_snapshot!(parse("if not true {} else {}", |p| p.expr()));
@@ -901,7 +1272,32 @@ mod test {
 
     #[test]
     fn numbers() {
+
         insta::assert_snapshot!(parse("10.10", |p| p.expr()));
         insta::assert_snapshot!(parse("1_000_000", |p| p.expr()));
+    }
+
+    #[test]
+    fn lua() {
+        insta::assert_snapshot!(parse("lua {}", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { x = { [1] = 1, 2, 3, a=1,b=3, [3]=1 }; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse(
+            "lua { function func(a,b,c) a = 1; b = 2; end }",
+            |p| p.lua_block()
+        ));
+        insta::assert_snapshot!(parse(
+            "lua { function test.func(a,b,c) a = 1; b = 2; end }",
+            |p| p.lua_block()
+        ));
+        insta::assert_snapshot!(parse(
+            "lua { function test:func(a,b,c) a = 1; b = 2; end }",
+            |p| p.lua_block()
+        ));
+        insta::assert_snapshot!(parse("lua { call(1)[1.5](2)[2.5](3); }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { local string = [[ hello there ]]; }", |p| p
+            .lua_block()));
+        insta::assert_snapshot!(parse("lua { x = vec2.x.y.z; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { x.y = 1; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { print('1'); }", |p| p.lua_block()));
     }
 }

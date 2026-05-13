@@ -1,8 +1,8 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"(a: int, b: string)\", |p| p.param_list())"
+expression: "parse(\"(a: int, b : string)\", |p| p.param_list())"
 ---
-PARAM_LIST: 0..19 
+PARAM_LIST: 0..20 
   L_PAREN: 0..1 "("
   PARAM: 1..9 
     NAME_PATTERN: 1..2 
@@ -15,13 +15,14 @@ PARAM_LIST: 0..19
         IDENT: 4..7 "int"
     COMMA: 7..8 ","
     WHITESPACE: 8..9 
-  PARAM: 9..18 
-    NAME_PATTERN: 9..10 
-      NAME: 9..10 
+  PARAM: 9..19 
+    NAME_PATTERN: 9..11 
+      NAME: 9..11 
         IDENT: 9..10 "b"
-    COLON: 10..11 ":"
-    WHITESPACE: 11..12 
-    LIT_TYPE: 12..18 
-      PATH: 12..18 
-        IDENT: 12..18 "string"
-  R_PAREN: 18..19 ")"
+        WHITESPACE: 10..11 
+    COLON: 11..12 ":"
+    WHITESPACE: 12..13 
+    LIT_TYPE: 13..19 
+      PATH: 13..19 
+        IDENT: 13..19 "string"
+  R_PAREN: 19..20 ")"

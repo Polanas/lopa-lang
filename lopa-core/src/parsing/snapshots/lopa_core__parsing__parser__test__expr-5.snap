@@ -1,18 +1,9 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"1 + { 1 }\", |p| p.expr())"
+expression: "parse(\"(1)\", |p| p.expr())"
 ---
-BINARY_EXPR: 0..9 
-  LIT_EXPR: 0..2 
-    INT: 0..1 "1"
-    WHITESPACE: 1..2 
-  PLUS: 2..3 "+"
-  WHITESPACE: 3..4 
-  BLOCK_EXPR: 4..9 
-    L_BRACE: 4..5 "{"
-    WHITESPACE: 5..6 
-    EXPR_STMT: 6..8 
-      LIT_EXPR: 6..8 
-        INT: 6..7 "1"
-        WHITESPACE: 7..8 
-    R_BRACE: 8..9 "}"
+PATH_EXPR: 0..3 
+  L_PAREN: 0..1 "("
+  LIT_EXPR: 1..2 
+    INT: 1..2 "1"
+  R_PAREN: 2..3 ")"

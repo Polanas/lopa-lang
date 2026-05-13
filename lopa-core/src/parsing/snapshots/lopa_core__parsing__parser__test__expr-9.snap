@@ -1,24 +1,6 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"a[1](2)[3]\", |p| p.expr())"
+expression: "parse(\"\\\"a string\\\"\", |p| p.expr())"
 ---
-INDEX_EXPR: 0..10 
-  CALL_EXPR: 0..7 
-    INDEX_EXPR: 0..4 
-      NAME_EXPR: 0..1 
-        NAME: 0..1 
-          IDENT: 0..1 "a"
-      L_BRACKET: 1..2 "["
-      LIT_EXPR: 2..3 
-        INT: 2..3 "1"
-      R_BRACKET: 3..4 "]"
-    ARG_LIST: 4..7 
-      L_PAREN: 4..5 "("
-      ARG: 5..6 
-        LIT_EXPR: 5..6 
-          INT: 5..6 "2"
-      R_PAREN: 6..7 ")"
-  L_BRACKET: 7..8 "["
-  LIT_EXPR: 8..9 
-    INT: 8..9 "3"
-  R_BRACKET: 9..10 "]"
+LIT_EXPR: 0..10 
+  STRING: 0..10 ""a string""

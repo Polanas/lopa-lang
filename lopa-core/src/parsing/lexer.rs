@@ -67,6 +67,8 @@ macro_rules! T {
     [?] => { super::lexer::Syntax::MARK};
     [|] => { super::lexer::Syntax::BAR};
     [|=] => { super::lexer::Syntax::BAR_EQ};
+    [~] => { super::lexer::Syntax::TILDE};
+    [~=] => { super::lexer::Syntax::TILDE_EQ};
     [=] => { super::lexer::Syntax::EQ};
     [==] => { super::lexer::Syntax::EQ2};
     [!=] => { super::lexer::Syntax::NOT_EQ};
@@ -79,6 +81,8 @@ macro_rules! T {
     [;] => { super::lexer::Syntax::SEMI};
     [:] => { super::lexer::Syntax::COLON};
     [.] => { super::lexer::Syntax::DOT};
+    [..] => { super::lexer::Syntax::DOT2};
+    [...] => { super::lexer::Syntax::DOT3};
     [+] => { super::lexer::Syntax::PLUS};
     [+=] => { super::lexer::Syntax::PLUS_EQ};
     [-] => { super::lexer::Syntax::MINUS};
@@ -90,6 +94,7 @@ macro_rules! T {
     [*] => { super::lexer::Syntax::STAR};
     [*=] => { super::lexer::Syntax::STAR_EQ};
     [%] => { super::lexer::Syntax::PERCENT};
+    [#] => { super::lexer::Syntax::HASH};
     [%=] => { super::lexer::Syntax::PERCENT_EQ};
     [->] => { super::lexer::Syntax::ARROW};
     [fn] => { super::lexer::Syntax::FN_KW};
@@ -97,6 +102,7 @@ macro_rules! T {
     [let] => { super::lexer::Syntax::LET_KW};
     [nil] => { super::lexer::Syntax::NIL_KW};
     [true] => { super::lexer::Syntax::TRUE_KW};
+    [lua] => { super::lexer::Syntax::LUA_KW};
     [false] => { super::lexer::Syntax::FALSE_KW};
     [and] => { super::lexer::Syntax::AND_KW};
     [or] => { super::lexer::Syntax::OR_KW};
@@ -139,6 +145,12 @@ def! {
     #[regex(r#"""#, lex_string)]
     STRING = ["string"],
 
+    #[regex(r#"'"#, lex_single_string)]
+    SINGLE_STRING = ["string"],
+
+    #[regex(r#"\[\["#, lex_bracket_string)]
+    BRACKET_STRING = ["string"],
+
     #[token("(")]
     L_PAREN = ["("] @SYMBOL_FIRST,
 
@@ -162,6 +174,12 @@ def! {
 
     #[token("|=")]
     BAR_EQ = ["|="],
+
+    #[token("~")]
+    TILDE = ["~"],
+
+    #[token("~=")]
+    TILDE_EQ = ["~="],
 
     #[token("=")]
     EQ = ["="],
@@ -192,6 +210,12 @@ def! {
 
     #[token(".")]
     DOT = ["."],
+
+    #[token("..")]
+    DOT2 = [".."],
+
+    #[token("...")]
+    DOT3 = ["..."],
 
     #[token("+")]
     PLUS = ["+"],
@@ -225,6 +249,9 @@ def! {
 
     #[token("%")]
     PERCENT = ["%"],
+
+    #[token("#")]
+    HASH = ["#"],
 
     #[token("%=")]
     PERCENT_EQ = ["%="],
@@ -317,6 +344,9 @@ def! {
     #[token("mod")]
     MOD_KW = ["mod"],
 
+    #[token("lua")]
+    LUA_KW = ["lua"],
+
     #[token("fn")]
     FN_KW = ["fn"] @KEYWORD_LAST,
 
@@ -355,18 +385,30 @@ def! {
     RETURN_EXPR,
     IF_EXPR,
     BLOCK_EXPR,
+    LUA_BLOCK_EXPR,
     BINARY_EXPR,
     UNARY_EXPR,
     TRY_EXPR,
 
     NAME_PATTERN,
+
+    LUA_TABLE_EXPR,
+    LUA_FUNCTION,
+    LUA_BLOCK,
+    LUA_WHILE,
+    LUA_FOR,
+    LUA_ASSIGN,
+    LUA_LOCAL,
+    LUA_REPEAT,
+    LUA_FIELD_ACCESS,
+    LUA_LHS_ASSIGN,
 }
 
 impl Syntax {
     pub fn prefix_bp(self) -> Option<u8> {
         Some(match self {
-            T![not] => 17,
-            T![-] => 18,
+            T![not] => 15,
+            T![-] => 16,
             _ => return None,
         })
     }
@@ -374,19 +416,19 @@ impl Syntax {
     pub fn infix_bp(self) -> Option<(u8, u8)> {
         Some(match self {
             T![=] => (1, 2),
-            T![or] => (2, 3),
-            T![and] => (4, 5),
-            T![==] | T![!=] => (6, 7),
-            T![<] | T![<=] | T![>] | T![>=] => (8, 9),
-            T![+] | T![-] => (10, 11),
-            T![*] | T![/] | T![%] => (11, 12),
+            T![or] => (3, 4),
+            T![and] => (5, 6),
+            T![==] | T![!=] => (7, 8),
+            T![<] | T![<=] | T![>] | T![>=] => (9, 10),
+            T![+] | T![-] => (11, 12),
+            T![*] | T![/] | T![%] => (13, 14),
             _ => return None,
         })
     }
 
     pub fn postfix_bp(self) -> Option<u8> {
         Some(match self {
-            T![?] => 19,
+            T![?] => 17,
             _ => return None,
         })
     }
@@ -413,6 +455,37 @@ fn lex_string(lex: &mut logos::Lexer<Syntax>) -> bool {
 
         if c == '"' {
             lex.bump(len);
+            return true;
+        }
+    }
+    false
+}
+
+fn lex_single_string(lex: &mut logos::Lexer<Syntax>) -> bool {
+    let rem = lex.remainder();
+    let mut len = 0;
+
+    for c in rem.chars() {
+        len += c.len_utf8();
+
+        if c == '\'' {
+            lex.bump(len);
+            return true;
+        }
+    }
+    false
+}
+
+fn lex_bracket_string(lex: &mut logos::Lexer<Syntax>) -> bool {
+    let rem = lex.remainder();
+    let mut len = 0;
+
+    let mut chars = rem.chars().peekable();
+    while let Some(c) = chars.next() {
+        len += c.len_utf8();
+
+        if c == ']' && chars.peek().cloned() == Some(']') {
+            lex.bump(len + 1);
             return true;
         }
     }
