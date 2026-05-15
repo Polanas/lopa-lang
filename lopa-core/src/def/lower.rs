@@ -98,238 +98,47 @@ impl<'db> LowerCtx<'db> {
     fn param(&self, param: ast::FnParam) -> Option<ir::FnParam<'db>> {
         Some(ir::FnParam::new(
             self.db,
-            param.name()?.text()?,
-            self.type_expr(param.ty()?)?,
+            // param.pattern()?.text()?,
+            lower_type_expr(param.ty()?)?,
         ))
     }
+}
 
-    fn type_expr(&self, item: ast::TypeExpr) -> Option<ir::TypeExpr> {
-        Some(match item {
-            ast::TypeExpr::PathType(path) => ir::TypeExpr::PathType(self.path_type(path)?),
-            ast::TypeExpr::NilableType(nilable_type) => {
-                ir::TypeExpr::NilableType(self.nilable_type(nilable_type)?)
-            }
-            ast::TypeExpr::LitType(lit_type) => ir::TypeExpr::LitType(self.lit_type(lit_type)?),
-            ast::TypeExpr::AnyType(any_type) => ir::TypeExpr::AnyType(self.any_type(any_type)?),
-        })
-    }
+pub fn lower_type_expr(item: ast::TypeExpr) -> Option<ir::TypeExpr> {
+    Some(match item {
+        ast::TypeExpr::PathType(path_ty) => ir::TypeExpr::PathType(path_type(path_ty)?),
+        ast::TypeExpr::NilableType(nilable_ty) => {
+            ir::TypeExpr::NilableType(nilable_type(nilable_ty)?)
+        }
+        ast::TypeExpr::LitType(lit_ty) => ir::TypeExpr::LitType(lit_type(lit_ty)?),
+        ast::TypeExpr::AnyType(any_ty) => ir::TypeExpr::AnyType(any_type(any_ty)?),
+    })
+}
 
-    fn path_type(&self, item: ast::PathType) -> Option<ir::PathType> {
-        Some(ir::PathType {
-            value: self.path(item.value()?)?,
-        })
-    }
+fn path_type(item: ast::PathType) -> Option<ir::PathType> {
+    Some(ir::PathType {
+        value: path(item.value()?)?,
+    })
+}
 
-    fn path(&self, item: ast::Path) -> Option<ir::Path> {
-        Some(ir::Path {
-            segments: item.segments().collect_vec(),
-        })
-    }
+fn path(item: ast::Path) -> Option<ir::Path> {
+    Some(ir::Path {
+        segments: item.segments().collect_vec(),
+    })
+}
 
-    // fn item(&self, item: ast::Item) -> Option<ir_def::Item> {
-    //     Some(match item {
-    //         ast::Item::FnItem(fn_item) => ir_def::Item::FnItem(self.fn_item(fn_item)?),
-    //     })
-    // }
-    //
-    // fn fn_item(&self, item: ast::FnItem) -> Option<ir_def::FnItem> {
-    //     Some(ir_def::FnItem {
-    //         node_ptr: Some(item.node_ptr()),
-    //         name: self.name(item.name()?)?,
-    //         params: item
-    //             .params()
-    //             .map(|p| p.params().filter_map(|p| self.param(p)).collect())
-    //             .unwrap_or_default(),
-    //         output: item.output().and_then(|o| self.output(o)),
-    //         body: item.body().and_then(|b| self.body(b)).unwrap_or_default(),
-    //     })
-    // }
-    //
-    //
-    // fn body(&self, item: ast::BlockExpr) -> Option<ir_def::BlockExpr> {
-    //     match self.expr(ast::Expr::BlockExpr(item))? {
-    //         ir_def::Expr::BlockExpr(b) => Some(b),
-    //         _ => None,
-    //     }
-    // }
-    //
-    // fn param(&self, item: ast::FnParam) -> Option<ir_def::FnParam> {
-    //     Some(ir_def::FnParam {
-    //         node_ptr: Some(item.node_ptr()),
-    //         name: self.name(item.name()?)?,
-    //         ty: self.type_expr(item.ty()?)?,
-    //         //match is needed to exit if expr() fails (same with other optional fields like output)
-    //         default_value: match item.default_value() {
-    //             Some(e) => Some(self.expr(e)?),
-    //             None => None,
-    //         },
-    //     })
-    // }
-    //
-    //
-    fn lit_type(&self, item: ast::LitType) -> Option<ir::LitType> {
-        Some(ir::LitType { kind: item.kind()? })
-    }
+fn lit_type(item: ast::LitType) -> Option<ir::LitType> {
+    Some(ir::LitType { kind: item.kind()? })
+}
 
-    fn any_type(&self, item: ast::AnyType) -> Option<ir::AnyType> {
-        Some(ir::AnyType {})
-    }
+fn any_type(item: ast::AnyType) -> Option<ir::AnyType> {
+    Some(ir::AnyType {})
+}
 
-    fn nilable_type(&self, item: ast::NilableType) -> Option<ir::NilableType> {
-        Some(ir::NilableType {
-            value: self.type_expr(item.ty()?)?.into(),
-        })
-    }
-    //
-    // fn expr(&self, item: ast::Expr) -> Option<ir_def::Expr> {
-    //     Some(match item {
-    //         ast::Expr::LitExpr(lit_expr) => self.lit_expr(lit_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::LitExpr,
-    //         ),
-    //         ast::Expr::BinaryExpr(binary_expr) => self.binary_expr(binary_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::BinaryExpr,
-    //         ),
-    //         ast::Expr::UnaryExpr(unary_expr) => self.unary_expr(unary_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::UnaryExpr,
-    //         ),
-    //         ast::Expr::BlockExpr(block_expr) => self.block_expr(block_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::BlockExpr,
-    //         ),
-    //         ast::Expr::IndexExpr(index_expr) => self.index_expr(index_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::IndexExpr,
-    //         ),
-    //         ast::Expr::CallExpr(call_expr) => self.call_expr(call_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::CallExpr,
-    //         ),
-    //         ast::Expr::ParenExpr(paren_expr) => self.paren_expr(paren_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::ParenExpr,
-    //         ),
-    //         ast::Expr::NameExpr(name_expr) => self.name_expr(name_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::NameExpr,
-    //         ),
-    //         ast::Expr::ReturnExpr(return_expr) => self.return_expr(return_expr).map_or_else(
-    //             || ir_def::Expr::Missing(ir_def::Missing::default()),
-    //             ir_def::Expr::ReturnExpr,
-    //         ),
-    //     })
-    // }
-    //
-    // fn expr_or_missing(&self, expr: Option<ast::Expr>) -> ir_def::Expr {
-    //     expr.and_then(|e| self.expr(e))
-    //         .unwrap_or_else(|| ir_def::Expr::Missing(ir_def::Missing::default()))
-    // }
-    //
-    // fn lit_expr(&self, item: ast::LitExpr) -> Option<ir_def::LitExpr> {
-    //     Some(ir_def::LitExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         kind: item.kind()?,
-    //     })
-    // }
-    //
-    // fn binary_expr(&self, item: ast::BinaryExpr) -> Option<ir_def::BinaryExpr> {
-    //     Some(ir_def::BinaryExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         left: self.expr_or_missing(item.lhs()).into(),
-    //         right: self.expr_or_missing(item.rhs()).into(),
-    //         op: item.op_kind()?,
-    //     })
-    // }
-    //
-    // fn unary_expr(&self, item: ast::UnaryExpr) -> Option<ir_def::UnaryExpr> {
-    //     Some(ir_def::UnaryExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         expr: self.expr_or_missing(item.expr()).into(),
-    //         kind: item.op_kind()?,
-    //     })
-    // }
-    //
-    // fn block_expr(&self, item: ast::BlockExpr) -> Option<ir_def::BlockExpr> {
-    //     Some(ir_def::BlockExpr {
-    //         node_ptr: Some(item.node_ptr()
-    //         stmts: item.stmts().filter_map(|s| self.stmt(s)).collect_vec(),
-    //     })
-    // }
-    //
-    // fn stmt(&self, item: ast::Stmt) -> Option<ir_def::Stmt> {
-    //     Some(match item {
-    //         ast::Stmt::LetStmt(let_stmt) => ir_def::Stmt::LetStmt(self.let_stmt(let_stmt)?),
-    //         ast::Stmt::ExprStmt(expr_stmt) => ir_def::Stmt::ExprStmt(self.expr_stmt(expr_stmt)?),
-    //     })
-    // }
-    //
-    // fn let_stmt(&self, item: ast::LetStmt) -> Option<ir_def::LetStmt> {
-    //     Some(ir_def::LetStmt {
-    //         node_ptr: Sme(item.node_ptr()),
-    //         name: self.name(item.name()?)?,
-    //         ty: self.type_expr(item.ty()?)?,
-    //         expr: self.expr_or_missing(item.expr()),
-    //     })
-    // }
-    //
-    // fn expr_stmt(&self, item: ast::ExprStmt) -> Option<ir_def::ExprStmt> {
-    //     Some(ir_def::ExprStmt {
-    //         node_ptr: Some(item.node_ptr()),
-    //         expr: self.expr_or_missing(item.expr()),
-    //     })
-    // }
-    //
-    // fn index_expr(&self, item: ast::IndexExpr) -> Option<ir_def::IndexExpr> {
-    //     Some(ir_def::IndexExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         base: self.expr_or_missing(item.base()).into(),
-    //         index: self.expr_or_missing(item.index()).into(),
-    //     })
-    // }
-    //
-    // fn paren_expr(&self, item: ast::ParenExpr) -> Option<ir_def::ParenExpr> {
-    //     Some(ir_def::ParenExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         expr: self.expr_or_missing(item.expr()).into(),
-    //     })
-    // }
-    //
-    // fn call_expr(&self, item: ast::CallExpr) -> Option<ir_def::CallExpr> {
-    //     dbg!(item.func());
-    //     Some(ir_def::CallExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         func: self.expr_or_missing(item.func()).into(),
-    //         args: item
-    //             .args()
-    //             .map(|args| args.args().filter_map(|a| self.arg(a)).collect_vec())
-    //             .unwrap_or_default(),
-    //     })
-    // }
-    //
-    // fn name_expr(&self, item: ast::NameExpr) -> Option<ir_def::NameExpr> {
-    //     Some(ir_def::NameExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         value: self.name(item.name()?)?,
-    //     })
-    // }
-    //
-    // fn return_expr(&self, item: ast::ReturnExpr) -> Option<ir_def::ReturnExpr> {
-    //     Some(ir_def::ReturnExpr {
-    //         node_ptr: Some(item.node_ptr()),
-    //         expr: self.expr_or_missing(item.expr()).into(),
-    //     })
-    // }
-    //
-    // fn arg(&self, item: ast::Arg) -> Option<ir_def::Arg> {
-    //     Some(ir_def::Arg {
-    //         node_ptr: Some(item.node_ptr()),
-    //         name: item.name().and_then(|n| self.name(n)),
-    //         value: self.expr_or_missing(item.value()),
-    //     })
-    // }
-    //
+fn nilable_type(item: ast::NilableType) -> Option<ir::NilableType> {
+    Some(ir::NilableType {
+        value: lower_type_expr(item.ty()?)?.into(),
+    })
 }
 
 pub fn lower_file<'db>(

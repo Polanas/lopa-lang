@@ -226,7 +226,7 @@ structs! {
         params: [FnParam],
     },
     PARAM = FnParam {
-        name: Name,
+        pattern: Pattern,
         colon_token: T![:],
         ty: TypeExpr,
         eq_token: T![=],
@@ -238,13 +238,18 @@ structs! {
     },
     LET_STMT = LetStmt {
         let_token: T![let],
-        name: Name,
+        pattern: Pattern,
         colon_token: T![:],
         ty: TypeExpr,
         eq_token: T![=],
         expr: Expr,
         semi: T![;],
     },
+
+    NAME_PATTERN = NamePattern {
+        name: Name,
+    },
+
     NILABLE_TYPE = NilableType {
         ty: TypeExpr,
         mark_token: T![?],
@@ -360,7 +365,7 @@ structs! {
         args: [Arg],
     },
     ARG = Arg {
-        name: Name,
+        label: Name,
         colon_token: T![:],
         value: Expr,
     },
@@ -424,7 +429,6 @@ structs! {
             self.ident().map(|t| Ustr::from(t.text()))
         }
     },
-    NAME_PATTERN = NamePattern {},
 
     LUA_BLOCK_EXPR = LuaBlockExpr {
         stmts: [LuaStmt],

@@ -11,13 +11,13 @@ pub struct Function<'db> {
     pub name: Ustr,
     pub params: Vec<FnParam<'db>>,
     pub output: Option<TypeExpr>,
-    pub node_ptr: ast::AstPtr<ast::FnItem>,
+    pub ast_ptr: ast::AstPtr<ast::FnItem>,
     pub file: ide::File,
 }
 
 #[salsa::tracked(debug)]
 pub struct FnParam<'db> {
-    pub name: Ustr,
+    // pub name: Ustr,
     pub ty: TypeExpr,
 }
 
@@ -55,7 +55,8 @@ pub type ExprId = Idx<Expr>;
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Expr {
     Missing,
-    LitExpr(LiteralKind),
+    Name(Ustr),
+    Lit(LiteralKind),
     BlockExpr {
         stmts: Vec<Stmt>,
     },
@@ -90,19 +91,24 @@ pub type PatternId = Idx<Pattern>;
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Pattern {
     Missing,
-    Name {
-        value: Ustr,
-    }
+    Name(Ustr),
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct Arg {
-    name: Option<Ustr>,
-    value: ExprId,
+pub enum Arg {
+    Labeled { label: Ustr, value: Option<ExprId> },
+    NonLabeled { value: ExprId },
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Stmt {
-    Let { pattern: PatternId, body: ExprId },
-    Expr { expr: ExprId, semi: Option<()> },
+    Let {
+        pattern: PatternId,
+        ty: Option<TypeExpr>,
+        expr: ExprId,
+    },
+    Expr {
+        expr: ExprId,
+        semi: Option<()>,
+    },
 }
