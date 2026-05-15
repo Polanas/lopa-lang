@@ -7,7 +7,7 @@ LUA_BLOCK_EXPR: 0..39
   WHITESPACE: 3..4 
   L_BRACE: 4..5 "{"
   WHITESPACE: 5..6 
-  LUA_LOCAL_STMT: 6..36 
+  LUA_LOCAL_STMT: 6..38 
     IDENT: 6..11 "local"
     WHITESPACE: 11..12 
     LUA_NAME: 12..13 
@@ -32,6 +32,6 @@ LUA_BLOCK_EXPR: 0..39
       WHITESPACE: 32..33 
       LUA_LIT_EXPR: 33..36 
         NIL_KW: 33..36 "nil"
-  SEMI: 36..37 ";"
-  WHITESPACE: 37..38 
+    SEMI: 36..37 ";"
+    WHITESPACE: 37..38 
   R_BRACE: 38..39 "}"

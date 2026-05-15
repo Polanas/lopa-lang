@@ -8,7 +8,7 @@ use ustr::Ustr;
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
 pub type SyntaxToken = rowan::SyntaxToken<parser::Lang>;
 pub type SyntaxNodePtr = rowan::ast::SyntaxNodePtr<parser::Lang>;
-pub type AstPtr<N: rowan::ast::AstNode> = rowan::ast::AstPtr<N>;
+pub type AstPtr<N> = rowan::ast::AstPtr<N>;
 
 //used for the matches! check in can_cast for enums
 trait NodeWrapper {
@@ -424,6 +424,28 @@ structs! {
             self.ident().map(|t| Ustr::from(t.text()))
         }
     },
+    NAME_PATTERN = NamePattern {},
+
+    LUA_BLOCK_EXPR = LuaBlockExpr {
+        stmts: [LuaStmt],
+    },
+    LUA_RETURN_STMT = LuaReturnStmt {
+
+    },
+    LUA_WHILE_STMT = LuaWhileStmt {
+
+    },
+    LUA_IF_STMT = LuaIfStmt {
+
+    },
+    LUA_BREAK_STMT = LuaBreakStmt {},
+    LUA_ASSIGN_STMT = LuaAssignStmt {},
+    LUA_CONTINUE_STMT = LuaContinueStmt {},
+    LUA_FOR_STMT = LuaForStmt {},
+    LUA_REPEAT_STMT = LuaRepeatStmt{},
+    LUA_FUNCTION_STMT = LuaFunctionStmt{},
+    LUA_BLOCK_STMT = LuaBlockStmt {},
+    LUA_LOCAL_STMT = LuaLocalStmt {},
 }
 
 enums! {
@@ -447,15 +469,30 @@ enums! {
         LitExpr,
         TryExpr,
     },
-    // Pattern {
-    //     NamePattern,
-    // },
+    //TODO: finish patterns
+    Pattern {
+        NamePattern,
+    },
     TypeExpr {
         PathType,
         NilableType,
         LitType,
         AnyType,
     },
+
+    LuaStmt {
+        LuaReturnStmt,
+        LuaBreakStmt,
+        LuaWhileStmt,
+        LuaIfStmt,
+        LuaAssignStmt,
+        LuaContinueStmt,
+        LuaForStmt,
+        LuaRepeatStmt,
+        LuaBlockStmt,
+        LuaFunctionStmt,
+        LuaLocalStmt
+    }
 }
 
 #[cfg(test)]
@@ -463,7 +500,7 @@ mod test {
     use rowan::ast::AstNode;
 
     use crate::parsing::{
-        ast::{IfExpr, SyntaxNode, SyntaxToken},
+        ast::{IfExpr, LuaBlockExpr, SyntaxNode, SyntaxToken},
         parser::Lang,
     };
 
@@ -521,6 +558,26 @@ mod test {
         expr.if_branch().unwrap().syntax().should_eq("{1}");
         expr.if_condition().unwrap().syntax().should_eq("true");
         assert!(expr.else_block().is_none());
-        expr.else_if_expr().unwrap().syntax().should_eq("if false {2}");
+        expr.else_if_expr()
+            .unwrap()
+            .syntax()
+            .should_eq("if false {2}");
+    }
+
+    #[test]
+    fn lua_if_stmt() {
+        let block = parse::<LuaBlockExpr>(
+            "fn main() {
+            lua {
+                if true then end
+            }
+        }",
+        );
+        block
+            .stmts()
+            .next()
+            .unwrap()
+            .syntax()
+            .should_eq("if true then end");
     }
 }

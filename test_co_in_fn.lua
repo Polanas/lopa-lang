@@ -28,7 +28,6 @@ local Vec2 = {
 --a temp vec for calculations within a frame
 local vec = Vec2.new(1, 2) + Vec2.new(30, 40)
 
-
 -- ...
 
 player.positon = Vec2.box(vec)

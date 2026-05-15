@@ -757,16 +757,16 @@ impl<'a, 'b> LuaParser<'a, 'b> {
             this.expect_ident("then");
             loop {
                 this.block(|t| t == "else" || t == "elseif" || t == "end");
-                match this.parser.input.nth_token_text_skip_whitespace(0) {
-                    Some("elseif") => {
+                match this.parser.input.peek_text() {
+                    "elseif" => {
                         this.expect_ident("elseif");
                         this.expr();
                         this.expect_ident("then");
                     }
-                    Some("else") => {
+                    "else" => {
                         this.parser.expect_advance(T![else]);
                     }
-                    Some("end") => {
+                    "end" => {
                         this.expect_advance_ident("end");
                         break;
                     }
@@ -1566,7 +1566,7 @@ mod test {
         ));
         insta::assert_snapshot!(parse(
             "lua {
-                local x = function() end
+                local x = function() end;
             }",
             |p| {
                 p.lua_block();

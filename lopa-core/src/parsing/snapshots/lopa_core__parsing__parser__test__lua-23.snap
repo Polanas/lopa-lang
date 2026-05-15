@@ -1,13 +1,13 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"lua {\n                local x = function() end\n            }\", |p|\n{ p.lua_block(); })"
+expression: "parse(\"lua {\n                local x = function() end;\n            }\", |p|\n{ p.lua_block(); })"
 ---
-LUA_BLOCK_EXPR: 0..60 
+LUA_BLOCK_EXPR: 0..61 
   LUA_KW: 0..3 "lua"
   WHITESPACE: 3..4 
   L_BRACE: 4..5 "{"
   WHITESPACE: 5..22 
-  LUA_LOCAL_STMT: 22..59 
+  LUA_LOCAL_STMT: 22..60 
     IDENT: 22..27 "local"
     WHITESPACE: 27..28 
     LUA_NAME: 28..30 
@@ -15,14 +15,15 @@ LUA_BLOCK_EXPR: 0..60
       WHITESPACE: 29..30 
     EQ: 30..31 "="
     WHITESPACE: 31..32 
-    LUA_MULTI_EXPR: 32..59 
-      LUA_FUNCTION_EXPR: 32..59 
+    LUA_MULTI_EXPR: 32..46 
+      LUA_FUNCTION_EXPR: 32..46 
         IDENT: 32..40 "function"
         LUA_PARAM_LIST: 40..43 
           L_PAREN: 40..41 "("
           R_PAREN: 41..42 ")"
           WHITESPACE: 42..43 
-        LUA_BLOCK_STMT: 43..59 
+        LUA_BLOCK_STMT: 43..46 
           IDENT: 43..46 "end"
-          WHITESPACE: 46..59 
-  R_BRACE: 59..60 "}"
+    SEMI: 46..47 ";"
+    WHITESPACE: 47..60 
+  R_BRACE: 60..61 "}"
