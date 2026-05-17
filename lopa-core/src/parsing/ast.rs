@@ -15,6 +15,15 @@ trait NodeWrapper {
     const KIND: Syntax;
 }
 
+pub trait HasCompilerAttribs: AstNode<Language = parser::Lang> {
+    fn attribs(&self) -> Option<CompilerAttribList> {
+        self.syntax()
+            .prev_sibling()
+            .and_then(CompilerAttribList::cast)
+    }
+}
+impl<T: AstNode<Language = parser::Lang>> HasCompilerAttribs for T {}
+
 macro_rules! structs {
     (
       $(
@@ -88,8 +97,17 @@ macro_rules! struct_impl {
     };
     //token
     ($field:ident: T![$tok:tt], $($tt:tt)*) => {
+
         pub fn $field(&self) -> Option<SyntaxToken> {
             token(&self.0, T![$tok])
+        }
+        struct_impl!($($tt)*);
+    };
+    //token with an offset
+    ($field:ident[$k:tt]: T![$tok:tt], $($tt:tt)*) => {
+
+        pub fn $field(&self) -> Option<SyntaxToken> {
+            self.syntax().children_with_tokens().filter_map(|i| i.into_token()).nth($k)
         }
         struct_impl!($($tt)*);
     };
@@ -351,6 +369,19 @@ structs! {
             })
         }
     },
+    CLOSURE_EXPR = ClosureExpr {
+        bar_left_token: T![|],
+        params: ClosureParamList,
+        bar_right_token[1]: T![|],
+    },
+    CLOSURE_PARAM_LIST = ClosureParamList {
+        params: [ClosureParam],
+    },
+    CLOSURE_PARAM = ClosureParam {
+        pattern: Pattern,
+        colon_token: T![:],
+        ty: TypeExpr,
+    },
     RETURN_EXPR = ReturnExpr {
         return_token: T![return],
         expr: Expr,
@@ -418,9 +449,23 @@ structs! {
     },
     PATH = Path {
         pub fn segments(&self) -> impl Iterator<Item = Ustr> {
-            self.0.children_with_tokens().filter_map(|t| t.into_token()).filter(|t| t.kind() == Syntax::IDENT.into())
+            self.0.children_with_tokens().filter_map(|t| t.into_token()).filter(|t| t.kind() == Syntax::IDENT)
                 .map(|t| Ustr::from(t.text()))
         }
+    },
+    COMPILER_ATTRIB_LIST = CompilerAttribList {
+        attribs: [CompilerAttrib],
+    },
+    COMPILER_ATTRIB = CompilerAttrib {
+        at_token: T![@],
+        left_paren_token: T!["("],
+        items: [CompilerAttribItem],
+        right_paren_token: T![")"],
+    },
+    COMPILER_ATTRIB_ITEM = CompilerAttribItem {
+        lhs: Expr,
+        eq_token: T![=],
+        rhs: Expr,
     },
     NAME = Name {
         ident: T![ident],
@@ -504,7 +549,9 @@ mod test {
     use rowan::ast::AstNode;
 
     use crate::parsing::{
-        ast::{IfExpr, LuaBlockExpr, SyntaxNode, SyntaxToken},
+        ast::{
+            ClosureExpr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr, SyntaxNode, SyntaxToken,
+        },
         parser::Lang,
     };
 
@@ -566,6 +613,29 @@ mod test {
             .unwrap()
             .syntax()
             .should_eq("if false {2}");
+    }
+
+    #[test]
+    fn closure() {
+        let closure = parse::<ClosureExpr>(
+            "fn main() {
+                |x: int, y| x+y
+            }",
+        );
+        closure.syntax().should_eq("|x: int, y| x+y");
+    }
+
+    #[test]
+    fn attribs() {
+        let func = parse::<FnItem>("@first fn main() {}");
+        func.syntax().should_eq("fn main() {}");
+        func.attribs()
+            .unwrap()
+            .attribs()
+            .next()
+            .unwrap()
+            .syntax()
+            .should_eq("@first");
     }
 
     #[test]

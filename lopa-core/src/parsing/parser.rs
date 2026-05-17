@@ -64,6 +64,7 @@ const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!
 const STMT_EXPR_RECOVERY: TokenSet =
     TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(STMT_RECOVERY);
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
+const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
 const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
     INT,
@@ -79,10 +80,10 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T![if],
     T!["{"],
     T!["("],
+    T![|],
 ]);
-const PARAM_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
-const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod]]);
+const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![@]]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 
@@ -115,12 +116,12 @@ impl<'a> Parser<'a> {
     }
 
     fn whitespace(&mut self) {
-        if !self.input.at(T![" "]) {
+        let next = self.input.peek();
+        if !next.is_whitespace() {
             return;
         }
         let span = self.input.advance();
-        self.builder
-            .token(T![" "].into(), &self.input.content[span]);
+        self.builder.token(next.into(), &self.input.content[span]);
     }
 
     fn advance_with_err(&mut self, kind: ErrorKind) {
@@ -209,6 +210,7 @@ impl<'a> Parser<'a> {
     }
 
     fn item(&mut self) {
+        self.compiler_attrib_list();
         if self.input.at_any(ITEM_FIRST) {
             match self.input.peek() {
                 T![fn] => self.fn_item(),
@@ -280,8 +282,10 @@ impl<'a> Parser<'a> {
         self.with(PARAM_LIST, |this| {
             this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
-                if this.input.at_any(PARAM_FIRST) {
+                this.compiler_attrib_list();
+                if this.input.at_any(PATTERN_FIRST) {
                     this.param();
+                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(PARAM_LIST_RECOVERY) {
                         break;
@@ -301,7 +305,6 @@ impl<'a> Parser<'a> {
             if this.ate(T![=]) {
                 this.expr();
             }
-            this.ate(T![,]);
         })
     }
 
@@ -353,6 +356,7 @@ impl<'a> Parser<'a> {
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(TYPE_FIRST) || this.input.at(IDENT) {
                     this.fn_type_param();
+                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(PARAM_LIST_RECOVERY) {
                         break;
@@ -371,7 +375,6 @@ impl<'a> Parser<'a> {
                 this.expect(T![:]);
             }
             this.type_expr();
-            this.ate(T![,]);
         })
     }
 
@@ -439,8 +442,9 @@ impl<'a> Parser<'a> {
         self.with(CLOSURE_PARAM_LIST, |this| {
             this.expect(T![|]);
             while !this.input.at(T![|]) && !this.input.at(EOF) {
-                if this.input.at_any(PARAM_FIRST) {
+                if this.input.at_any(PATTERN_FIRST) {
                     this.closure_param();
+                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(CLOSURE_PARAM_LIST_RECOVERY) {
                         break;
@@ -457,7 +461,6 @@ impl<'a> Parser<'a> {
             if this.ate(T![:]) {
                 this.type_expr();
             }
-            this.ate(T![,]);
         });
     }
 
@@ -491,6 +494,7 @@ impl<'a> Parser<'a> {
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(EXPR_FIRST) {
                     this.arg();
+                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(ARG_LIST_RECOVERY) {
                         break;
@@ -519,7 +523,6 @@ impl<'a> Parser<'a> {
             if this.input.at_any(EXPR_FIRST) || !has_label {
                 this.expr();
             }
-            this.ate(T![,]);
         });
     }
 
@@ -626,6 +629,7 @@ impl<'a> Parser<'a> {
         self.with(BLOCK_EXPR, |this| {
             this.expect(T!["{"]);
             while !this.input.at(T!["}"]) && !this.input.at(EOF) {
+                this.compiler_attrib_list();
                 match this.input.peek() {
                     T![let] => this.stmt_let(),
                     T![;] => {
@@ -648,6 +652,50 @@ impl<'a> Parser<'a> {
             }
 
             this.expect(T!["}"]);
+        });
+    }
+
+    fn compiler_attrib_list(&mut self) {
+        if !self.input.at(T![@]) {
+            return;
+        }
+        self.with(COMPILER_ATTRIB_LIST, |this| {
+            while this.input.at(T![@]) {
+                this.compiler_attrib();
+            }
+        });
+    }
+
+    fn compiler_attrib(&mut self) {
+        self.with(COMPILER_ATTRIB, |this| {
+            this.expect(T![@]);
+            this.name();
+
+            if !this.ate(T!["("]) {
+                return;
+            }
+
+            while !this.input.at(T![")"]) && !this.input.at(EOF) {
+                if this.input.at_any(EXPR_FIRST) {
+                    this.compiler_attrib_item();
+                    this.ate(T![,]);
+                } else {
+                    if this.input.at_any(COMPILER_ATTRIB_RECOVERY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedAttribute);
+                }
+            }
+            this.expect(T![")"]);
+        });
+    }
+
+    fn compiler_attrib_item(&mut self) {
+        self.with(COMPILER_ATTRIB_ITEM, |this| {
+            this.expr();
+            if this.ate(T![=]) {
+                this.expr();
+            }
         });
     }
 
@@ -1177,6 +1225,7 @@ pub enum ErrorKind {
     ExpectedStatement,
     ExpectedType,
     ExpectedParameter,
+    ExpectedAttribute,
     ExpectedPattern,
     ExpectedItem,
     Other(String),
@@ -1190,6 +1239,7 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedArgument => "expected argument",
             Self::ExpectedStatement => "expected statement",
             Self::ExpectedType => "expected type",
+            Self::ExpectedAttribute => "expected attribute",
             Self::ExpectedExpression => "expected expression",
             Self::ExpectedParameter => "expected parameter",
             Self::ExpectedPattern => "expected pattern",
@@ -1509,6 +1559,12 @@ mod test {
         insta::assert_snapshot!(parse("a = b = c", |p| p.expr()));
         insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
         insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
+    }
+
+    #[test]
+    fn attribs() {
+        insta::assert_snapshot!(parse("@first @second() @third(a=3,b=4, yeah)", |p| p
+            .compiler_attrib_list()));
     }
 
     #[test]

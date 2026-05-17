@@ -9,7 +9,7 @@ FN_ITEM: 0..41
     IDENT: 3..7 "test"
   PARAM_LIST: 7..26 
     L_PAREN: 7..8 "("
-    PARAM: 8..16 
+    PARAM: 8..14 
       NAME_PATTERN: 8..9 
         NAME: 8..9 
           IDENT: 8..9 "a"
@@ -18,8 +18,8 @@ FN_ITEM: 0..41
       LIT_TYPE: 11..14 
         PATH: 11..14 
           IDENT: 11..14 "int"
-      COMMA: 14..15 ","
-      WHITESPACE: 15..16 
+    COMMA: 14..15 ","
+    WHITESPACE: 15..16 
     PARAM: 16..25 
       NAME_PATTERN: 16..17 
         NAME: 16..17 

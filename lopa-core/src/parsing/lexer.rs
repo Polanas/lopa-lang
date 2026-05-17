@@ -95,6 +95,7 @@ macro_rules! T {
     [*=] => { super::lexer::Syntax::STAR_EQ};
     [%] => { super::lexer::Syntax::PERCENT};
     [#] => { super::lexer::Syntax::HASH};
+    [@] => { super::lexer::Syntax::AT};
     [%=] => { super::lexer::Syntax::PERCENT_EQ};
     [->] => { super::lexer::Syntax::ARROW};
     [fn] => { super::lexer::Syntax::FN_KW};
@@ -130,6 +131,7 @@ macro_rules! T {
 def! {
     #[regex(r"([ \t\n])+")]
     WHITESPACE @WHITESPACE_FIRST,
+
     #[regex(r"--[^\n\r]*?")]
     COMMENT @WHITESPACE_LAST,
 
@@ -252,6 +254,9 @@ def! {
 
     #[token("#")]
     HASH = ["#"],
+
+    #[token("@")]
+    AT = ["@"],
 
     #[token("%=")]
     PERCENT_EQ = ["%="],
@@ -410,6 +415,10 @@ def! {
     LUA_TABLE_EXPR,
     LUA_FIELD_ACCESS_EXPR,
     LUA_FUNCTION_EXPR,
+
+    COMPILER_ATTRIB_LIST,
+    COMPILER_ATTRIB,
+    COMPILER_ATTRIB_ITEM,
 
     LUA_ARG_LIST,
     LUA_ARG,

@@ -1,0 +1,46 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"@first @second() @third(a=3,b=4, yeah)\", |p| p.compiler_attrib_list())"
+---
+COMPILER_ATTRIB_LIST: 0..38 
+  COMPILER_ATTRIB: 0..7 
+    AT: 0..1 "@"
+    NAME: 1..7 
+      IDENT: 1..6 "first"
+      WHITESPACE: 6..7 
+  COMPILER_ATTRIB: 7..17 
+    AT: 7..8 "@"
+    NAME: 8..14 
+      IDENT: 8..14 "second"
+    L_PAREN: 14..15 "("
+    R_PAREN: 15..16 ")"
+    WHITESPACE: 16..17 
+  COMPILER_ATTRIB: 17..38 
+    AT: 17..18 "@"
+    NAME: 18..23 
+      IDENT: 18..23 "third"
+    L_PAREN: 23..24 "("
+    COMPILER_ATTRIB_ITEM: 24..27 
+      BINARY_EXPR: 24..27 
+        NAME_EXPR: 24..25 
+          NAME: 24..25 
+            IDENT: 24..25 "a"
+        EQ: 25..26 "="
+        LIT_EXPR: 26..27 
+          INT: 26..27 "3"
+    COMMA: 27..28 ","
+    COMPILER_ATTRIB_ITEM: 28..31 
+      BINARY_EXPR: 28..31 
+        NAME_EXPR: 28..29 
+          NAME: 28..29 
+            IDENT: 28..29 "b"
+        EQ: 29..30 "="
+        LIT_EXPR: 30..31 
+          INT: 30..31 "4"
+    COMMA: 31..32 ","
+    WHITESPACE: 32..33 
+    COMPILER_ATTRIB_ITEM: 33..37 
+      NAME_EXPR: 33..37 
+        NAME: 33..37 
+          IDENT: 33..37 "yeah"
+    R_PAREN: 37..38 ")"

@@ -6,7 +6,7 @@ FN_TYPE: 0..29
   FN_KW: 0..2 "fn"
   PARAM_LIST: 2..20 
     L_PAREN: 2..3 "("
-    PARAM: 3..12 
+    PARAM: 3..10 
       NAME: 3..5 
         IDENT: 3..4 "a"
         WHITESPACE: 4..5 
@@ -15,8 +15,8 @@ FN_TYPE: 0..29
       LIT_TYPE: 7..10 
         PATH: 7..10 
           IDENT: 7..10 "int"
-      COMMA: 10..11 ","
-      WHITESPACE: 11..12 
+    COMMA: 10..11 ","
+    WHITESPACE: 11..12 
     PARAM: 12..18 
       LIT_TYPE: 12..18 
         PATH: 12..18 
