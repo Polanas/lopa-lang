@@ -89,7 +89,7 @@ impl<'db> LowerCtx<'db> {
             fn_item
                 .output()
                 .and_then(|o| o.ty())
-                .and_then(|o| self.type_expr(o)),
+                .and_then(|o| lower_type_expr(o)),
             ast::AstPtr::new(&fn_item),
             self.file,
         ))

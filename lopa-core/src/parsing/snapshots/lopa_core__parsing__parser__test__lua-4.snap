@@ -29,7 +29,7 @@ LUA_BLOCK_EXPR: 0..51
       WHITESPACE: 31..32 
     LUA_BLOCK_STMT: 32..50 
       LUA_STMT_EXPR: 32..39 
-        LUA_PREFIX_MULTI_EXPR: 32..34 
+        LUA_MULTI_EXPR: 32..34 
           LUA_LIT_EXPR: 32..34 
             IDENT: 32..33 "a"
             WHITESPACE: 33..34 
@@ -41,7 +41,7 @@ LUA_BLOCK_EXPR: 0..51
         SEMI: 37..38 ";"
         WHITESPACE: 38..39 
       LUA_STMT_EXPR: 39..46 
-        LUA_PREFIX_MULTI_EXPR: 39..41 
+        LUA_MULTI_EXPR: 39..41 
           LUA_LIT_EXPR: 39..41 
             IDENT: 39..40 "b"
             WHITESPACE: 40..41 

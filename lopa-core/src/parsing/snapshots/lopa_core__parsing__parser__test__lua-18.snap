@@ -11,7 +11,7 @@ LUA_BLOCK_EXPR: 0..34
     IDENT: 6..12 "repeat"
     WHITESPACE: 12..13 
     LUA_STMT_EXPR: 13..21 
-      LUA_PREFIX_MULTI_EXPR: 13..21 
+      LUA_MULTI_EXPR: 13..21 
         LUA_FIELD_CALL_EXPR: 13..21 
           LUA_LIT_EXPR: 13..18 
             IDENT: 13..18 "print"

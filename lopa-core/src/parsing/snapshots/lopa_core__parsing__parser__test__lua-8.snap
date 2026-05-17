@@ -8,7 +8,7 @@ LUA_BLOCK_EXPR: 0..21
   L_BRACE: 4..5 "{"
   WHITESPACE: 5..6 
   LUA_STMT_EXPR: 6..20 
-    LUA_PREFIX_MULTI_EXPR: 6..8 
+    LUA_MULTI_EXPR: 6..8 
       LUA_LIT_EXPR: 6..8 
         IDENT: 6..7 "x"
         WHITESPACE: 7..8 

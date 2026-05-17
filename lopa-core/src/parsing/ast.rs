@@ -23,7 +23,7 @@ macro_rules! structs {
       ),*
     ) => {
         $(
-            #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+            #[derive(Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
             pub struct $name(pub SyntaxNode);
 
             impl $name {

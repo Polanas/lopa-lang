@@ -60,6 +60,7 @@ pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
 const STMT_RECOVERY: TokenSet = TokenSet::new(&[T![fn]]);
 const PARAM_LIST_RECOVERY: TokenSet =
     TokenSet::new(&[T![->], T!["{"], T![fn]]).union(STMT_RECOVERY);
+const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
 const STMT_EXPR_RECOVERY: TokenSet =
     TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(STMT_RECOVERY);
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
@@ -79,6 +80,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T!["{"],
     T!["("],
 ]);
+const PARAM_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
 const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod]]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
@@ -124,7 +126,7 @@ impl<'a> Parser<'a> {
     fn advance_with_err(&mut self, kind: ErrorKind) {
         let span = self.input.advance();
         self.builder
-            .token(Syntax::ERROR.into(), &self.input.content[span.clone()]);
+            .token(ERROR.into(), &self.input.content[span.clone()]);
         self.add_error(kind, Some(span));
     }
 
@@ -255,7 +257,7 @@ impl<'a> Parser<'a> {
     }
 
     fn path(&mut self) {
-        if self.input.at(Syntax::IDENT) {
+        if self.input.at(IDENT) {
             self.with(PATH, |this| {
                 this.expect(IDENT);
                 while this.at_path_sep(0) && !this.input.at(EOF) {
@@ -278,7 +280,7 @@ impl<'a> Parser<'a> {
         self.with(PARAM_LIST, |this| {
             this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
-                if this.input.at(IDENT) {
+                if this.input.at_any(PARAM_FIRST) {
                     this.param();
                 } else {
                     if this.input.at_any(PARAM_LIST_RECOVERY) {
@@ -336,7 +338,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_type(&mut self) {
-        self.with(Syntax::FN_TYPE, |this| {
+        self.with(FN_TYPE, |this| {
             this.expect(T![fn]);
             this.fn_type_param_list();
             if this.input.at(T![->]) {
@@ -346,7 +348,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_type_param_list(&mut self) {
-        self.with(Syntax::PARAM_LIST, |this| {
+        self.with(PARAM_LIST, |this| {
             this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(TYPE_FIRST) || this.input.at(IDENT) {
@@ -363,7 +365,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_type_param(&mut self) {
-        self.with(Syntax::PARAM, |this| {
+        self.with(PARAM, |this| {
             if this.input.nth_skip_whitespace(1) == T![:] {
                 this.name();
                 this.expect(T![:]);
@@ -374,7 +376,7 @@ impl<'a> Parser<'a> {
     }
 
     fn stmt_expr(&mut self) -> Option<Semicolon> {
-        self.with(Syntax::EXPR_STMT, |this| {
+        self.with(EXPR_STMT, |this| {
             this.expr();
             this.ate(T![;]).then_some(Semicolon)
         })
@@ -386,12 +388,12 @@ impl<'a> Parser<'a> {
             T![return] => self.return_expr(),
             T![if] => self.if_expr(),
             INT | FLOAT | STRING | TRUE_KW | FALSE_KW | NIL_KW | SINGLE_STRING | BRACKET_STRING => {
-                self.with(Syntax::LIT_EXPR, |this| {
+                self.with(LIT_EXPR, |this| {
                     this.ate(token);
                 });
             }
             T!["("] => {
-                self.with(Syntax::PATH_EXPR, |this| {
+                self.with(PATH_EXPR, |this| {
                     this.expect(T!["("]);
                     this.expr();
                     this.expect(T![")"]);
@@ -403,13 +405,16 @@ impl<'a> Parser<'a> {
             T![lua] => {
                 self.lua_block();
             }
+            T![|] => {
+                self.closure_expr();
+            }
             IDENT => {
                 if self.at_path_sep(1) {
-                    self.with(Syntax::PATH_EXPR, |this| {
+                    self.with(PATH_EXPR, |this| {
                         this.path();
                     });
                 } else {
-                    self.with(Syntax::NAME_EXPR, |this| this.name());
+                    self.with(NAME_EXPR, |this| this.name());
                 }
             }
             _ => {
@@ -420,8 +425,44 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
+    fn closure_expr(&mut self) {
+        self.with(CLOSURE_EXPR, |this| {
+            this.closure_param_list();
+            if this.input.at(T![->]) {
+                this.return_type();
+            }
+            this.expr();
+        })
+    }
+
+    fn closure_param_list(&mut self) {
+        self.with(CLOSURE_PARAM_LIST, |this| {
+            this.expect(T![|]);
+            while !this.input.at(T![|]) && !this.input.at(EOF) {
+                if this.input.at_any(PARAM_FIRST) {
+                    this.closure_param();
+                } else {
+                    if this.input.at_any(CLOSURE_PARAM_LIST_RECOVERY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedParameter);
+                }
+            }
+            this.expect(T![|]);
+        });
+    }
+    fn closure_param(&mut self) {
+        self.with(CLOSURE_PARAM, |this| {
+            this.pattern();
+            if this.ate(T![:]) {
+                this.type_expr();
+            }
+            this.ate(T![,]);
+        });
+    }
+
     fn if_expr(&mut self) {
-        self.with(Syntax::IF_EXPR, |this| {
+        self.with(IF_EXPR, |this| {
             this.expect(T![if]);
             this.expr();
             this.block();
@@ -436,7 +477,7 @@ impl<'a> Parser<'a> {
     }
 
     fn return_expr(&mut self) {
-        self.with(Syntax::RETURN_EXPR, |this| {
+        self.with(RETURN_EXPR, |this| {
             this.expect(T![return]);
             if this.input.at_any(EXPR_FIRST) {
                 this.expr();
@@ -469,7 +510,7 @@ impl<'a> Parser<'a> {
     }
 
     fn arg(&mut self) {
-        self.with(Syntax::ARG, |this| {
+        self.with(ARG, |this| {
             let has_label = this.input.nth_skip_whitespace(1) == T![:];
             if has_label {
                 this.name();
@@ -491,7 +532,7 @@ impl<'a> Parser<'a> {
 
         match self.input.peek().prefix_bp() {
             Some(rbp) => {
-                self.with(Syntax::UNARY_EXPR, |this| {
+                self.with(UNARY_EXPR, |this| {
                     this.expect(this.input.peek());
                     this.expr_bp(rbp);
                 });
@@ -506,10 +547,10 @@ impl<'a> Parser<'a> {
         loop {
             match self.input.peek() {
                 T!["("] => {
-                    self.with_at(Syntax::CALL_EXPR, checkpoint, |this| this.arg_list());
+                    self.with_at(CALL_EXPR, checkpoint, |this| this.arg_list());
                 }
                 T!["["] => {
-                    self.with_at(Syntax::INDEX_EXPR, checkpoint, |this| this.index());
+                    self.with_at(INDEX_EXPR, checkpoint, |this| this.index());
                 }
                 _ => break,
             }
@@ -523,7 +564,7 @@ impl<'a> Parser<'a> {
                 }
                 match op {
                     T![?] => {
-                        self.with_at(Syntax::TRY_EXPR, checkpoint, |this| {
+                        self.with_at(TRY_EXPR, checkpoint, |this| {
                             this.expect(op);
                         });
                     }
@@ -551,7 +592,7 @@ impl<'a> Parser<'a> {
     }
 
     fn stmt_let(&mut self) {
-        self.with(Syntax::LET_STMT, |this| {
+        self.with(LET_STMT, |this| {
             this.expect(T![let]);
             this.pattern();
             if this.ate(T![:]) {
@@ -566,7 +607,7 @@ impl<'a> Parser<'a> {
     fn pattern(&mut self) {
         match self.input.peek() {
             IDENT => {
-                self.with(Syntax::NAME_PATTERN, |this| {
+                self.with(NAME_PATTERN, |this| {
                     this.name();
                 });
             }
@@ -582,7 +623,7 @@ impl<'a> Parser<'a> {
     }
 
     fn block(&mut self) {
-        self.with(Syntax::BLOCK_EXPR, |this| {
+        self.with(BLOCK_EXPR, |this| {
             this.expect(T!["{"]);
             while !this.input.at(T!["}"]) && !this.input.at(EOF) {
                 match this.input.peek() {
@@ -646,7 +687,7 @@ impl<'a, 'b> LuaParser<'a, 'b> {
     }
 
     fn chunk(&mut self) {
-        self.with(Syntax::LUA_BLOCK_EXPR, |this| {
+        self.with(LUA_BLOCK_EXPR, |this| {
             this.parser.expect(T![lua]);
             this.parser.expect(T!["{"]);
 
@@ -888,24 +929,12 @@ impl<'a, 'b> LuaParser<'a, 'b> {
 
     fn stmt_expr(&mut self) -> Option<Semicolon> {
         self.with(LUA_STMT_EXPR, |this| {
-            this.prefix_expr_multi();
+            this.expr_multi();
             if this.parser.ate(T![=]) {
                 this.expr_multi();
             }
             this.parser.ate(T![;]).then_some(Semicolon)
         })
-    }
-
-    fn prefix_expr_multi(&mut self) {
-        self.with(LUA_PREFIX_MULTI_EXPR, |this| {
-            this.prefix_expr();
-            if this.parser.ate(T![,]) {
-                this.prefix_expr();
-                while this.parser.ate(T![,]) && !this.parser.input.at(EOF) {
-                    this.prefix_expr();
-                }
-            }
-        });
     }
 
     fn expr_multi(&mut self) {
@@ -1234,10 +1263,10 @@ impl<'a> Input<'a> {
             .clone()
             .map(|(token, _)| match token {
                 Ok(token) => token,
-                Err(_) => Syntax::ERROR,
+                Err(_) => ERROR,
             })
             .nth(amount)
-            .unwrap_or(Syntax::EOF)
+            .unwrap_or(EOF)
     }
 
     fn nth_skip_whitespace(&self, amount: usize) -> Syntax {
@@ -1248,11 +1277,11 @@ impl<'a> Input<'a> {
             .clone()
             .map(|(token, _)| match token {
                 Ok(token) => token,
-                Err(_) => Syntax::ERROR,
+                Err(_) => ERROR,
             })
             .filter(|t| !t.is_whitespace())
             .nth(amount)
-            .unwrap_or(Syntax::EOF)
+            .unwrap_or(EOF)
     }
 
     fn eat(&mut self, token: Syntax) -> Option<&str> {
@@ -1479,6 +1508,7 @@ mod test {
         insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
         insta::assert_snapshot!(parse("a = b = c", |p| p.expr()));
         insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
+        insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
     }
 
     #[test]
@@ -1572,5 +1602,7 @@ mod test {
                 p.lua_block();
             }
         ));
+        println!("------------------------------");
+        insta::assert_snapshot!(parse("lua{1+2}", |p| p.lua_block()));
     }
 }

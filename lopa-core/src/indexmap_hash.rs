@@ -6,7 +6,7 @@ macro_rules! indexmap_hash {
         ),+ $(,)?
     ) => {
         $(
-            #[derive(Clone, Default, salsa::Update, PartialEq, Eq)]
+            #[derive(Debug, Clone, Default, salsa::Update, PartialEq, Eq)]
             #[repr(transparent)]
             pub struct $name $(<$generics>)?(pub $indexmap);
             impl$(<$generics>)? std::hash::Hash for $name $(<$generics>)? {

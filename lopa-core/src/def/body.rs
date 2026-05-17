@@ -1,4 +1,4 @@
-use std::{collections::HashMap, f32::consts::E};
+use std::collections::HashMap;
 
 use itertools::Itertools;
 use la_arena::{Arena, ArenaMap, RawIdx};

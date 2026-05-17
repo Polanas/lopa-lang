@@ -16,7 +16,7 @@ LUA_BLOCK_EXPR: 0..202
     IDENT: 30..34 "then"
     WHITESPACE: 34..55 
     LUA_STMT_EXPR: 55..77 
-      LUA_PREFIX_MULTI_EXPR: 55..77 
+      LUA_MULTI_EXPR: 55..77 
         LUA_FIELD_CALL_EXPR: 55..77 
           LUA_LIT_EXPR: 55..58 
             IDENT: 55..58 "yan"
@@ -32,7 +32,7 @@ LUA_BLOCK_EXPR: 0..202
     IDENT: 90..94 "then"
     WHITESPACE: 94..115 
     LUA_STMT_EXPR: 115..137 
-      LUA_PREFIX_MULTI_EXPR: 115..137 
+      LUA_MULTI_EXPR: 115..137 
         LUA_FIELD_CALL_EXPR: 115..137 
           LUA_LIT_EXPR: 115..118 
             IDENT: 115..118 "yay"
@@ -43,7 +43,7 @@ LUA_BLOCK_EXPR: 0..202
     ELSE_KW: 137..141 "else"
     WHITESPACE: 141..163 
     LUA_STMT_EXPR: 163..185 
-      LUA_PREFIX_MULTI_EXPR: 163..185 
+      LUA_MULTI_EXPR: 163..185 
         LUA_FIELD_CALL_EXPR: 163..185 
           LUA_LIT_EXPR: 163..166 
             IDENT: 163..166 "nay"
