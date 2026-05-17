@@ -60,7 +60,11 @@ pub enum Expr {
     BlockExpr {
         stmts: Vec<Stmt>,
     },
-    Local(Ustr),
+    If {
+        if_cond: ExprId,
+        if_branch: Vec<Stmt>,
+        else_branch: Option<ElseBranch>,
+    },
     Unary {
         expr: ExprId,
         kind: UnaryOpKind,
@@ -86,6 +90,12 @@ pub enum Expr {
     },
 }
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum ElseBranch {
+    Else { stmts: Vec<Stmt> },
+    ElseIf { expr: ExprId },
+}
+
 pub type PatternId = Idx<Pattern>;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -96,8 +106,16 @@ pub enum Pattern {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Arg {
-    Labeled { label: Ustr, value: Option<ExprId> },
+    Labeled { label: Ustr, value: ExprId },
     NonLabeled { value: ExprId },
+}
+
+impl Arg {
+    pub fn value(&self) -> ExprId {
+        match self {
+            Arg::Labeled { value, .. } | Arg::NonLabeled { value } => *value,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]

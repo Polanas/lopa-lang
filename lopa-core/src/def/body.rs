@@ -1,16 +1,14 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Index};
 
 use itertools::Itertools;
 use la_arena::{Arena, ArenaMap, RawIdx};
 use rowan::ast::AstPtr;
 use salsa::Database;
-use ustr::Ustr;
 
 use crate::{
     def::{
-        self,
         ir::{self, Arg, Expr, ExprId, Pattern, PatternId, Stmt},
-        lower,
+        lower::{self, lower_type_expr},
     },
     ide::{self, base::InFile, lower_file},
     parsing::ast::{self},
@@ -24,17 +22,31 @@ pub type PatternSource = InFile<PatternPtr>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Param {
-    pub pattern: Pattern,
-    pub type_expr: ir::TypeExpr,
+    pub pattern: PatternId,
+    pub type_expr: Option<ir::TypeExpr>,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Body {
     pub exprs: Arena<Expr>,
     pub patterns: Arena<Pattern>,
     pub params: Vec<Param>,
     pub output: Option<ir::TypeExpr>,
     pub body_expr: ExprId,
+}
+
+impl Index<ExprId> for Body {
+    type Output = Expr;
+    fn index(&self, index: ExprId) -> &Self::Output {
+        &self.exprs[index]
+    }
+}
+
+impl Index<PatternId> for Body {
+    type Output = Pattern;
+    fn index(&self, index: PatternId) -> &Self::Output {
+        &self.patterns[index]
+    }
 }
 
 impl Default for Body {
@@ -103,8 +115,7 @@ impl BodyLowerCtx {
             ast::Expr::BlockExpr(block_expr) => {
                 let stmts = block_expr
                     .stmts()
-                    .map(|s| self.lower_stmt(s))
-                    .flatten()
+                    .filter_map(|s| self.lower_stmt(s))
                     .collect_vec();
                 self.alloc_expr(Expr::BlockExpr { stmts }, ptr)
             }
@@ -121,7 +132,7 @@ impl BodyLowerCtx {
                         l.args()
                             .map(|arg| {
                                 if let Some(label) = arg.label().and_then(|l| l.text()) {
-                                    let value = arg.value().map(|e| self.lower_expr(e));
+                                    let value = self.lower_expr_opt(arg.value());
                                     Arg::Labeled { label, value }
                                 } else {
                                     Arg::NonLabeled {
@@ -133,6 +144,33 @@ impl BodyLowerCtx {
                     })
                     .unwrap_or_else(|| vec![]);
                 self.alloc_expr(Expr::Call { func, args }, ptr)
+            }
+            ast::Expr::IfExpr(if_expr) => {
+                let if_cond = self.lower_expr_opt(if_expr.if_condition());
+                let if_branch = if_expr
+                    .if_branch()
+                    .map(|b| b.stmts().filter_map(|s| self.lower_stmt(s)).collect_vec())
+                    .unwrap_or_default();
+                let else_branch = if_expr.else_token().map(|_| {
+                    if let Some(else_if_expr) = if_expr.else_if_expr() {
+                        let expr = self.lower_expr(ast::Expr::IfExpr(else_if_expr));
+                        ir::ElseBranch::ElseIf { expr }
+                    } else {
+                        let stmts = if_expr
+                            .else_branch()
+                            .map(|b| b.stmts().filter_map(|s| self.lower_stmt(s)).collect_vec())
+                            .unwrap_or_default();
+                        ir::ElseBranch::Else { stmts }
+                    }
+                });
+                self.alloc_expr(
+                    Expr::If {
+                        if_cond,
+                        if_branch,
+                        else_branch,
+                    },
+                    ptr,
+                )
             }
             ast::Expr::ParenExpr(paren_expr) => {
                 let expr = self.lower_expr_opt(paren_expr.expr());
@@ -212,7 +250,7 @@ impl BodyLowerCtx {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq, Eq, Clone)]
 pub struct BodySourceMap {
     expr_source_to_id: HashMap<ExprSource, ExprId>,
     expr_id_to_source: ArenaMap<ExprId, ExprSource>,
@@ -240,16 +278,29 @@ impl BodySourceMap {
     }
 }
 
-pub fn lower<'a>(db: &'a dyn Database, function: &'a ir::Function) -> (Body, BodySourceMap) {
+pub fn lower<'db>(db: &'db dyn Database, function: ir::Function<'db>) -> (Body, BodySourceMap) {
     let file_id = function.file(db);
-    let file_ir = ide::lower_file(db, file_id);
     let parse = ide::parse(db, file_id);
     let ast = function.ast_ptr(db).to_node(&parse.syntax_node(db));
 
-    let ctx = BodyLowerCtx {
+    let mut ctx = BodyLowerCtx {
         body: Default::default(),
         source_map: BodySourceMap::default(),
         file: file_id,
     };
-    todo!()
+    if let Some(params) = ast.params() {
+        for param in params.params() {
+            if let Some(pattern) = param.pattern() {
+                let pattern = ctx.lower_pattern(pattern);
+                let type_expr = param.ty().and_then(lower_type_expr);
+                ctx.body.params.push(Param { pattern, type_expr });
+            }
+        }
+    }
+    ctx.body.output = ast.output().and_then(|r| r.ty()).and_then(lower_type_expr);
+
+    let expr_id = ctx.lower_expr_opt(ast.body().map(ast::Expr::BlockExpr));
+    ctx.body.body_expr = expr_id;
+
+    (ctx.body, ctx.source_map)
 }

@@ -421,7 +421,7 @@ structs! {
         if_condition: Expr,
         if_branch: BlockExpr,
         else_token: T![else],
-        else_block[1]: BlockExpr,
+        else_branch[1]: BlockExpr,
         else_if_expr: IfExpr,
     },
     TRY_EXPR = TryExpr {
@@ -517,6 +517,7 @@ enums! {
         ReturnExpr,
         LitExpr,
         TryExpr,
+        IfExpr,
     },
     //TODO: finish patterns
     Pattern {
@@ -594,7 +595,7 @@ mod test {
         assert!(expr.else_token().is_some());
         expr.if_branch().unwrap().syntax().should_eq("{1}");
         expr.if_condition().unwrap().syntax().should_eq("true");
-        expr.else_block().unwrap().syntax().should_eq("{2}");
+        expr.else_branch().unwrap().syntax().should_eq("{2}");
     }
 
     #[test]
@@ -608,7 +609,7 @@ mod test {
         assert!(expr.else_token().is_some());
         expr.if_branch().unwrap().syntax().should_eq("{1}");
         expr.if_condition().unwrap().syntax().should_eq("true");
-        assert!(expr.else_block().is_none());
+        assert!(expr.else_branch().is_none());
         expr.else_if_expr()
             .unwrap()
             .syntax()

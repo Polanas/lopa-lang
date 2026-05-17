@@ -4,6 +4,8 @@ pub mod diagnostics;
 use rowan::ast::AstNode as _;
 use salsa::{Database, Setter};
 
+use crate::def;
+use crate::def::ir::Function;
 use crate::def::lower::{self};
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
@@ -161,6 +163,28 @@ pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
 pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> lower::IrFile<'db> {
     let parse = parse(db, file);
     lower::lower_file(db, parse, file)
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn body_with_source_map<'db>(
+    db: &'db dyn salsa::Database,
+    func: Function<'db>,
+) -> (Arc<def::body::Body>, Arc<def::body::BodySourceMap>) {
+    let (body, body_source_map) = def::body::lower(db, func);
+    (Arc::new(body), Arc::new(body_source_map))
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn body<'db>(db: &'db dyn salsa::Database, func: Function<'db>) -> Arc<def::body::Body> {
+    body_with_source_map(db, func).0.clone()
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn source_map<'db>(
+    db: &'db dyn salsa::Database,
+    func: Function<'db>,
+) -> Arc<def::body::BodySourceMap> {
+    body_with_source_map(db, func).1.clone()
 }
 
 #[salsa::db]
