@@ -27,17 +27,56 @@ impl<'db> FileSourceMap<'db> {
     }
 }
 
+#[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
+pub struct FileScope<'db> {
+    //uses Ustr recomputed hash
+    values: indexmap::IndexMap<u64, ir::FileDef<'db>, identity_hash::BuildIdentityHasher<u64>>,
+}
+
+impl<'db> FileScope<'db> {
+    pub fn resolve_name(&self, name: &Ustr) -> Option<&ir::FileDef<'db>> {
+        self.values.get(&name.precomputed_hash())
+    }
+}
+
 #[salsa::tracked(returns(ref))]
-pub fn file_scope<'db>(db: &'db dyn salsa::Database, file: ide::File) -> FileSourceMap<'db> {
+pub fn file_scope_with_source_map<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+) -> (FileScope<'db>, FileSourceMap<'db>) {
     let ir_file = lower_file(db, file);
     let mut source_map = FileSourceMap::default();
+    let mut scope = FileScope::default();
 
     for func in ir_file.functions(db) {
         source_map
             .functions
             .insert(MyAstPtr(func.ast_ptr(db).clone()), func);
     }
-    source_map
+
+    for func in ir_file.functions(db) {
+        scope.values.insert(
+            func.name(db).precomputed_hash(),
+            ir::FileDef::Function(func),
+        );
+    }
+
+    (scope, source_map)
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn expr_scopes<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> Arc<ExprScopes> {
+    Arc::new(ExprScopes::new(db, func))
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn file_scope<'db>(db: &'db dyn salsa::Database, file: ide::File) -> FileScope<'db> {
+    file_scope_with_source_map(db, file).0.clone()
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn file_source_map<'db>(db: &'db dyn salsa::Database, file: ide::File) -> FileSourceMap<'db> {
+    file_scope_with_source_map(db, file).1.clone()
 }
 
 struct ExprScopesCtx<'db> {
@@ -53,23 +92,6 @@ impl<'db> ExprScopesCtx<'db> {
             scope_by_expr: Default::default(),
             body,
         }
-    }
-
-    pub fn entries(&self, scope: ScopeId) -> &[ScopeEntry] {
-        &self.scopes[scope].entries
-    }
-
-    pub fn scope_for_expr(&self, expr_id: ExprId) -> Option<ScopeId> {
-        self.scope_by_expr.get(expr_id).copied()
-    }
-
-    pub fn scope_chain(&self, scope: Option<ScopeId>) -> impl Iterator<Item = ScopeId> {
-        std::iter::successors(scope, move |&scope| self.scopes[scope].parent)
-    }
-
-    pub fn resolve_name_in_scope(&self, scope: ScopeId, name: &Ustr) -> Option<&ScopeEntry> {
-        self.scope_chain(Some(scope))
-            .find_map(|scope| self.entries(scope).iter().find(|it| it.name == *name))
     }
 
     fn traverse(mut self) -> ExprScopes {
@@ -172,15 +194,34 @@ impl<'db> ExprScopesCtx<'db> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default, salsa::Update)]
 pub struct ExprScopes {
     scopes: Arena<ScopeData>,
     scope_by_expr: ArenaMap<ExprId, ScopeId>,
 }
 
 impl ExprScopes {
-    pub fn new<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> Arc<ExprScopes> {
-        Arc::new(ExprScopesCtx::new(ide::body(db, func)).traverse())
+    pub fn entries(&self, scope: ScopeId) -> &[ScopeEntry] {
+        &self.scopes[scope].entries
+    }
+
+    pub fn scope_for_expr(&self, expr_id: ExprId) -> Option<ScopeId> {
+        self.scope_by_expr.get(expr_id).copied()
+    }
+
+    pub fn scope_chain(&self, scope: Option<ScopeId>) -> impl Iterator<Item = ScopeId> {
+        std::iter::successors(scope, move |&scope| self.scopes[scope].parent)
+    }
+
+    pub fn resolve_name_in_scope(&self, scope: ScopeId, name: &Ustr) -> Option<&ScopeEntry> {
+        self.scope_chain(Some(scope))
+            .find_map(|scope| self.entries(scope).iter().find(|it| it.name == *name))
+    }
+}
+
+impl ExprScopes {
+    pub fn new<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> ExprScopes {
+        ExprScopesCtx::new(ide::body(db, func)).traverse()
     }
 }
 

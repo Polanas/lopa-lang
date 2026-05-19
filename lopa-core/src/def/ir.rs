@@ -6,6 +6,17 @@ use crate::{
     parsing::ast::{self, BinaryOpKind, LiteralKind, UnaryOpKind},
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Local<'db> {
+    pub parent: Function<'db>,
+    pub pattern_id: PatternId,
+}
+
+#[derive(salsa::Supertype, Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
+pub enum FileDef<'db> {
+    Function(Function<'db>),
+}
+
 #[salsa::tracked(debug)]
 pub struct Function<'db> {
     pub name: Ustr,
@@ -130,3 +141,4 @@ pub enum Stmt {
         semi: Option<()>,
     },
 }
+
