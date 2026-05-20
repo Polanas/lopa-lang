@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
+use indexmap::map::Entry;
 use itertools::Itertools;
 use ustr::Ustr;
 
-use crate::def::{
-    self, ir,
-    scope::{self, ScopeId},
+use crate::{
+    def::{
+        self,
+        ir::{self, Local},
+        scope::{self, ScopeId},
+    },
+    ustr_hash::UstrIndexMap,
 };
 
 #[derive(PartialEq, Eq, Clone, salsa::Update)]
@@ -35,25 +40,6 @@ pub fn resolver_for_scope<'db>(
     resolver
 }
 
-impl<'db> Resolver<'db> {
-    fn push_expr_scope(
-        self,
-        owner: ir::Function<'db>,
-        expr_scopes: Arc<scope::ExprScopes>,
-        scope_id: scope::ScopeId,
-    ) -> Resolver {
-        self.push_scope(Scope {
-            owner,
-            expr_scopes,
-            scope_id,
-        })
-    }
-    fn push_scope(mut self, scope: Scope<'db>) -> Resolver {
-        self.scopes.push(scope);
-        self
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 struct Scope<'db> {
     owner: ir::Function<'db>,
@@ -63,13 +49,19 @@ struct Scope<'db> {
 
 #[derive(Default)]
 pub struct ScopeNames<'db> {
-    names: indexmap::IndexMap<u64, ResolveResult<'db>>,
+    names: UstrIndexMap<ResolveResult<'db>>,
 }
 
 impl<'db> ScopeNames<'db> {
     fn add(&mut self, name: &Ustr, def: ResolveResult<'db>) {
-        //TODO: should this only insert on vacant entries?
-        self.names.insert(name.precomputed_hash(), def);
+        match self.names.entry(name.clone().into()) {
+            Entry::Occupied(_) => {}
+            Entry::Vacant(entry) => {
+                entry.insert(def);
+            }
+        }
+        // //TODO: should this only insert on vacant entries?
+        // self.names.insert(name.precomputed_hash(), def);
     }
 }
 
@@ -77,4 +69,56 @@ impl<'db> ScopeNames<'db> {
 pub enum ResolveResult<'db> {
     Local(ir::Local<'db>),
     Function(ir::Function<'db>),
+}
+
+impl<'db> Resolver<'db> {
+    pub fn names_in_scope(&'db self) -> UstrIndexMap<ResolveResult<'db>> {
+        let mut map = ScopeNames::default();
+
+        for scope in self.scopes() {
+            for expr_scope in scope.expr_scopes.scope_chain(Some(scope.scope_id)) {
+                let entries = scope.expr_scopes.entries(expr_scope);
+                for entry in entries {
+                    if let Some(owner) = self.body_owner() {
+                        map.add(
+                            &entry.name(),
+                            ResolveResult::Local(Local {
+                                parent: owner,
+                                pattern_id: entry.pattern(),
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+
+        // for (name, file_def) in self.file_scope.
+
+        map.names
+    }
+
+    pub fn body_owner(&'db self) -> Option<ir::Function<'db>> {
+        self.scopes().next().map(|s| s.owner)
+    }
+
+    fn scopes(&self) -> impl Iterator<Item = &Scope> {
+        self.scopes.iter().rev()
+    }
+
+    fn push_expr_scope(
+        self,
+        owner: ir::Function<'db>,
+        expr_scopes: Arc<scope::ExprScopes>,
+        scope_id: scope::ScopeId,
+    ) -> Self {
+        self.push_scope(Scope {
+            owner,
+            expr_scopes,
+            scope_id,
+        })
+    }
+    fn push_scope(mut self, scope: Scope<'db>) -> Self {
+        self.scopes.push(scope);
+        self
+    }
 }

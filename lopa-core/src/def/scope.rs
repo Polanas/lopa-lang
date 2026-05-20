@@ -6,10 +6,11 @@ use ustr::Ustr;
 use crate::{
     def::{
         body,
-        ir::{self, ExprId, PatternId},
+        ir::{self, ExprId, FileDef, PatternId},
     },
     ide::{self, lower_file},
     parsing::ast::{self, AstPtr},
+    ustr_hash::{UstrHash, UstrIndexMap},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, salsa::Update)]
@@ -30,12 +31,16 @@ impl<'db> FileSourceMap<'db> {
 #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
 pub struct FileScope<'db> {
     //uses Ustr recomputed hash
-    values: indexmap::IndexMap<u64, ir::FileDef<'db>, identity_hash::BuildIdentityHasher<u64>>,
+    values: UstrIndexMap<ir::FileDef<'db>>,
 }
 
 impl<'db> FileScope<'db> {
     pub fn resolve_name(&self, name: &Ustr) -> Option<&ir::FileDef<'db>> {
-        self.values.get(&name.precomputed_hash())
+        self.values.get(name)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = (&UstrHash, &FileDef)> + ExactSizeIterator {
+        self.values.iter()
     }
 }
 
@@ -55,10 +60,9 @@ pub fn file_scope_with_source_map<'db>(
     }
 
     for func in ir_file.functions(db) {
-        scope.values.insert(
-            func.name(db).precomputed_hash(),
-            ir::FileDef::Function(func),
-        );
+        scope
+            .values
+            .insert(func.name(db).into(), ir::FileDef::Function(func));
     }
 
     (scope, source_map)
