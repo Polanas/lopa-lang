@@ -3,6 +3,7 @@ use crate::T;
 use rowan::NodeOrToken;
 use rowan::ast::support::{child, children, token};
 use rowan::ast::{AstChildren, AstNode};
+use crate::common::LitKind;
 use ustr::Ustr;
 
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
@@ -170,14 +171,6 @@ macro_rules! enums {
     };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LiteralKind {
-    Int,
-    Float,
-    String,
-    Bool,
-}
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum BinaryOpKind {
     Add,
@@ -273,17 +266,18 @@ structs! {
         mark_token: T![?],
     },
     ANY_TYPE = AnyType { },
+    UNIT_TYPE = UnitType {},
     LIT_TYPE = LitType {
-        pub fn kind(&self) -> Option<LiteralKind> {
+        pub fn kind(&self) -> Option<LitKind> {
             let token = self.syntax().first_token()?;
             let Syntax::IDENT = token.kind() else {
                 return None;
             };
             Some(match token.text() {
-                "string" => LiteralKind::String,
-                "int" => LiteralKind::Int,
-                "float" => LiteralKind::Float,
-                "bool" => LiteralKind::Bool,
+                "string" => LitKind::String,
+                "int" => LitKind::Int,
+                "float" => LitKind::Float,
+                "bool" => LitKind::Bool,
                 _ => return None,
             })
         }
@@ -313,6 +307,8 @@ structs! {
                 Some((token, op))
             })
         }
+    },
+    UNIT_EXPR = UnitExpr {
     },
     NAME_EXPR = NameExpr {
         name: Name,
@@ -437,12 +433,12 @@ structs! {
             self.token().map(|t| t.text().into())
         }
 
-        pub fn kind(&self) -> Option<LiteralKind> {
+        pub fn kind(&self) -> Option<LitKind> {
             Some(match self.token()?.kind() {
-                Syntax::INT => LiteralKind::Int,
-                Syntax::FLOAT => LiteralKind::Float,
-                Syntax::STRING => LiteralKind::String,
-                Syntax::TRUE_KW | Syntax::FALSE_KW => LiteralKind::Bool,
+                Syntax::INT => LitKind::Int,
+                Syntax::FLOAT => LitKind::Float,
+                Syntax::STRING => LitKind::String,
+                Syntax::TRUE_KW | Syntax::FALSE_KW => LitKind::Bool,
                 _ => return None,
             })
         }
@@ -507,6 +503,7 @@ enums! {
         ExprStmt,
     },
     Expr {
+        UnitExpr,
         NameExpr,
         BinaryExpr,
         UnaryExpr,
@@ -528,6 +525,7 @@ enums! {
         NilableType,
         LitType,
         AnyType,
+        UnitType,
     },
 
     LuaStmt {

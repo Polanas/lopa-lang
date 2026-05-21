@@ -2,8 +2,9 @@ use la_arena::Idx;
 use ustr::Ustr;
 
 use crate::{
+    common::LitKind,
     ide,
-    parsing::ast::{self, BinaryOpKind, LiteralKind, UnaryOpKind},
+    parsing::ast::{self, BinaryOpKind, UnaryOpKind},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -20,8 +21,11 @@ pub enum FileDef<'db> {
 #[salsa::tracked(debug)]
 pub struct Function<'db> {
     pub name: Ustr,
+    #[returns(ref)]
     pub params: Vec<FnParam<'db>>,
+    #[returns(ref)]
     pub output: Option<TypeExpr>,
+    #[returns(ref)]
     pub ast_ptr: ast::AstPtr<ast::FnItem>,
     pub file: ide::File,
 }
@@ -29,16 +33,18 @@ pub struct Function<'db> {
 #[salsa::tracked(debug)]
 pub struct FnParam<'db> {
     // pub name: Ustr,
+    #[returns(ref)]
     pub ty: TypeExpr,
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
 pub enum TypeExpr {
     Unknown,
+    Unit,
+    AnyType,
     PathType(PathType),
     NilableType(NilableType),
     LitType(LitType),
-    AnyType(AnyType),
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
@@ -56,18 +62,17 @@ pub struct NilableType {
 }
 #[derive(salsa::Update, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct LitType {
-    pub kind: LiteralKind,
+    pub kind: LitKind,
 }
-#[derive(salsa::Update, PartialEq, Eq, Hash, Clone, Debug)]
-pub struct AnyType {}
 
 pub type ExprId = Idx<Expr>;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Expr {
     Missing,
+    Unit,
     Name(Ustr),
-    Lit(LiteralKind),
+    Lit(LitKind),
     BlockExpr {
         stmts: Vec<Stmt>,
     },
@@ -141,4 +146,3 @@ pub enum Stmt {
         semi: Option<()>,
     },
 }
-

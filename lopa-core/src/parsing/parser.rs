@@ -82,7 +82,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T!["("],
     T![|],
 ]);
-const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn]]);
+const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
 const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![@]]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
@@ -116,12 +116,14 @@ impl<'a> Parser<'a> {
     }
 
     fn whitespace(&mut self) {
-        let next = self.input.peek();
-        if !next.is_whitespace() {
-            return;
+        loop {
+            let next = self.input.peek();
+            if !next.is_whitespace() {
+                break;
+            }
+            let span = self.input.advance();
+            self.builder.token(next.into(), &self.input.content[span]);
         }
-        let span = self.input.advance();
-        self.builder.token(next.into(), &self.input.content[span]);
     }
 
     fn advance_with_err(&mut self, kind: ErrorKind) {
@@ -310,14 +312,30 @@ impl<'a> Parser<'a> {
 
     fn type_expr(&mut self) {
         if self.input.at_any(TYPE_FIRST) {
+            let checkpoint = self.builder.checkpoint();
+
             #[allow(clippy::match_single_binding)]
             match self.input.peek() {
                 T![fn] => {
                     self.fn_type();
                 }
+                T!["("] => {
+                    self.expect(T!["("]);
+                    if self.input.at(T![")"]) {
+                        self.with_at(UNIT_TYPE, checkpoint, |this| {
+                            this.expect(T![")"]);
+                        })
+                    } else {
+                        self.with_at(PAREN_TYPE, checkpoint, |this| {
+                            this.type_expr();
+                            this.expect(T![")"]);
+                        })
+                    }
+                    if self.ate(T![?]) {
+                        self.with_at(NILABLE_TYPE, checkpoint, |_| {});
+                    }
+                }
                 _ => {
-                    let checkpoint = self.builder.checkpoint();
-
                     let next_span = self.input.nth_span(0);
                     let is_path = self.at_path_sep(1);
                     self.path();
@@ -396,11 +414,19 @@ impl<'a> Parser<'a> {
                 });
             }
             T!["("] => {
-                self.with(PATH_EXPR, |this| {
-                    this.expect(T!["("]);
-                    this.expr();
-                    this.expect(T![")"]);
-                });
+                let checkpoint = self.builder.checkpoint();
+                self.expect(T!["("]);
+
+                if self.input.at(T![")"]) {
+                    self.with_at(UNIT_EXPR, checkpoint, |this| {
+                        this.expect(T![")"]);
+                    })
+                } else {
+                    self.with_at(PATH_EXPR, checkpoint, |this| {
+                        this.expr();
+                        this.expect(T![")"]);
+                    });
+                }
             }
             T!["{"] => {
                 self.block();
@@ -637,8 +663,8 @@ impl<'a> Parser<'a> {
                     }
                     _ => {
                         if this.input.at_any(EXPR_FIRST) {
-                            if this.stmt_expr().is_none() {
-                                break;
+                            if this.stmt_expr().is_none() && !this.input.at(T!["}"]) {
+                                this.expect(T![;]);
                             }
                         } else {
                             if this.input.at_any(STMT_EXPR_RECOVERY) {
@@ -1535,6 +1561,7 @@ mod test {
     #[test]
     fn stmt_let() {
         insta::assert_snapshot!(parse("let x = 1;", |p| p.stmt_let()));
+        insta::assert_snapshot!(parse("let y = 1;", |p| p.stmt_let()));
     }
 
     #[test]
@@ -1559,6 +1586,7 @@ mod test {
         insta::assert_snapshot!(parse("a = b = c", |p| p.expr()));
         insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
         insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
+        insta::assert_snapshot!(parse("()", |p| p.expr()));
     }
 
     #[test]

@@ -106,12 +106,17 @@ impl<'db> LowerCtx<'db> {
 
 pub fn lower_type_expr(item: ast::TypeExpr) -> Option<ir::TypeExpr> {
     Some(match item {
-        ast::TypeExpr::PathType(path_ty) => ir::TypeExpr::PathType(path_type(path_ty)?),
-        ast::TypeExpr::NilableType(nilable_ty) => {
-            ir::TypeExpr::NilableType(nilable_type(nilable_ty)?)
-        }
-        ast::TypeExpr::LitType(lit_ty) => ir::TypeExpr::LitType(lit_type(lit_ty)?),
-        ast::TypeExpr::AnyType(any_ty) => ir::TypeExpr::AnyType(any_type(any_ty)?),
+        ast::TypeExpr::PathType(path_ty) => path_type(path_ty)
+            .map(ir::TypeExpr::PathType)
+            .unwrap_or_else(|| ir::TypeExpr::Unknown),
+        ast::TypeExpr::NilableType(nilable_ty) => nilable_type(nilable_ty)
+            .map(ir::TypeExpr::NilableType)
+            .unwrap_or_else(|| ir::TypeExpr::Unknown),
+        ast::TypeExpr::LitType(lit_ty) => lit_type(lit_ty)
+            .map(ir::TypeExpr::LitType)
+            .unwrap_or_else(|| ir::TypeExpr::Unknown),
+        ast::TypeExpr::AnyType(_) => ir::TypeExpr::AnyType,
+        ast::TypeExpr::UnitType(_) => ir::TypeExpr::Unit,
     })
 }
 
@@ -129,10 +134,6 @@ fn path(item: ast::Path) -> Option<ir::Path> {
 
 fn lit_type(item: ast::LitType) -> Option<ir::LitType> {
     Some(ir::LitType { kind: item.kind()? })
-}
-
-fn any_type(item: ast::AnyType) -> Option<ir::AnyType> {
-    Some(ir::AnyType {})
 }
 
 fn nilable_type(item: ast::NilableType) -> Option<ir::NilableType> {

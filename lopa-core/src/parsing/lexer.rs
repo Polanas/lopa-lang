@@ -375,11 +375,14 @@ def! {
     EXPR_STMT,
 
     NILABLE_TYPE,
+    PAREN_TYPE,
     LIT_TYPE,
     ANY_TYPE,
     PATH_TYPE,
     FN_TYPE,
+    UNIT_TYPE,
 
+    UNIT_EXPR,
     NAME_EXPR,
     PATH_EXPR,
     LIT_EXPR,

@@ -30,7 +30,6 @@ impl<'db> FileSourceMap<'db> {
 
 #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
 pub struct FileScope<'db> {
-    //uses Ustr recomputed hash
     values: UstrIndexMap<ir::FileDef<'db>>,
 }
 
@@ -100,10 +99,10 @@ impl<'db> ExprScopesCtx<'db> {
 
     fn traverse(mut self) -> ExprScopes {
         let root = self.root_scope();
-        for param in &self.body.params {
+        for param in self.body.params() {
             self.add_bindings(param.pattern, root);
         }
-        self.traverse_expr(self.body.body_expr, root);
+        self.traverse_expr(self.body.body_expr(), root);
         ExprScopes {
             scopes: self.scopes,
             scope_by_expr: self.scope_by_expr,
@@ -113,7 +112,7 @@ impl<'db> ExprScopesCtx<'db> {
     fn traverse_expr(&mut self, expr: ExprId, scope: ScopeId) {
         self.scope_by_expr.insert(expr, scope);
 
-        match &self.body[expr] {
+        match self.body.expr(expr) {
             ir::Expr::BlockExpr { stmts } => {
                 let block_scope = self.scopes.alloc(ScopeData::from_parent(scope));
                 self.traverse_expr_stmts(stmts, block_scope);
@@ -156,7 +155,7 @@ impl<'db> ExprScopesCtx<'db> {
             ir::Expr::Unary { expr, .. } | ir::Expr::Return { expr } | ir::Expr::Paren { expr } => {
                 self.traverse_expr(*expr, scope);
             }
-            ir::Expr::Name(_) | ir::Expr::Lit(_) | ir::Expr::Missing => {}
+            ir::Expr::Name(_) | ir::Expr::Lit(_) | ir::Expr::Missing | ir::Expr::Unit => {}
         }
     }
 
@@ -175,7 +174,7 @@ impl<'db> ExprScopesCtx<'db> {
     }
 
     fn add_bindings(&mut self, pattern_id: PatternId, scope: ScopeId) {
-        let pattern = &self.body[pattern_id];
+        let pattern = &self.body.pattern(pattern_id);
         match pattern {
             ir::Pattern::Missing => {}
             ir::Pattern::Name(ustr) => {

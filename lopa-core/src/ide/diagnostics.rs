@@ -1,8 +1,9 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    ide::{File, base::FileRange, lower_file, parse},
+    ide::{self, File, base::FileRange, body, diagnostics, lower_file, parse, source_map},
     parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
+    ty::infer,
 };
 use itertools::Itertools;
 use rowan::{TextRange, TextSize};
@@ -33,18 +34,21 @@ impl Diagnostic {
     pub fn severity(&self) -> Severity {
         match &self.kind {
             DiagnosticKind::SyntaxError(_) => Severity::Error,
+            DiagnosticKind::TypeError(_) => Severity::Error,
         }
     }
 
-    pub fn message(&self) -> String {
-        match &self.kind {
+    pub fn message(self) -> String {
+        match self.kind {
             DiagnosticKind::SyntaxError(kind) => kind.to_string(),
+            DiagnosticKind::TypeError(err) => err.message,
         }
     }
 
     pub fn code(&self) -> &'static str {
         match &self.kind {
             DiagnosticKind::SyntaxError(_) => "syntax_error",
+            DiagnosticKind::TypeError(_) => "type_error",
         }
     }
 }
@@ -58,6 +62,7 @@ impl From<ParseError> for Diagnostic {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DiagnosticKind {
     SyntaxError(SyntaxErrorKind),
+    TypeError(infer::TypeErrorKind),
 }
 
 pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
@@ -67,11 +72,17 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
 
     let ir = lower_file(db, file);
-    // notify_rust::Notification::new()
-    //     .summary("functions")
-    //     .body(&ir.functions(db).iter().map(|f| f.name(db)).join(" "))
-    //     .show()
-    //     .unwrap();
+    for func in ir.functions(db) {
+        diagnostics.extend(
+            infer::type_diagnostics(db, func)
+                .into_iter()
+                .map(|(err, range)| Diagnostic {
+                    range,
+                    kind: DiagnosticKind::TypeError(infer::TypeErrorKind { message: err }),
+                    notes: vec![],
+                }),
+        );
+    }
 
     diagnostics
 }

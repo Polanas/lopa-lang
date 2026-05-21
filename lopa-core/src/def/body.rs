@@ -26,26 +26,34 @@ pub struct Param {
     pub type_expr: Option<ir::TypeExpr>,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, salsa::Update)]
 pub struct Body {
-    pub exprs: Arena<Expr>,
-    pub patterns: Arena<Pattern>,
-    pub params: Vec<Param>,
-    pub output: Option<ir::TypeExpr>,
-    pub body_expr: ExprId,
+    exprs: Arena<Expr>,
+    patterns: Arena<Pattern>,
+    params: Vec<Param>,
+    output: Option<ir::TypeExpr>,
+    body_expr: ExprId,
 }
 
-impl Index<ExprId> for Body {
-    type Output = Expr;
-    fn index(&self, index: ExprId) -> &Self::Output {
+impl Body {
+    pub fn pattern(&self, index: PatternId) -> &Pattern {
+        &self.patterns[index]
+    }
+
+    pub fn expr(&self, index: ExprId) -> &Expr {
         &self.exprs[index]
     }
-}
 
-impl Index<PatternId> for Body {
-    type Output = Pattern;
-    fn index(&self, index: PatternId) -> &Self::Output {
-        &self.patterns[index]
+    pub fn output(&self) -> Option<&ir::TypeExpr> {
+        self.output.as_ref()
+    }
+
+    pub fn body_expr(&self) -> la_arena::Idx<Expr> {
+        self.body_expr
+    }
+
+    pub fn params(&self) -> &[Param] {
+        &self.params
     }
 }
 
@@ -183,10 +191,11 @@ impl BodyLowerCtx {
             ast::Expr::LitExpr(lit_expr) => self.alloc_expr(
                 lit_expr
                     .kind()
-                    .map(|k| Expr::Lit(k))
+                    .map(Expr::Lit)
                     .unwrap_or_else(|| Expr::Missing),
                 ptr,
             ),
+            ast::Expr::UnitExpr(_) => self.alloc_expr(Expr::Unit, ptr),
             ast::Expr::TryExpr(try_expr) => {
                 // let expr = self.lower_expr_opt(try_expr.expr());
                 //TODO: implement try expr
