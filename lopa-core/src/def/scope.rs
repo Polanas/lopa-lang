@@ -19,6 +19,7 @@ pub struct MyAstPtr<T: rowan::ast::AstNode + 'static>(ast::AstPtr<T>);
 #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
 pub struct FileSourceMap<'db> {
     functions: indexmap::IndexMap<MyAstPtr<ast::FnItem>, ir::Function<'db>>,
+    structs: indexmap::IndexMap<MyAstPtr<ast::StructItem>, ir::Struct<'db>>,
 }
 
 impl<'db> FileSourceMap<'db> {

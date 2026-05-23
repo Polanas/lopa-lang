@@ -16,6 +16,22 @@ pub struct Local<'db> {
 #[derive(salsa::Supertype, Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
 pub enum FileDef<'db> {
     Function(Function<'db>),
+    Struct(Struct<'db>),
+}
+
+#[salsa::tracked(debug)]
+pub struct Struct<'db> {
+    pub name: Ustr,
+    pub fields: Vec<Field<'db>>,
+    pub ast_ptr: ast::AstPtr<ast::StructItem>,
+    pub file: ide::File,
+}
+
+#[salsa::tracked(debug)]
+pub struct Field<'db> {
+    pub name: Ustr,
+    #[returns(ref)]
+    pub ty: TypeExpr,
 }
 
 #[salsa::tracked(debug)]

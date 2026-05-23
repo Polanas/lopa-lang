@@ -57,12 +57,15 @@ pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
     Parser::new(input).parse()
 }
 
-const STMT_RECOVERY: TokenSet = TokenSet::new(&[T![fn]]);
-const PARAM_LIST_RECOVERY: TokenSet =
-    TokenSet::new(&[T![->], T!["{"], T![fn]]).union(STMT_RECOVERY);
+const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
+const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![@], T![struct]]);
+const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
+const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
+
+const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"]]).union(ITEM_FIRST);
+const FIELD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
 const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
-const STMT_EXPR_RECOVERY: TokenSet =
-    TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(STMT_RECOVERY);
+const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]]);
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
 const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
 const EXPR_FIRST: TokenSet = TokenSet::new(&[
@@ -82,10 +85,6 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T!["("],
     T![|],
 ]);
-const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
-const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![@]]);
-const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
-const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 
 pub struct Parser<'a> {
     input: Input<'a>,
@@ -217,6 +216,7 @@ impl<'a> Parser<'a> {
             match self.input.peek() {
                 T![fn] => self.fn_item(),
                 T![mod] => self.mod_item(),
+                T![struct] => self.struct_item(),
                 _ => {
                     unreachable!();
                 }
@@ -224,6 +224,15 @@ impl<'a> Parser<'a> {
         } else {
             self.advance_with_err(ErrorKind::ExpectedItem);
         }
+    }
+
+    fn struct_item(&mut self) {
+        self.with(STRUCT_ITEM, |this| {
+            this.expect(T![struct]);
+            this.name();
+            this.field_list();
+            this.expect(T!["}"]);
+        })
     }
 
     fn mod_item(&mut self) {
@@ -277,6 +286,36 @@ impl<'a> Parser<'a> {
         self.with(RETURN_TYPE, |this| {
             this.expect(T![->]);
             this.type_expr();
+        });
+    }
+
+    fn field_list(&mut self) {
+        self.with(FIELD_LIST, |this| {
+            this.expect(T!["{"]);
+
+            while !this.input.at(T!["}"]) && !this.input.at(EOF) {
+                this.compiler_attrib_list();
+                if this.input.at(IDENT) {
+                    this.field();
+                    this.ate(T![,]);
+                } else {
+                    if this.input.at_any(FIELD_LIST_RECOVERY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedParameter);
+                }
+            }
+        });
+    }
+
+    fn field(&mut self) {
+        self.with(FIELD, |this| {
+            this.name();
+            this.expect(T![:]);
+            this.type_expr();
+            if this.ate(T![=]) {
+                this.expr();
+            }
         });
     }
 
@@ -1251,6 +1290,7 @@ pub enum ErrorKind {
     ExpectedStatement,
     ExpectedType,
     ExpectedParameter,
+    ExpectedField,
     ExpectedAttribute,
     ExpectedPattern,
     ExpectedItem,
@@ -1271,6 +1311,7 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedPattern => "expected pattern",
             Self::ExpectedItem => "expected item",
             Self::ExpectedOperator => "expected operator",
+            Self::ExpectedField => "expected field",
             Self::Other(text) => text,
         }
         .fmt(f)
@@ -1587,6 +1628,11 @@ mod test {
         insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
         insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
         insta::assert_snapshot!(parse("()", |p| p.expr()));
+    }
+
+    #[test]
+    fn strct(){
+        insta::assert_snapshot!(parse("struct Vec2 { x: int = 1, y: int = 2 }", |p| p.expr()));
     }
 
     #[test]

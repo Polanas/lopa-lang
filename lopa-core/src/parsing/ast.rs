@@ -1,9 +1,9 @@
 use super::{lexer::Syntax, parser};
 use crate::T;
+use crate::common::LitKind;
 use rowan::NodeOrToken;
 use rowan::ast::support::{child, children, token};
 use rowan::ast::{AstChildren, AstNode};
-use crate::common::LitKind;
 use ustr::Ustr;
 
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
@@ -219,6 +219,23 @@ structs! {
         mod_token: T![mod],
         semi: T![;],
         items: [FnItem],
+    },
+    STRUCT_ITEM = StructItem {
+        struct_token: T![struct],
+        name: Name,
+        left_brace_token: T!["{"],
+        fields: FieldList,
+        right_brace_token: T!["}"],
+    },
+    FIELD_LIST = FieldList {
+        fields: [Field],
+    },
+    FIELD = Field {
+        name: Name,
+        colon_token: T![:],
+        ty: TypeExpr,
+        eq_token: T![=],
+        default_value: Expr,
     },
     FN_ITEM = FnItem {
         fn_token: T![fn],

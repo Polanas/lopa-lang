@@ -361,6 +361,7 @@ def! {
     FILE,
 
     FN_ITEM,
+    STRUCT_ITEM,
     MOD_ITEM,
 
     PATH,
@@ -370,6 +371,8 @@ def! {
     PARAM_LIST,
     PARAM,
     RETURN_TYPE,
+    FIELD_LIST,
+    FIELD,
 
     LET_STMT,
     EXPR_STMT,

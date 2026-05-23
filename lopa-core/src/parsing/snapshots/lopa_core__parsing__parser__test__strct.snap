@@ -1,0 +1,43 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"struct Vec2 { x: int = 1, y: int = 2 }\", |p| p.struct_item())"
+---
+STRUCT_ITEM: 0..38 
+  STRUCT_KW: 0..6 "struct"
+  WHITESPACE: 6..7 
+  NAME: 7..12 
+    IDENT: 7..11 "Vec2"
+    WHITESPACE: 11..12 
+  FIELD_LIST: 12..37 
+    L_BRACE: 12..13 "{"
+    WHITESPACE: 13..14 
+    FIELD: 14..24 
+      NAME: 14..15 
+        IDENT: 14..15 "x"
+      COLON: 15..16 ":"
+      WHITESPACE: 16..17 
+      LIT_TYPE: 17..21 
+        PATH: 17..21 
+          IDENT: 17..20 "int"
+          WHITESPACE: 20..21 
+      EQ: 21..22 "="
+      WHITESPACE: 22..23 
+      LIT_EXPR: 23..24 
+        INT: 23..24 "1"
+    COMMA: 24..25 ","
+    WHITESPACE: 25..26 
+    FIELD: 26..37 
+      NAME: 26..27 
+        IDENT: 26..27 "y"
+      COLON: 27..28 ":"
+      WHITESPACE: 28..29 
+      LIT_TYPE: 29..33 
+        PATH: 29..33 
+          IDENT: 29..32 "int"
+          WHITESPACE: 32..33 
+      EQ: 33..34 "="
+      WHITESPACE: 34..35 
+      LIT_EXPR: 35..37 
+        INT: 35..36 "2"
+        WHITESPACE: 36..37 
+  R_BRACE: 37..38 "}"
