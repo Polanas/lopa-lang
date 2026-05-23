@@ -1,4 +1,4 @@
-use la_arena::Idx;
+use la_arena::{Idx, RawIdx};
 use ustr::Ustr;
 
 use crate::{
@@ -63,7 +63,7 @@ impl<'db> Function<'db> {
     }
 
     #[salsa::tracked(returns(ref))]
-    fn output(self, db: &'db dyn salsa::Database) -> Option<TypeExpr<'db>> {
+    pub fn output(self, db: &'db dyn salsa::Database) -> Option<TypeExpr<'db>> {
         let file = self.file(db);
         let root = ide::parse(db, file).syntax_node(db);
         let output = self.ast_ptr(db).to_node(&root).output()?.ty();
@@ -128,52 +128,52 @@ pub enum TypeExpr<'db> {
     },
 }
 
-// pub type ExprId = Idx<Expr>;
+pub type ExprId = RawIdx;
 
-// #[derive(PartialEq, Eq, Clone, Debug)]
-// pub enum Expr {
-//     Missing,
-//     Unit,
-//     Path(Vec<Ustr>),
-//     Lit(LitKind),
-//     BlockExpr {
-//         stmts: Vec<Stmt>,
-//     },
-//     If {
-//         if_cond: ExprId,
-//         if_branch: Vec<Stmt>,
-//         else_branch: Option<ElseBranch>,
-//     },
-//     Unary {
-//         expr: ExprId,
-//         kind: UnaryOpKind,
-//     },
-//     Binary {
-//         left: ExprId,
-//         right: ExprId,
-//         kind: BinaryOpKind,
-//     },
-//     Return {
-//         expr: ExprId,
-//     },
-//     Index {
-//         base: ExprId,
-//         index: ExprId,
-//     },
-//     Call {
-//         func: ExprId,
-//         args: Vec<Arg>,
-//     },
-//     Paren {
-//         expr: ExprId,
-//     },
-// }
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
+pub enum Expr<'db> {
+    Missing,
+    Unit,
+    Path(Vec<Ustr>),
+    Lit(LitKind),
+    BlockExpr {
+        stmts: Vec<Stmt<'db>>,
+    },
+    If {
+        if_cond: ExprId,
+        if_branch: Vec<Stmt<'db>>,
+        else_branch: Option<ElseBranch<'db>>,
+    },
+    Unary {
+        expr: ExprId,
+        kind: UnaryOpKind,
+    },
+    Binary {
+        left: ExprId,
+        right: ExprId,
+        kind: BinaryOpKind,
+    },
+    Return {
+        expr: ExprId,
+    },
+    Index {
+        base: ExprId,
+        index: ExprId,
+    },
+    Call {
+        func: ExprId,
+        args: Vec<Arg>,
+    },
+    Paren {
+        expr: ExprId,
+    },
+}
 
-// #[derive(PartialEq, Eq, Clone, Debug)]
-// pub enum ElseBranch {
-//     Else { stmts: Vec<Stmt> },
-//     ElseIf { expr: ExprId },
-// }
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
+pub enum ElseBranch<'db> {
+    Else { stmts: Vec<Stmt<'db>> },
+    ElseIf { expr: ExprId },
+}
 
 pub type PatternId = Idx<Pattern>;
 
@@ -183,29 +183,29 @@ pub enum Pattern {
     Name(Ustr),
 }
 
-// #[derive(PartialEq, Eq, Clone, Debug)]
-// pub enum Arg {
-//     Labeled { label: Ustr, value: ExprId },
-//     NonLabeled { value: ExprId },
-// }
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub enum Arg {
+    Labeled { label: Ustr, value: ExprId },
+    NonLabeled { value: ExprId },
+}
 
-// impl Arg {
-//     pub fn value(&self) -> ExprId {
-//         match self {
-//             Arg::Labeled { value, .. } | Arg::NonLabeled { value } => *value,
-//         }
-//     }
-// }
+impl Arg {
+    pub fn value(&self) -> ExprId {
+        match self {
+            Arg::Labeled { value, .. } | Arg::NonLabeled { value } => *value,
+        }
+    }
+}
 
-// #[derive(PartialEq, Eq, Clone, Debug)]
-// pub enum Stmt {
-//     Let {
-//         pattern: PatternId,
-//         ty: Option<TypeExpr>,
-//         expr: ExprId,
-//     },
-//     Expr {
-//         expr: ExprId,
-//         semi: Option<()>,
-//     },
-// }
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
+pub enum Stmt<'db> {
+    Let {
+        pattern: PatternId,
+        ty: Option<TypeExpr<'db>>,
+        expr: ExprId,
+    },
+    Expr {
+        expr: ExprId,
+        semi: Option<()>,
+    },
+}

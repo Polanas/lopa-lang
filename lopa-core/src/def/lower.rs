@@ -132,7 +132,7 @@ pub fn lower_type_expr<'db>(
                         .map(|(ty, n)| ir::Param::new(db, n.and_then(|n| n.text()), ty))
                         .collect_vec()
                 })
-                .unwrap_or_else(Vec::new),
+                .unwrap_or_default(),
             output: fn_type
                 .output()
                 .and_then(|o| o.ty())
