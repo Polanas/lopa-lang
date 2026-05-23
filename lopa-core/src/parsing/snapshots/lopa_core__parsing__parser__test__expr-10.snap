@@ -5,8 +5,8 @@ expression: "parse(\"a[1](2)[3]\", |p| p.expr())"
 INDEX_EXPR: 0..10 
   CALL_EXPR: 0..7 
     INDEX_EXPR: 0..4 
-      NAME_EXPR: 0..1 
-        NAME: 0..1 
+      PATH_EXPR: 0..1 
+        PATH: 0..1 
           IDENT: 0..1 "a"
       L_BRACKET: 1..2 "["
       LIT_EXPR: 2..3 

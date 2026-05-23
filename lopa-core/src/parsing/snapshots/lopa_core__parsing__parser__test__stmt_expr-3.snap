@@ -1,11 +1,11 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"print();\", |p| p.stmt_expr())"
+expression: "parse(\"print();\", |p| { _ = p.stmt_expr() })"
 ---
 EXPR_STMT: 0..8 
   CALL_EXPR: 0..7 
-    NAME_EXPR: 0..5 
-      NAME: 0..5 
+    PATH_EXPR: 0..5 
+      PATH: 0..5 
         IDENT: 0..5 "print"
     ARG_LIST: 5..7 
       L_PAREN: 5..6 "("

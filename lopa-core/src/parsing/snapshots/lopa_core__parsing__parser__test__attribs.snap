@@ -22,8 +22,8 @@ COMPILER_ATTRIB_LIST: 0..38
     L_PAREN: 23..24 "("
     COMPILER_ATTRIB_ITEM: 24..27 
       BINARY_EXPR: 24..27 
-        NAME_EXPR: 24..25 
-          NAME: 24..25 
+        PATH_EXPR: 24..25 
+          PATH: 24..25 
             IDENT: 24..25 "a"
         EQ: 25..26 "="
         LIT_EXPR: 26..27 
@@ -31,8 +31,8 @@ COMPILER_ATTRIB_LIST: 0..38
     COMMA: 27..28 ","
     COMPILER_ATTRIB_ITEM: 28..31 
       BINARY_EXPR: 28..31 
-        NAME_EXPR: 28..29 
-          NAME: 28..29 
+        PATH_EXPR: 28..29 
+          PATH: 28..29 
             IDENT: 28..29 "b"
         EQ: 29..30 "="
         LIT_EXPR: 30..31 
@@ -40,7 +40,7 @@ COMPILER_ATTRIB_LIST: 0..38
     COMMA: 31..32 ","
     WHITESPACE: 32..33 
     COMPILER_ATTRIB_ITEM: 33..37 
-      NAME_EXPR: 33..37 
-        NAME: 33..37 
+      PATH_EXPR: 33..37 
+        PATH: 33..37 
           IDENT: 33..37 "yeah"
     R_PAREN: 37..38 ")"

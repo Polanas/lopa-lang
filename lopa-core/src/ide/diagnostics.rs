@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{
-    ide::{self, File, base::FileRange, body, diagnostics, lower_file, parse, source_map},
+    ide::{self, File, base::FileRange, parse},
     parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
     ty::infer,
 };
@@ -71,18 +71,18 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     let parse = parse(db, file);
     diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
 
-    let ir = lower_file(db, file);
-    for func in ir.functions(db) {
-        diagnostics.extend(
-            infer::type_diagnostics(db, func)
-                .into_iter()
-                .map(|(err, range)| Diagnostic {
-                    range,
-                    kind: DiagnosticKind::TypeError(infer::TypeErrorKind { message: err }),
-                    notes: vec![],
-                }),
-        );
-    }
+    let ir = ide::lower_file(db, file);
+    // for func in ir.functions(db) {
+    //     diagnostics.extend(
+    //         infer::type_diagnostics(db, func)
+    //             .into_iter()
+    //             .map(|(err, range)| Diagnostic {
+    //                 range,
+    //                 kind: DiagnosticKind::TypeError(infer::TypeErrorKind { message: err }),
+    //                 notes: vec![],
+    //             }),
+    //     );
+    // }
 
     diagnostics
 }

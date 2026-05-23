@@ -1,0 +1,18 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"{ vec2 {}; }\", |p| p.block())"
+---
+BLOCK_EXPR: 0..12 
+  L_BRACE: 0..1 "{"
+  WHITESPACE: 1..2 
+  EXPR_STMT: 2..11 
+    RECORD_EXPR: 2..9 
+      PATH: 2..7 
+        IDENT: 2..6 "vec2"
+        WHITESPACE: 6..7 
+      RECORD_FIELD_LIST: 7..9 
+        L_BRACE: 7..8 "{"
+        R_BRACE: 8..9 "}"
+    SEMI: 9..10 ";"
+    WHITESPACE: 10..11 
+  R_BRACE: 11..12 "}"

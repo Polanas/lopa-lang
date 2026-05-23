@@ -63,6 +63,7 @@ const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 
 const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"]]).union(ITEM_FIRST);
+const RECORD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["}"], T![,]]);
 const FIELD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
 const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
 const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]]);
@@ -444,6 +445,7 @@ impl<'a> Parser<'a> {
 
     fn prefix_expr(&mut self) -> Option<()> {
         let token = self.input.peek();
+        let checkpoint = self.builder.checkpoint();
         match token {
             T![return] => self.return_expr(),
             T![if] => self.if_expr(),
@@ -477,12 +479,16 @@ impl<'a> Parser<'a> {
                 self.closure_expr();
             }
             IDENT => {
-                if self.at_path_sep(1) {
-                    self.with(PATH_EXPR, |this| {
-                        this.path();
-                    });
+                let checkpoint = self.builder.checkpoint();
+                self.path();
+
+                if self.input.at(T!["{"])
+                    && ((self.input.nth(1) == NAME && self.input.nth(2) == T![:])
+                        || self.input.nth(1) == T!["}"])
+                {
+                    self.with_at(RECORD_EXPR, checkpoint, |this| this.record_field_list());
                 } else {
-                    self.with(NAME_EXPR, |this| this.name());
+                    self.with_at(PATH_EXPR, checkpoint, |_| {});
                 }
             }
             _ => {
@@ -490,7 +496,58 @@ impl<'a> Parser<'a> {
                 return None;
             }
         }
+        loop {
+            match self.input.peek() {
+                T!["("] => {
+                    self.with_at(CALL_EXPR, checkpoint, |this| this.arg_list());
+                }
+                T!["["] => {
+                    self.with_at(INDEX_EXPR, checkpoint, |this| this.index());
+                }
+                T![.] => {
+                    if self.input.nth(2) == T!["("] {
+                        self.with_at(METHOD_EXPR, checkpoint, |this| {
+                            this.expect(T![.]);
+                            this.name();
+                            this.arg_list();
+                        })
+                    } else {
+                        self.with_at(FIELD_EXPR, checkpoint, |this| {
+                            this.expect(T![.]);
+                            this.name();
+                        })
+                    }
+                }
+                _ => break,
+            }
+        }
         Some(())
+    }
+
+    fn record_field_list(&mut self) {
+        self.with(RECORD_FIELD_LIST, |this| {
+            this.expect(T!["{"]);
+            while !this.input.at(T!["}"]) && !this.input.at(EOF) {
+                if this.input.at(IDENT) {
+                    this.record_field();
+                    this.ate(T![,]);
+                } else {
+                    if this.input.at_any(RECORD_LIST_RECOVERY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedField);
+                }
+            }
+            this.expect(T!["}"]);
+        });
+    }
+
+    fn record_field(&mut self) {
+        self.with(RECORD_FIELD, |this| {
+            this.name();
+            this.expect(T![:]);
+            this.expr();
+        });
     }
 
     fn closure_expr(&mut self) {
@@ -612,17 +669,6 @@ impl<'a> Parser<'a> {
             }
         };
 
-        loop {
-            match self.input.peek() {
-                T!["("] => {
-                    self.with_at(CALL_EXPR, checkpoint, |this| this.arg_list());
-                }
-                T!["["] => {
-                    self.with_at(INDEX_EXPR, checkpoint, |this| this.index());
-                }
-                _ => break,
-            }
-        }
         loop {
             let op = self.input.peek();
 
@@ -1597,6 +1643,7 @@ mod test {
         insta::assert_snapshot!(parse("1+1;", |p| { _ = p.stmt_expr() }));
         insta::assert_snapshot!(parse("print();", |p| { _ = p.stmt_expr() }));
         insta::assert_snapshot!(parse("no_semi % idk", |p| { _ = p.stmt_expr() }));
+        insta::assert_snapshot!(parse("vec2 { }", |p| { _ = p.stmt_expr() }));
     }
 
     #[test]
@@ -1610,6 +1657,7 @@ mod test {
         insta::assert_snapshot!(parse("{ }", |p| p.block()));
         insta::assert_snapshot!(parse("{ 1 }", |p| p.block()));
         insta::assert_snapshot!(parse("{ something; something_else; }", |p| p.block()));
+        insta::assert_snapshot!(parse("{ vec2 {}; }", |p| p.block()));
     }
 
     #[test]
@@ -1624,15 +1672,20 @@ mod test {
         insta::assert_snapshot!(parse("if true {} else if VALUE { yo_mister_white }", |p| p.expr()));
         insta::assert_snapshot!(parse("\"a string\"", |p| p.expr()));
         insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
-        insta::assert_snapshot!(parse("a = b = c", |p| p.expr()));
+        insta::assert_snapshot!(parse("a[1] = b = c", |p| p.expr()));
         insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
         insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
         insta::assert_snapshot!(parse("()", |p| p.expr()));
+        insta::assert_snapshot!(parse("1.abs()", |p| p.expr()));
+        insta::assert_snapshot!(parse("pos[1][2].test().test.len()[0]", |p| p.expr()));
+        insta::assert_snapshot!(parse("math::Vec2 { x: 1, y: 2, }", |p| p.expr()));
+        insta::assert_snapshot!(parse("Vec2 {}", |p| p.expr()));
     }
 
     #[test]
-    fn strct(){
-        insta::assert_snapshot!(parse("struct Vec2 { x: int = 1, y: int = 2 }", |p| p.expr()));
+    fn strct() {
+        insta::assert_snapshot!(parse("struct Vec2 { x: int = 1, y: int = 2 }", |p| p
+            .struct_item()));
     }
 
     #[test]

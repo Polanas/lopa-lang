@@ -6,7 +6,6 @@ use crate::{
     ide,
     parsing::ast::{self, BinaryOpKind, UnaryOpKind},
 };
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Local<'db> {
     pub parent: Function<'db>,
@@ -20,113 +19,86 @@ pub enum FileDef<'db> {
 }
 
 #[salsa::tracked(debug)]
-pub struct Struct<'db> {
-    pub name: Ustr,
-    pub fields: Vec<Field<'db>>,
-    pub ast_ptr: ast::AstPtr<ast::StructItem>,
-    pub file: ide::File,
-}
-
-#[salsa::tracked(debug)]
-pub struct Field<'db> {
-    pub name: Ustr,
-    #[returns(ref)]
-    pub ty: TypeExpr,
-}
-
-#[salsa::tracked(debug)]
 pub struct Function<'db> {
     pub name: Ustr,
-    #[returns(ref)]
-    pub params: Vec<FnParam<'db>>,
-    #[returns(ref)]
-    pub output: Option<TypeExpr>,
-    #[returns(ref)]
     pub ast_ptr: ast::AstPtr<ast::FnItem>,
     pub file: ide::File,
 }
 
 #[salsa::tracked(debug)]
-pub struct FnParam<'db> {
-    // pub name: Ustr,
-    #[returns(ref)]
-    pub ty: TypeExpr,
+pub struct Struct<'db> {
+    pub name: Ustr,
+    pub ast_ptr: ast::AstPtr<ast::StructItem>,
+    pub file: ide::File,
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
-pub enum TypeExpr {
+pub enum TypeExpr<'db> {
     Unknown,
     Unit,
-    AnyType,
-    PathType(PathType),
-    NilableType(NilableType),
-    LitType(LitType),
+    Any,
+    Lit(LitKind),
+    Struct(Struct<'db>),
+    Function(Function<'db>),
+    Nilable(Box<TypeExpr<'db>>),
+    BareFunction {
+        params: Vec<Param<'db>>,
+        output: Option<Box<TypeExpr<'db>>>
+    }
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
-pub struct Path {
-    pub segments: Vec<Ustr>,
+pub struct Param<'db> {
+    pub ty: TypeExpr<'db>,
+    pub name: Option<Ustr>,
 }
 
-#[derive(salsa::Update, PartialEq, Eq, Hash, Clone, Debug)]
-pub struct PathType {
-    pub value: Path,
-}
-#[derive(salsa::Update, PartialEq, Eq, Hash, Clone, Debug)]
-pub struct NilableType {
-    pub value: Box<TypeExpr>,
-}
-#[derive(salsa::Update, PartialEq, Eq, Hash, Clone, Debug)]
-pub struct LitType {
-    pub kind: LitKind,
-}
+// pub type ExprId = Idx<Expr>;
 
-pub type ExprId = Idx<Expr>;
+// #[derive(PartialEq, Eq, Clone, Debug)]
+// pub enum Expr {
+//     Missing,
+//     Unit,
+//     Path(Vec<Ustr>),
+//     Lit(LitKind),
+//     BlockExpr {
+//         stmts: Vec<Stmt>,
+//     },
+//     If {
+//         if_cond: ExprId,
+//         if_branch: Vec<Stmt>,
+//         else_branch: Option<ElseBranch>,
+//     },
+//     Unary {
+//         expr: ExprId,
+//         kind: UnaryOpKind,
+//     },
+//     Binary {
+//         left: ExprId,
+//         right: ExprId,
+//         kind: BinaryOpKind,
+//     },
+//     Return {
+//         expr: ExprId,
+//     },
+//     Index {
+//         base: ExprId,
+//         index: ExprId,
+//     },
+//     Call {
+//         func: ExprId,
+//         args: Vec<Arg>,
+//     },
+//     Paren {
+//         expr: ExprId,
+//     },
+// }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum Expr {
-    Missing,
-    Unit,
-    Name(Ustr),
-    Lit(LitKind),
-    BlockExpr {
-        stmts: Vec<Stmt>,
-    },
-    If {
-        if_cond: ExprId,
-        if_branch: Vec<Stmt>,
-        else_branch: Option<ElseBranch>,
-    },
-    Unary {
-        expr: ExprId,
-        kind: UnaryOpKind,
-    },
-    Binary {
-        left: ExprId,
-        right: ExprId,
-        kind: BinaryOpKind,
-    },
-    Return {
-        expr: ExprId,
-    },
-    Index {
-        base: ExprId,
-        index: ExprId,
-    },
-    Call {
-        func: ExprId,
-        args: Vec<Arg>,
-    },
-    Paren {
-        expr: ExprId,
-    },
-}
-
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum ElseBranch {
-    Else { stmts: Vec<Stmt> },
-    ElseIf { expr: ExprId },
-}
+// #[derive(PartialEq, Eq, Clone, Debug)]
+// pub enum ElseBranch {
+//     Else { stmts: Vec<Stmt> },
+//     ElseIf { expr: ExprId },
+// }
 
 pub type PatternId = Idx<Pattern>;
 
@@ -136,29 +108,29 @@ pub enum Pattern {
     Name(Ustr),
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum Arg {
-    Labeled { label: Ustr, value: ExprId },
-    NonLabeled { value: ExprId },
-}
+// #[derive(PartialEq, Eq, Clone, Debug)]
+// pub enum Arg {
+//     Labeled { label: Ustr, value: ExprId },
+//     NonLabeled { value: ExprId },
+// }
 
-impl Arg {
-    pub fn value(&self) -> ExprId {
-        match self {
-            Arg::Labeled { value, .. } | Arg::NonLabeled { value } => *value,
-        }
-    }
-}
+// impl Arg {
+//     pub fn value(&self) -> ExprId {
+//         match self {
+//             Arg::Labeled { value, .. } | Arg::NonLabeled { value } => *value,
+//         }
+//     }
+// }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub enum Stmt {
-    Let {
-        pattern: PatternId,
-        ty: Option<TypeExpr>,
-        expr: ExprId,
-    },
-    Expr {
-        expr: ExprId,
-        semi: Option<()>,
-    },
-}
+// #[derive(PartialEq, Eq, Clone, Debug)]
+// pub enum Stmt {
+//     Let {
+//         pattern: PatternId,
+//         ty: Option<TypeExpr>,
+//         expr: ExprId,
+//     },
+//     Expr {
+//         expr: ExprId,
+//         semi: Option<()>,
+//     },
+// }

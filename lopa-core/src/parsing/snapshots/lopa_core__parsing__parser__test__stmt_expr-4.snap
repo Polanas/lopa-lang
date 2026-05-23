@@ -1,15 +1,15 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"no_semi % idk\", |p| p.stmt_expr())"
+expression: "parse(\"no_semi % idk\", |p| { _ = p.stmt_expr() })"
 ---
 EXPR_STMT: 0..13 
   BINARY_EXPR: 0..13 
-    NAME_EXPR: 0..8 
-      NAME: 0..8 
+    PATH_EXPR: 0..8 
+      PATH: 0..8 
         IDENT: 0..7 "no_semi"
         WHITESPACE: 7..8 
     PERCENT: 8..9 "%"
     WHITESPACE: 9..10 
-    NAME_EXPR: 10..13 
-      NAME: 10..13 
+    PATH_EXPR: 10..13 
+      PATH: 10..13 
         IDENT: 10..13 "idk"

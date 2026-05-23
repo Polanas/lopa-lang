@@ -17,16 +17,16 @@ IF_EXPR: 0..44
   IF_EXPR: 16..44 
     IF_KW: 16..18 "if"
     WHITESPACE: 18..19 
-    NAME_EXPR: 19..25 
-      NAME: 19..25 
+    PATH_EXPR: 19..25 
+      PATH: 19..25 
         IDENT: 19..24 "VALUE"
         WHITESPACE: 24..25 
     BLOCK_EXPR: 25..44 
       L_BRACE: 25..26 "{"
       WHITESPACE: 26..27 
       EXPR_STMT: 27..43 
-        NAME_EXPR: 27..43 
-          NAME: 27..43 
+        PATH_EXPR: 27..43 
+          PATH: 27..43 
             IDENT: 27..42 "yo_mister_white"
             WHITESPACE: 42..43 
       R_BRACE: 43..44 "}"

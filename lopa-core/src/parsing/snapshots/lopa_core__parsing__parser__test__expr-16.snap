@@ -1,0 +1,40 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"pos[1][2].test().test.len()[0]\", |p| p.expr())"
+---
+INDEX_EXPR: 0..30 
+  METHOD_EXPR: 0..27 
+    FIELD_EXPR: 0..21 
+      METHOD_EXPR: 0..16 
+        INDEX_EXPR: 0..9 
+          INDEX_EXPR: 0..6 
+            PATH_EXPR: 0..3 
+              PATH: 0..3 
+                IDENT: 0..3 "pos"
+            L_BRACKET: 3..4 "["
+            LIT_EXPR: 4..5 
+              INT: 4..5 "1"
+            R_BRACKET: 5..6 "]"
+          L_BRACKET: 6..7 "["
+          LIT_EXPR: 7..8 
+            INT: 7..8 "2"
+          R_BRACKET: 8..9 "]"
+        DOT: 9..10 "."
+        NAME: 10..14 
+          IDENT: 10..14 "test"
+        ARG_LIST: 14..16 
+          L_PAREN: 14..15 "("
+          R_PAREN: 15..16 ")"
+      DOT: 16..17 "."
+      NAME: 17..21 
+        IDENT: 17..21 "test"
+    DOT: 21..22 "."
+    NAME: 22..25 
+      IDENT: 22..25 "len"
+    ARG_LIST: 25..27 
+      L_PAREN: 25..26 "("
+      R_PAREN: 26..27 ")"
+  L_BRACKET: 27..28 "["
+  LIT_EXPR: 28..29 
+    INT: 28..29 "0"
+  R_BRACKET: 29..30 "]"

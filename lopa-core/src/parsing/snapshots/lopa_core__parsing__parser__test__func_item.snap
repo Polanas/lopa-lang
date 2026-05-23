@@ -40,8 +40,8 @@ FN_ITEM: 0..41
     L_BRACE: 32..33 "{"
     WHITESPACE: 33..34 
     EXPR_STMT: 34..40 
-      NAME_EXPR: 34..38 
-        NAME: 34..38 
+      PATH_EXPR: 34..38 
+        PATH: 34..38 
           IDENT: 34..38 "stmt"
       SEMI: 38..39 ";"
       WHITESPACE: 39..40 

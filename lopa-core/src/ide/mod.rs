@@ -165,27 +165,27 @@ pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> lower::IrFil
     lower::lower_file(db, parse, file)
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn body_with_source_map<'db>(
-    db: &'db dyn salsa::Database,
-    func: Function<'db>,
-) -> (Arc<def::body::Body>, Arc<def::body::BodySourceMap>) {
-    let (body, body_source_map) = def::body::lower(db, func);
-    (Arc::new(body), Arc::new(body_source_map))
-}
+// #[salsa::tracked(returns(ref))]
+// pub fn body_with_source_map<'db>(
+//     db: &'db dyn salsa::Database,
+//     func: Function<'db>,
+// ) -> (Arc<def::body::Body>, Arc<def::body::BodySourceMap>) {
+//     let (body, body_source_map) = def::body::lower(db, func);
+//     (Arc::new(body), Arc::new(body_source_map))
+// }
+//
+// #[salsa::tracked(returns(ref))]
+// pub fn body<'db>(db: &'db dyn salsa::Database, func: Function<'db>) -> Arc<def::body::Body> {
+//     body_with_source_map(db, func).0.clone()
+// }
 
-#[salsa::tracked(returns(ref))]
-pub fn body<'db>(db: &'db dyn salsa::Database, func: Function<'db>) -> Arc<def::body::Body> {
-    body_with_source_map(db, func).0.clone()
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn source_map<'db>(
-    db: &'db dyn salsa::Database,
-    func: Function<'db>,
-) -> Arc<def::body::BodySourceMap> {
-    body_with_source_map(db, func).1.clone()
-}
+// #[salsa::tracked(returns(ref))]
+// pub fn source_map<'db>(
+//     db: &'db dyn salsa::Database,
+//     func: Function<'db>,
+// ) -> Arc<def::body::BodySourceMap> {
+//     body_with_source_map(db, func).1.clone()
+// }
 
 #[salsa::db]
 #[derive(Default)]

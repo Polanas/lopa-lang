@@ -6,14 +6,14 @@ BLOCK_EXPR: 0..30
   L_BRACE: 0..1 "{"
   WHITESPACE: 1..2 
   EXPR_STMT: 2..13 
-    NAME_EXPR: 2..11 
-      NAME: 2..11 
+    PATH_EXPR: 2..11 
+      PATH: 2..11 
         IDENT: 2..11 "something"
     SEMI: 11..12 ";"
     WHITESPACE: 12..13 
   EXPR_STMT: 13..29 
-    NAME_EXPR: 13..27 
-      NAME: 13..27 
+    PATH_EXPR: 13..27 
+      PATH: 13..27 
         IDENT: 13..27 "something_else"
     SEMI: 27..28 ";"
     WHITESPACE: 28..29 

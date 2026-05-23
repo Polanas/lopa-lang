@@ -17,10 +17,10 @@ ustr.workspace = true
 indexmap.workspace = true
 bimap.workspace = true
 dashmap.workspace = true
+la-arena = { path = "../la-arena" }
 paste = "1.0.15"
 notify-rust = "4.13.1"
 identity-hash = "0.1.0"
-la-arena = "0.3.1"
 
 [dev-dependencies]
 insta.workspace = true

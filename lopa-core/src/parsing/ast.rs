@@ -223,12 +223,12 @@ structs! {
     STRUCT_ITEM = StructItem {
         struct_token: T![struct],
         name: Name,
-        left_brace_token: T!["{"],
         fields: FieldList,
-        right_brace_token: T!["}"],
     },
     FIELD_LIST = FieldList {
+        left_brace_token: T!["{"],
         fields: [Field],
+        right_brace_token: T!["}"],
     },
     FIELD = Field {
         name: Name,
@@ -240,9 +240,7 @@ structs! {
     FN_ITEM = FnItem {
         fn_token: T![fn],
         name: Name,
-        left_paren_token: T!["("],
         params: ParamList,
-        right_paren_token: T![")"],
         output: ReturnType,
         body: BlockExpr,
     },
@@ -251,7 +249,9 @@ structs! {
         ty: TypeExpr,
     },
     PARAM_LIST = ParamList {
+        left_paren_token: T!["("],
         params: [FnParam],
+        right_paren_token: T![")"],
     },
     PARAM = FnParam {
         pattern: Pattern,
@@ -263,6 +263,7 @@ structs! {
     EXPR_STMT = ExprStmt {
         expr: Expr,
         semi_token: T![;],
+        right_paren_token: T![")"],
     },
     LET_STMT = LetStmt {
         let_token: T![let],
@@ -273,7 +274,6 @@ structs! {
         expr: Expr,
         semi: T![;],
     },
-
     NAME_PATTERN = NamePattern {
         name: Name,
     },
@@ -327,8 +327,8 @@ structs! {
     },
     UNIT_EXPR = UnitExpr {
     },
-    NAME_EXPR = NameExpr {
-        name: Name,
+    PATH_EXPR = PathExpr {
+        path: Path,
     },
     BINARY_EXPR = BinaryExpr {
         lhs: Expr,
@@ -406,7 +406,9 @@ structs! {
         right_bracket_token: T!["]"],
     },
     ARG_LIST = ArgList {
+        left_paren_token: T!["("],
         args: [Arg],
+        right_paren_token: T![")"],
     },
     ARG = Arg {
         label: Name,
@@ -415,9 +417,7 @@ structs! {
     },
     CALL_EXPR = CallExpr {
         func: Expr,
-        left_paren_token: T!["("],
         args: ArgList,
-        right_paren_token: T![")"],
     },
     PAREN_EXPR = ParenExpr {
         left_paren_token: T!["("],
@@ -436,6 +436,32 @@ structs! {
         else_token: T![else],
         else_branch[1]: BlockExpr,
         else_if_expr: IfExpr,
+    },
+    FIELD_EXPR = FieldExpr {
+        expr: Expr,
+        dot_token: T![.],
+        name: Name,
+    },
+    METHOD_EXPR = MethodExpr {
+        expr: Expr,
+        dot_token: T![.],
+        name: Name,
+        args: ArgList,
+
+    },
+    RECORD_EXPR = RecordExpr {
+        path: Path,
+        list: RecordFieldList,
+    },
+    RECORD_FIELD_LIST = RecordFieldList {
+        left_brace_token: T!["{"],
+        fields: [RecordField],
+        right_brace_token: T!["}"],
+    },
+    RECORD_FIELD = RecordField {
+        name: Name,
+        colon_token: T![:],
+        exrp: Expr,
     },
     TRY_EXPR = TryExpr {
         expr: Expr,
@@ -514,14 +540,18 @@ enums! {
     Item {
         FnItem,
         ModItem,
+        StructItem,
     },
     Stmt {
         LetStmt,
         ExprStmt,
     },
     Expr {
+        FieldExpr,
+        MethodExpr,
+        RecordExpr,
         UnitExpr,
-        NameExpr,
+        PathExpr,
         BinaryExpr,
         UnaryExpr,
         BlockExpr,

@@ -1,21 +1,26 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"a = b = c\", |p| p.expr())"
+expression: "parse(\"a[1] = b = c\", |p| p.expr())"
 ---
-BINARY_EXPR: 0..9 
-  BINARY_EXPR: 0..6 
-    NAME_EXPR: 0..2 
-      NAME: 0..2 
-        IDENT: 0..1 "a"
-        WHITESPACE: 1..2 
-    EQ: 2..3 "="
-    WHITESPACE: 3..4 
-    NAME_EXPR: 4..6 
-      NAME: 4..6 
-        IDENT: 4..5 "b"
-        WHITESPACE: 5..6 
-  EQ: 6..7 "="
-  WHITESPACE: 7..8 
-  NAME_EXPR: 8..9 
-    NAME: 8..9 
-      IDENT: 8..9 "c"
+BINARY_EXPR: 0..12 
+  BINARY_EXPR: 0..9 
+    INDEX_EXPR: 0..5 
+      PATH_EXPR: 0..1 
+        PATH: 0..1 
+          IDENT: 0..1 "a"
+      L_BRACKET: 1..2 "["
+      LIT_EXPR: 2..3 
+        INT: 2..3 "1"
+      R_BRACKET: 3..4 "]"
+      WHITESPACE: 4..5 
+    EQ: 5..6 "="
+    WHITESPACE: 6..7 
+    PATH_EXPR: 7..9 
+      PATH: 7..9 
+        IDENT: 7..8 "b"
+        WHITESPACE: 8..9 
+  EQ: 9..10 "="
+  WHITESPACE: 10..11 
+  PATH_EXPR: 11..12 
+    PATH: 11..12 
+      IDENT: 11..12 "c"

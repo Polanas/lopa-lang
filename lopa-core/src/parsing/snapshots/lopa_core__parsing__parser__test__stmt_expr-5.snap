@@ -1,0 +1,9 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"vec2 { }\", |p| { _ = p.stmt_expr() })"
+---
+EXPR_STMT: 0..5 
+  PATH_EXPR: 0..5 
+    PATH: 0..5 
+      IDENT: 0..4 "vec2"
+      WHITESPACE: 4..5
