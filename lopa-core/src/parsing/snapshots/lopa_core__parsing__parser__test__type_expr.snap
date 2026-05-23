@@ -3,5 +3,6 @@ source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"int\", |p| p.type_expr())"
 ---
 LIT_TYPE: 0..3 
-  PATH: 0..3 
-    IDENT: 0..3 "int"
+  PATH_TYPE: 0..3 
+    PATH: 0..3 
+      IDENT: 0..3 "int"

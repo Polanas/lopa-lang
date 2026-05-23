@@ -302,6 +302,7 @@ structs! {
     FN_TYPE = FnType {
         fn_keyword: T![fn],
         param_list: FnTypeParamList,
+        output: ReturnType,
     },
     FN_TYPE_PARAM_LIST = FnTypeParamList {
         left_paren_token: T!["("],
@@ -587,6 +588,7 @@ enums! {
         LitType,
         AnyType,
         UnitType,
+        FnType,
     },
 
     LuaStmt {

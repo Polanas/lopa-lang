@@ -17,8 +17,9 @@ CLOSURE_EXPR: 0..20
       COLON: 4..5 ":"
       WHITESPACE: 5..6 
       LIT_TYPE: 6..9 
-        PATH: 6..9 
-          IDENT: 6..9 "int"
+        PATH_TYPE: 6..9 
+          PATH: 6..9 
+            IDENT: 6..9 "int"
     BAR: 9..10 "|"
     WHITESPACE: 10..11 
   LUA_BLOCK_EXPR: 11..20 

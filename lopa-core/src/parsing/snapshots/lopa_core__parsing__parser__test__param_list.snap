@@ -11,8 +11,9 @@ PARAM_LIST: 0..20
     COLON: 2..3 ":"
     WHITESPACE: 3..4 
     LIT_TYPE: 4..7 
-      PATH: 4..7 
-        IDENT: 4..7 "int"
+      PATH_TYPE: 4..7 
+        PATH: 4..7 
+          IDENT: 4..7 "int"
   COMMA: 7..8 ","
   WHITESPACE: 8..9 
   PARAM: 9..19 
@@ -23,6 +24,7 @@ PARAM_LIST: 0..20
     COLON: 11..12 ":"
     WHITESPACE: 12..13 
     LIT_TYPE: 13..19 
-      PATH: 13..19 
-        IDENT: 13..19 "string"
+      PATH_TYPE: 13..19 
+        PATH: 13..19 
+          IDENT: 13..19 "string"
   R_PAREN: 19..20 ")"

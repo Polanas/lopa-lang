@@ -3,7 +3,10 @@ use la_arena::{Arena, Idx};
 use ustr::Ustr;
 
 use crate::{
-    def::ir::{self, Function},
+    def::{
+        ir::{self, Function},
+        scope,
+    },
     ide::{self},
     parsing::ast,
 };
@@ -77,20 +80,66 @@ impl<'db> LowerCtx<'db> {
     }
 }
 
-/// Returns None if type was not found.
 pub fn lower_type_expr<'db>(
     db: &'db dyn salsa::Database,
+    file: ide::File,
     ty: ast::TypeExpr,
-) -> Option<ir::TypeExpr<'db>> {
-    Some(match ty {
-        ast::TypeExpr::PathType(path_type) => todo!(),
-        ast::TypeExpr::NilableType(nilable_type) => {
-            ir::TypeExpr::Nilable(Box::new(lower_type_expr(db, nilable_type.ty()?)?))
+) -> ir::TypeExpr<'db> {
+    match ty {
+        ast::TypeExpr::PathType(path_type) => {
+            let Some(path) = path_type.value() else {
+                return ir::TypeExpr::Unknown;
+            };
+            let module_scope = scope::module_scope(db, file);
+            let Some((_, def)) = module_scope
+                .types()
+                .find(|t| t.0.0 == path.segments().last().unwrap())
+            else {
+                return ir::TypeExpr::Unknown;
+            };
+
+            match def {
+                ir::ModuleDef::Function(_) => unreachable!(),
+                ir::ModuleDef::Struct(strct) => ir::TypeExpr::Struct(*strct),
+            }
         }
-        ast::TypeExpr::LitType(lit_type) => ir::TypeExpr::Lit(lit_type.kind()?),
+        ast::TypeExpr::NilableType(nilable_type) => {
+            let Some(ty) = nilable_type.ty() else {
+                return ir::TypeExpr::Unknown;
+            };
+            ir::TypeExpr::Nilable(Box::new(lower_type_expr(db, file, ty)))
+        }
+        ast::TypeExpr::LitType(lit_type) => {
+            let Some(kind) = lit_type.kind() else {
+                return ir::TypeExpr::Unknown;
+            };
+
+            ir::TypeExpr::Lit(kind)
+        }
         ast::TypeExpr::AnyType(_) => ir::TypeExpr::Any,
         ast::TypeExpr::UnitType(_) => ir::TypeExpr::Unit,
-    })
+        ast::TypeExpr::FnType(fn_type) => ir::TypeExpr::BareFunction {
+            params: fn_type
+                .param_list()
+                .map(|list| {
+                    list.params()
+                        .filter_map(|param| {
+                            param
+                                .ty()
+                                .map(|ty| lower_type_expr(db, file, ty))
+                                .map(|ty| (ty, param.name()))
+                        })
+                        .map(|(ty, n)| ir::Param::new(db, n.and_then(|n| n.text()), ty))
+                        .collect_vec()
+                })
+                .unwrap_or_else(Vec::new),
+            output: fn_type
+                .output()
+                .and_then(|o| o.ty())
+                .map(|ty| lower_type_expr(db, file, ty))
+                .map(Box::new),
+        },
+    }
 }
 
 pub fn lower_file<'db>(

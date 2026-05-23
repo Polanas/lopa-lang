@@ -379,7 +379,9 @@ impl<'a> Parser<'a> {
                 _ => {
                     let next_span = self.input.nth_span(0);
                     let is_path = self.at_path_sep(1);
-                    self.path();
+                    self.with(PATH_TYPE, |this| {
+                        this.path();
+                    });
                     if !is_path {
                         match &self.input.content[next_span] {
                             "int" | "float" | "string" | "bool" => {
@@ -1686,8 +1688,7 @@ mod test {
 
     #[test]
     fn strct() {
-        insta::assert_snapshot!(parse("struct Vec2 { x: int = 1, y: int = 2 }", |p| p
-            .struct_item()));
+        insta::assert_snapshot!(parse("struct Vec2 {x: Y, y: Y }", |p| p.struct_item()));
     }
 
     #[test]

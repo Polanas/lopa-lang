@@ -1,88 +1,101 @@
-// use std::sync::Arc;
-//
-// use la_arena::{Arena, ArenaMap, Idx};
-// use ustr::Ustr;
-//
-// use crate::{
-//     def::{
-//         body,
-//         ir::{self, ExprId, FileDef, PatternId},
-//     },
-//     ide::{self, lower_file},
-//     parsing::ast::{self, AstPtr},
-//     ustr_hash::{UstrHash, UstrIndexMap},
-// };
-//
-// #[derive(Debug, Clone, PartialEq, Eq, Hash, salsa::Update)]
-// pub struct MyAstPtr<T: rowan::ast::AstNode + 'static>(ast::AstPtr<T>);
-//
-// #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
-// pub struct FileSourceMap<'db> {
-//     functions: indexmap::IndexMap<MyAstPtr<ast::FnItem>, ir::Function<'db>>,
-//     structs: indexmap::IndexMap<MyAstPtr<ast::StructItem>, ir::Struct<'db>>,
-// }
-//
-// impl<'db> FileSourceMap<'db> {
-//     pub fn node_to_function(&self, node: &ast::FnItem) -> Option<ir::Function<'db>> {
-//         let src = MyAstPtr(AstPtr::new(node));
-//         self.functions.get(&src).copied()
-//     }
-// }
-//
-// #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
-// pub struct FileScope<'db> {
-//     values: UstrIndexMap<ir::FileDef<'db>>,
-// }
-//
-// impl<'db> FileScope<'db> {
-//     pub fn resolve_name(&self, name: &Ustr) -> Option<&ir::FileDef<'db>> {
-//         self.values.get(name)
-//     }
-//
-//     pub fn values(&self) -> impl Iterator<Item = (&UstrHash, &FileDef)> + ExactSizeIterator {
-//         self.values.iter()
-//     }
-// }
-//
-// #[salsa::tracked(returns(ref))]
-// pub fn file_scope_with_source_map<'db>(
-//     db: &'db dyn salsa::Database,
-//     file: ide::File,
-// ) -> (FileScope<'db>, FileSourceMap<'db>) {
-//     let ir_file = lower_file(db, file);
-//     let mut source_map = FileSourceMap::default();
-//     let mut scope = FileScope::default();
-//
-//     for func in ir_file.functions(db) {
-//         source_map
-//             .functions
-//             .insert(MyAstPtr(func.ast_ptr(db).clone()), func);
-//     }
-//
-//     for func in ir_file.functions(db) {
-//         scope
-//             .values
-//             .insert(func.name(db).into(), ir::FileDef::Function(func));
-//     }
-//
-//     (scope, source_map)
-// }
-//
+use std::sync::Arc;
+
+use la_arena::{Arena, ArenaMap, Idx};
+use ustr::Ustr;
+
+use crate::{
+    def::{
+        body,
+        ir::{self, ModuleDef, PatternId},
+    },
+    ide::{self, lower_file},
+    parsing::ast::{self, AstPtr},
+    ustr_hash::{UstrHash, UstrIndexMap},
+};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, salsa::Update)]
+pub struct MyAstPtr<T: rowan::ast::AstNode + 'static>(ast::AstPtr<T>);
+
+#[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
+pub struct ModuleSourceMap<'db> {
+    functions: indexmap::IndexMap<MyAstPtr<ast::FnItem>, ir::Function<'db>>,
+    structs: indexmap::IndexMap<MyAstPtr<ast::StructItem>, ir::Struct<'db>>,
+}
+
+impl<'db> ModuleSourceMap<'db> {
+    pub fn node_to_function(&self, node: &ast::FnItem) -> Option<ir::Function<'db>> {
+        let src = MyAstPtr(AstPtr::new(node));
+        self.functions.get(&src).copied()
+    }
+}
+
+#[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
+pub struct ModuleScope<'db> {
+    values: UstrIndexMap<ir::ModuleDef<'db>>,
+    types: UstrIndexMap<ir::ModuleDef<'db>>,
+}
+
+impl<'db> ModuleScope<'db> {
+    pub fn resolve_name(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
+        self.values.get(name)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = (&UstrHash, &ModuleDef)> + ExactSizeIterator {
+        self.values.iter()
+    }
+
+    pub fn types(&self) -> impl Iterator<Item = (&UstrHash, &ModuleDef)> + ExactSizeIterator {
+        self.types.iter()
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn module_scope_with_source_map<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+) -> (Arc<ModuleScope<'db>>, Arc<ModuleSourceMap<'db>>) {
+    let ir_file = lower_file(db, file);
+    let mut source_map = ModuleSourceMap::default();
+    let mut scope = ModuleScope::default();
+
+    for func in ir_file.functions(db) {
+        source_map
+            .functions
+            .insert(MyAstPtr(func.ast_ptr(db).clone()), func);
+        scope
+            .values
+            .insert(func.name(db).into(), ir::ModuleDef::Function(func));
+    }
+
+    for strct in ir_file.structs(db) {
+        source_map
+            .structs
+            .insert(MyAstPtr(strct.ast_ptr(db).clone()), strct);
+        scope
+            .types
+            .insert(strct.name(db).into(), ir::ModuleDef::Struct(strct));
+    }
+
+    (scope.into(), source_map.into())
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn module_scope<'db>(db: &'db dyn salsa::Database, file: ide::File) -> Arc<ModuleScope<'db>> {
+    module_scope_with_source_map(db, file).0.clone()
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn module_source_map<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+) -> Arc<ModuleSourceMap<'db>> {
+    module_scope_with_source_map(db, file).1.clone()
+}
+
 // #[salsa::tracked(returns(ref))]
 // pub fn expr_scopes<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> Arc<ExprScopes> {
 //     Arc::new(ExprScopes::new(db, func))
 // }
-//
-// #[salsa::tracked(returns(ref))]
-// pub fn file_scope<'db>(db: &'db dyn salsa::Database, file: ide::File) -> FileScope<'db> {
-//     file_scope_with_source_map(db, file).0.clone()
-// }
-//
-// #[salsa::tracked(returns(ref))]
-// pub fn file_source_map<'db>(db: &'db dyn salsa::Database, file: ide::File) -> FileSourceMap<'db> {
-//     file_scope_with_source_map(db, file).1.clone()
-// }
-//
 // struct ExprScopesCtx<'db> {
 //     scopes: Arena<ScopeData>,
 //     scope_by_expr: ArenaMap<ExprId, ScopeId>,
