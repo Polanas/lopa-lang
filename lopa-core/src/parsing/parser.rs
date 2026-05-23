@@ -483,7 +483,7 @@ impl<'a> Parser<'a> {
                 self.path();
 
                 if self.input.at(T!["{"])
-                    && ((self.input.nth(1) == NAME && self.input.nth(2) == T![:])
+                    && ((self.input.nth(1) == IDENT && self.input.nth(2) == T![:])
                         || self.input.nth(1) == T!["}"])
                 {
                     self.with_at(RECORD_EXPR, checkpoint, |this| this.record_field_list());
@@ -1657,7 +1657,7 @@ mod test {
         insta::assert_snapshot!(parse("{ }", |p| p.block()));
         insta::assert_snapshot!(parse("{ 1 }", |p| p.block()));
         insta::assert_snapshot!(parse("{ something; something_else; }", |p| p.block()));
-        insta::assert_snapshot!(parse("{ vec2 {}; }", |p| p.block()));
+        insta::assert_snapshot!(parse("{ vec2 {a:1}; }", |p| p.block()));
     }
 
     #[test]
