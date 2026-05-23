@@ -177,7 +177,7 @@ pub enum ElseBranch<'db> {
 
 pub type PatternId = Idx<Pattern>;
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
 pub enum Pattern {
     Missing,
     Name(Ustr),

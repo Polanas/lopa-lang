@@ -9,12 +9,13 @@ use crate::{
     def::{
         ir::{self, Arg, Expr, ExprId, Pattern, PatternId, Stmt, TypeExpr},
         lower::{self, lower_type_expr},
+        scope::MyAstPtr,
     },
     ide::{self, base::InFile, lower_file},
     parsing::ast::{self},
 };
 
-pub type ExprPtr = AstPtr<ast::Expr>;
+pub type ExprPtr = MyAstPtr<ast::Expr>;
 pub type ExprSource = InFile<ExprPtr>;
 
 pub type PatternPtr = AstPtr<ast::Pattern>;
@@ -73,7 +74,7 @@ struct BodyLowerCtx<'db> {
 
 impl<'db> BodyLowerCtx<'db> {
     fn alloc_expr(&mut self, expr: Expr<'db>, ptr: AstPtr<ast::Expr>) -> ExprId {
-        let ptr = InFile::new(self.file, ptr);
+        let ptr = InFile::new(self.file, MyAstPtr(ptr));
         let id = self.body.exprs.alloc(expr);
         self.source_map
             .expr_source_to_id
@@ -261,7 +262,7 @@ impl<'db> BodyLowerCtx<'db> {
     }
 }
 
-#[derive(Default, PartialEq, Eq, Clone)]
+#[derive(Default, PartialEq, Eq, Clone, salsa::Update)]
 pub struct BodySourceMap<'db> {
     expr_source_to_id: HashMap<ExprSource, ExprId>,
     expr_id_to_source: ArenaMap<Idx<Expr<'db>>, ExprSource>,
@@ -271,7 +272,7 @@ pub struct BodySourceMap<'db> {
 
 impl<'db> BodySourceMap<'db> {
     pub fn expr_for_node(&self, node: InFile<&ast::Expr>) -> Option<ExprId> {
-        let src = node.map(AstPtr::new);
+        let src = node.map(AstPtr::new).map(MyAstPtr);
         self.expr_source_to_id.get(&src).cloned()
     }
 

@@ -128,7 +128,7 @@ macro_rules! enums {
         ),* $(,)?
     ) => {
         $(
-            #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+            #[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
             pub enum $name {
                 $($variant($variant$(<$generic>)*),)*
             }

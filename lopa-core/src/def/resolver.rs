@@ -1,17 +1,17 @@
-// use std::sync::Arc;
-//
-// use indexmap::map::Entry;
-// use itertools::Itertools;
-// use ustr::Ustr;
-//
-// use crate::{
-//     def::{
-//         ir::{self, ExprId, Local},
-//         scope::{self, ScopeId},
-//     },
-//     ide,
-//     ustr_hash::UstrIndexMap,
-// };
+use std::sync::Arc;
+
+use indexmap::map::Entry;
+use itertools::Itertools;
+use ustr::Ustr;
+
+use crate::{
+    def::{
+        ir::{self, ExprId, Local},
+        scope::{self, ScopeId},
+    },
+    ide,
+    ustr_hash::UstrIndexMap,
+};
 //
 // #[derive(PartialEq, Eq, Clone, salsa::Update)]
 // pub struct Resolver<'db> {
@@ -66,10 +66,10 @@
 //     scope_id: scope::ScopeId,
 // }
 //
-// #[derive(Default)]
-// pub struct ScopeNames<'db> {
-//     names: UstrIndexMap<ResolveResult<'db>>,
-// }
+#[derive(Default)]
+pub struct ScopeNames<'db> {
+    names: UstrIndexMap<ResolveResult<'db>>,
+}
 //
 // impl<'db> ScopeNames<'db> {
 //     fn add(&mut self, name: &Ustr, def: ResolveResult<'db>) {
@@ -84,11 +84,12 @@
 //     }
 // }
 //
-// #[derive(Debug)]
-// pub enum ResolveResult<'db> {
-//     Local(ir::Local<'db>),
-//     Function(ir::Function<'db>),
-// }
+#[derive(Debug)]
+pub enum ResolveResult<'db> {
+    Local(ir::Local<'db>),
+    Function(ir::Function<'db>),
+    Struct(ir::Struct<'db>),
+}
 //
 // impl<'db> Resolver<'db> {
 //     pub fn names_in_scope(&self) -> UstrIndexMap<ResolveResult<'_>> {
@@ -200,4 +201,53 @@
 //             dbg!(ir.functions(db));
 //         });
 //     }
+// }
+
+pub fn resolve_name_for_expr<'db>(
+    db: &'db dyn salsa::Database,
+    expr: ExprId,
+    func: ir::Function<'db>,
+    name: &Ustr,
+) -> Option<ResolveResult<'db>> {
+    let scopes = scope::expr_scopes(db, func);
+    let expr_scope = scopes.scope_for_expr(expr)?;
+    if let Some(entry) = scopes.resolve_name_in_scope(expr_scope, &name) {
+        return Some(ResolveResult::Local(Local {
+            parent: func,
+            pattern_id: entry.pattern(),
+        }));
+    }
+    let module_scope = scope::module_scope(db, func.file(db));
+
+    if let Some(result) = module_scope.resolve_name(name) {
+        match result {
+            ir::ModuleDef::Function(function) => return Some(ResolveResult::Function(*function)),
+            ir::ModuleDef::Struct(strct) => todo!(),
+        }
+    }
+    None
+}
+
+// pub fn resolve_name(&self, name: &Ustr) -> Option<ResolveResult<'_>> {
+//     for scope in self.scopes() {
+//         let entry = scope
+//             .expr_scopes
+//             .resolve_name_in_scope(scope.scope_id, name);
+//
+//         if let (Some(entry), Some(owner)) = (entry, self.body_owner()) {
+//             return Some(ResolveResult::Local(Local {
+//                 parent: owner,
+//                 pattern_id: entry.pattern(),
+//             }));
+//         }
+//     }
+//
+//     //TODO: finish
+//     // if let Some(result) = self.file_scope.resolve_name(name) {
+//     //     match result {
+//     //         ir::FileDef::Function(function) => return Some(ResolveResult::Function(*function)),
+//     //     }
+//     // }
+//
+//     None
 // }

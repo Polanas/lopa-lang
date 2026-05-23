@@ -72,25 +72,16 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
 
     let ir = ide::lower_file(db, file);
-    for strct in ir.structs(db) {
-        let fields = format!(
-            "{:?}",
-            strct.fields(db).iter().map(|p| p.ty(db)).collect_vec()
+    for func in ir.functions(db) {
+        diagnostics.extend(
+            infer::type_diagnostics(db, func)
+                .into_iter()
+                .map(|(err, range)| Diagnostic {
+                    range,
+                    kind: DiagnosticKind::TypeError(infer::TypeErrorKind { message: err }),
+                    notes: vec![],
+                }),
         );
-        notify_rust::Notification::default()
-            .summary(&strct.name(db))
-            .body(&fields)
-            .show()
-            .unwrap();
-        // diagnostics.extend(
-        //     infer::type_diagnostics(db, func)
-        //         .into_iter()
-        //         .map(|(err, range)| Diagnostic {
-        //             range,
-        //             kind: DiagnosticKind::TypeError(infer::TypeErrorKind { message: err }),
-        //             notes: vec![],
-        //         }),
-        // );
     }
 
     diagnostics
