@@ -6,10 +6,16 @@ use ustr::Ustr;
 
 use crate::{common::LitKind, def::ir};
 
-#[salsa::tracked(debug)]
+#[derive(Debug, Clone, PartialEq, Eq, salsa::Update, Hash)]
 pub struct Param<'db> {
     pub name: Option<Ustr>,
     pub ty: Type<'db>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, salsa::Update, Hash)]
+pub struct BareFn<'db> {
+    pub params: Vec<Param<'db>>,
+    pub return_type: Option<Box<Type<'db>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update, Hash)]
@@ -19,10 +25,7 @@ pub enum Type<'db> {
     Any,
     Nilable(Box<Type<'db>>),
     Lit(LitKind),
-    BareFunction {
-        params: Vec<Param<'db>>,
-        return_type: Option<Box<Type<'db>>>,
-    },
+    BareFn(BareFn<'db>),
     Function(ir::Function<'db>),
     Struct(ir::Struct<'db>),
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use indexmap::map::Entry;
 use itertools::Itertools;
+use notify_rust::Notification;
 use ustr::Ustr;
 
 use crate::{

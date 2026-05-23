@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use super::Type;
-use itertools::Itertools;
+use itertools::{Itertools, Position};
 use la_arena::{ArenaMap, Idx};
 use notify_rust::Notification;
 use rowan::TextRange;
@@ -11,13 +11,16 @@ use crate::{
     common::LitKind,
     def::{
         self, body,
-        ir::{self, Expr, ExprId, PatternId, Stmt},
+        ir::{self, Expr, ExprId, PatternId, Stmt, TypeExpr},
         resolver, scope,
     },
     ide::{self, diagnostics, source_map},
-    parsing::ast::{SyntaxNode, SyntaxNodePtr},
+    parsing::{
+        ast::{SyntaxNode, SyntaxNodePtr},
+        lexer,
+    },
     ptr::Ptr,
-    ty,
+    ty::{self, BareFn},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
@@ -78,7 +81,7 @@ impl<'db> InferCtx<'db> {
     }
 
     fn insert_pattern_ty(&mut self, pattern_id: PatternId, ty: Type<'db>) {
-        self.pattern_ty_map.clone().insert(pattern_id, ty);
+        self.pattern_ty_map.insert(pattern_id, ty);
     }
 
     fn expr_ty(&mut self, expr_id: ExprId) -> Option<&Type> {
@@ -128,9 +131,18 @@ impl<'db> InferCtx<'db> {
                     .insert(Idx::<Expr<'db>>::from_raw(expr_id), Type::Lit(*lit_kind));
             }
             ir::Expr::BlockExpr { stmts } => {
-                for stmt in stmts {
-                    self.infer_stmt(stmt);
+                let mut ty = Type::Unit;
+                for (position, stmt) in stmts.iter().with_position() {
+                    let output = self.infer_stmt(stmt);
+
+                    if matches!(position, Position::Only | Position::Last)
+                        && matches!(stmt, Stmt::Expr { semi: None, .. })
+                    {
+                        ty = output.unwrap_or(Type::Unit);
+                    }
                 }
+                self.expr_ty_map
+                    .insert(Idx::<Expr<'db>>::from_raw(expr_id), ty);
             }
             ir::Expr::If {
                 if_cond,
@@ -147,7 +159,7 @@ impl<'db> InferCtx<'db> {
         Some(expr_id)
     }
 
-    fn infer_stmt(&mut self, stmt: &'db Stmt) -> Option<()> {
+    fn infer_stmt(&mut self, stmt: &'db Stmt) -> Option<Type<'db>> {
         match stmt {
             Stmt::Let {
                 pattern: pattern_id,
@@ -155,8 +167,9 @@ impl<'db> InferCtx<'db> {
                 expr: expr_id,
             } => {
                 self.infer_expr(*expr_id);
+
+                let infer_ty = self.expr_ty_map.get(Idx::<Expr<'db>>::from_raw(*expr_id))?;
                 if let Some(ty) = ty.clone().map(|ty| type_from_type_expr(self.db, ty)) {
-                    let infer_ty = self.expr_ty_map.get(Idx::<Expr<'db>>::from_raw(*expr_id))?;
                     if !self.can_assign_type(&ty, infer_ty) {
                         self.add_error(TypeDiagnostic::TypeMismatch {
                             expected: ty.clone(),
@@ -166,13 +179,24 @@ impl<'db> InferCtx<'db> {
                     }
                     self.insert_pattern_ty(*pattern_id, ty);
                 } else {
-                    let infer_ty = self.expr_ty_map.get(Idx::<Expr<'db>>::from_raw(*expr_id))?;
                     self.insert_pattern_ty(*pattern_id, infer_ty.clone());
                 }
+                Some(Type::Unit)
             }
-            Stmt::Expr { expr, semi } => {}
-        };
-        Some(())
+            Stmt::Expr {
+                expr: expr_id,
+                semi,
+            } => {
+                self.infer_expr(*expr_id);
+                Some(if semi.is_some() {
+                    Type::Unit
+                } else {
+                    self.expr_ty_map
+                        .get(Idx::<Expr<'db>>::from_raw(*expr_id))?
+                        .clone()
+                })
+            }
+        }
     }
 
     fn can_assign_type(&self, lhs: &Type, rhs: &Type) -> bool {
@@ -187,12 +211,36 @@ impl<'db> InferCtx<'db> {
                 rhs == lhs || (*lhs == LitKind::Float && *rhs == LitKind::Int)
             }
             (Type::Unit, Type::Unit) => true,
+            (Type::Function(lhs), Type::Function(rhs)) => lhs == rhs,
+            (Type::BareFn(lhs), Type::Function(rhs)) => {
+                let rhs_bare = func_to_bare(self.db, *rhs);
+                //TODO: account for return type not being present (or replace it with Union)
+                lhs.params == rhs_bare.params && lhs.return_type == rhs_bare.return_type
+            }
             _ => false,
         }
     }
 
     fn add_error(&mut self, diagnostic: TypeDiagnostic<'db>) {
         self.diagnostics.push(diagnostic);
+    }
+}
+
+fn func_to_bare<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> BareFn<'db> {
+    BareFn {
+        params: func
+            .params(db)
+            .iter()
+            .map(|p| ty::Param {
+                name: p.name(db),
+                ty: type_from_type_expr(db, p.ty(db)),
+            })
+            .collect_vec(),
+        return_type: func
+            .output(db)
+            .clone()
+            .map(|o| type_from_type_expr(db, o))
+            .map(Box::new),
     }
 }
 
@@ -207,13 +255,16 @@ fn type_from_type_expr<'db>(db: &'db dyn salsa::Database, ty: ir::TypeExpr<'db>)
         ir::TypeExpr::Unit => Type::Unit,
         ir::TypeExpr::Struct(strct) => Type::Struct(strct),
         ir::TypeExpr::Function(function) => Type::Function(function),
-        ir::TypeExpr::BareFunction { params, output } => Type::BareFunction {
+        ir::TypeExpr::BareFunction { params, output } => Type::BareFn(BareFn {
             params: params
                 .iter()
-                .map(|p| ty::Param::new(db, p.name(db), type_from_type_expr(db, p.ty(db))))
+                .map(|p| ty::Param {
+                    name: p.name(db),
+                    ty: type_from_type_expr(db, p.ty(db)),
+                })
                 .collect_vec(),
             return_type: output.map(|o| type_from_type_expr(db, *o)).map(Box::new),
-        },
+        }),
     }
 }
 
@@ -230,10 +281,7 @@ fn type_to_string(ty: &Type) -> Ustr {
             LitKind::Bool => Ustr::from("bool"),
             LitKind::Nil => Ustr::from("nil"),
         },
-        Type::BareFunction {
-            params,
-            return_type,
-        } => Ustr::from("todo: fn"),
+        Type::BareFn(bare_fn) => Ustr::from("todo: fn"),
         Type::Function(function) => Ustr::from("todo: fn"),
         Type::Struct(_) => Ustr::from("todo: struct"),
     }
@@ -251,12 +299,25 @@ fn expr_node<'db>(
         .map(|n| n.value.0.syntax_node_ptr().to_node(&parse.syntax_node(db)))
 }
 
+//TODO: move this to somewhere more appropriate
+fn range_exlude_whitespace(node: SyntaxNode) -> TextRange {
+    let range = node.text_range();
+
+    if let Some(last_child) = node.last_child_or_token()
+        && last_child.kind() == lexer::Syntax::WHITESPACE
+    {
+        TextRange::new(range.start(), range.end() - last_child.text_range().len())
+    } else {
+        range
+    }
+}
+
 fn expr_range<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
     expr: ExprId,
 ) -> Option<TextRange> {
-    expr_node(db, func, expr).map(|t| t.text_range())
+    expr_node(db, func, expr).map(range_exlude_whitespace)
 }
 
 fn expr_text<'db>(
@@ -272,6 +333,7 @@ pub fn type_diagnostics<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
 ) -> Vec<(String, TextRange)> {
+    let body = ide::body(db, func);
     let result = infer_function(db, func);
     result
         .diagnostics
@@ -280,14 +342,28 @@ pub fn type_diagnostics<'db>(
             TypeDiagnostic::TypeMismatch {
                 expected,
                 actual,
-                expr,
+                expr: expr_id,
             } => (
                 format!(
                     "expected {}, got {}",
                     type_to_string(expected),
                     type_to_string(actual)
                 ),
-                expr_range(db, func, *expr).unwrap(),
+                {
+                    let expr = body.expr(*expr_id);
+                    let expr = if let Expr::BlockExpr { stmts } = expr {
+                        stmts
+                            .last()
+                            .and_then(|e| match e {
+                                Stmt::Let { .. } => None,
+                                Stmt::Expr { expr, .. } => Some(*expr),
+                            })
+                            .unwrap_or(*expr_id)
+                    } else {
+                        *expr_id
+                    };
+                    expr_range(db, func, expr).unwrap()
+                },
             ),
             TypeDiagnostic::UnknownValue { expr } => (
                 format!(

@@ -1,0 +1,42 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"fn test() {\n              let x: string = { 10           };\n        }\",\n|p| p.fn_item())"
+---
+FN_ITEM: 0..69 
+  FN_KW: 0..2 "fn"
+  WHITESPACE: 2..3 
+  NAME: 3..7 
+    IDENT: 3..7 "test"
+  PARAM_LIST: 7..10 
+    L_PAREN: 7..8 "("
+    R_PAREN: 8..9 ")"
+    WHITESPACE: 9..10 
+  BLOCK_EXPR: 10..69 
+    L_BRACE: 10..11 "{"
+    WHITESPACE: 11..26 
+    LET_STMT: 26..68 
+      LET_KW: 26..29 "let"
+      WHITESPACE: 29..30 
+      NAME_PATTERN: 30..31 
+        NAME: 30..31 
+          IDENT: 30..31 "x"
+      COLON: 31..32 ":"
+      WHITESPACE: 32..33 
+      LIT_TYPE: 33..40 
+        PATH_TYPE: 33..40 
+          PATH: 33..40 
+            IDENT: 33..39 "string"
+            WHITESPACE: 39..40 
+      EQ: 40..41 "="
+      WHITESPACE: 41..42 
+      BLOCK_EXPR: 42..58 
+        L_BRACE: 42..43 "{"
+        WHITESPACE: 43..44 
+        EXPR_STMT: 44..57 
+          LIT_EXPR: 44..57 
+            INT: 44..46 "10"
+            WHITESPACE: 46..57 
+        R_BRACE: 57..58 "}"
+      SEMI: 58..59 ";"
+      WHITESPACE: 59..68 
+    R_BRACE: 68..69 "}"

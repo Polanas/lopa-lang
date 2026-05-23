@@ -1,8 +1,8 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"no_semi % idk\", |p| { _ = p.stmt_expr() })"
+expression: "parse(\"no_semi % idk;\", |p| { _ = p.stmt_expr() })"
 ---
-EXPR_STMT: 0..13 
+EXPR_STMT: 0..14 
   BINARY_EXPR: 0..13 
     PATH_EXPR: 0..8 
       PATH: 0..8 
@@ -13,3 +13,4 @@ EXPR_STMT: 0..13
     PATH_EXPR: 10..13 
       PATH: 10..13 
         IDENT: 10..13 "idk"
+  SEMI: 13..14 ";"

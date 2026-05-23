@@ -58,7 +58,7 @@ pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
 }
 
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
-const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![@], T![struct]]);
+const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use]]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 
@@ -219,14 +219,15 @@ impl<'a> Parser<'a> {
                 T![fn] => self.fn_item(),
                 T![mod] => self.mod_item(),
                 T![struct] => self.struct_item(),
-                _ => {
-                    unreachable!();
-                }
+                T![impl] => self.impl_item(),
+                _ => {}
             };
         } else {
             self.advance_with_err(ErrorKind::ExpectedItem);
         }
     }
+
+    fn impl_item(&mut self) {}
 
     fn struct_item(&mut self) {
         self.with(STRUCT_ITEM, |this| {
@@ -326,7 +327,7 @@ impl<'a> Parser<'a> {
             this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 this.compiler_attrib_list();
-                if this.input.at_any(PATTERN_FIRST) {
+                if this.input.at_any(PATTERN_FIRST) || this.input.at(T![self]) {
                     this.param();
                     this.ate(T![,]);
                 } else {
@@ -342,7 +343,9 @@ impl<'a> Parser<'a> {
 
     fn param(&mut self) {
         self.with(PARAM, |this| {
-            this.pattern();
+            if !this.ate(T![self]) {
+                this.pattern();
+            }
             this.expect(T![:]);
             this.type_expr();
             if this.ate(T![=]) {
@@ -442,7 +445,13 @@ impl<'a> Parser<'a> {
     fn stmt_expr(&mut self) -> Option<Semicolon> {
         self.with(EXPR_STMT, |this| {
             this.expr();
-            this.ate(T![;]).then_some(Semicolon)
+
+            if this.input.nth_skip_whitespace(1) != T!["}"] && !(this.input.at(T!["}"])) {
+                this.expect(T![;]);
+                Some(Semicolon)
+            } else {
+                this.ate(T![;]).then_some(Semicolon)
+            }
         })
     }
 
@@ -752,9 +761,7 @@ impl<'a> Parser<'a> {
                     }
                     _ => {
                         if this.input.at_any(EXPR_FIRST) {
-                            if this.stmt_expr().is_none() && !this.input.at(T!["}"]) {
-                                this.expect(T![;]);
-                            }
+                            this.stmt_expr();
                         } else {
                             if this.input.at_any(STMT_EXPR_RECOVERY) {
                                 break;
@@ -1604,6 +1611,12 @@ mod test {
     #[test]
     fn func_item() {
         insta::assert_snapshot!(parse("fn test(a: int, b: string)->int { stmt; }", |p| p.fn_item()));
+        insta::assert_snapshot!(parse(
+            "fn test() {
+              let x: string = { 10           };
+        }",
+            |p| p.fn_item()
+        ));
     }
 
     #[test]
@@ -1646,8 +1659,8 @@ mod test {
         }));
         insta::assert_snapshot!(parse("1+1;", |p| { _ = p.stmt_expr() }));
         insta::assert_snapshot!(parse("print();", |p| { _ = p.stmt_expr() }));
-        insta::assert_snapshot!(parse("no_semi % idk", |p| { _ = p.stmt_expr() }));
-        insta::assert_snapshot!(parse("vec2 { }", |p| { _ = p.stmt_expr() }));
+        insta::assert_snapshot!(parse("no_semi % idk;", |p| { _ = p.stmt_expr() }));
+        insta::assert_snapshot!(parse("vec2 { };", |p| { _ = p.stmt_expr() }));
     }
 
     #[test]

@@ -104,6 +104,7 @@ macro_rules! T {
     [nil] => { super::lexer::Syntax::NIL_KW};
     [true] => { super::lexer::Syntax::TRUE_KW};
     [lua] => { super::lexer::Syntax::LUA_KW};
+    [use] => { super::lexer::Syntax::USE_KW};
     [false] => { super::lexer::Syntax::FALSE_KW};
     [and] => { super::lexer::Syntax::AND_KW};
     [or] => { super::lexer::Syntax::OR_KW};
@@ -352,6 +353,9 @@ def! {
     #[token("lua")]
     LUA_KW = ["lua"],
 
+    #[token("use")]
+    USE_KW = ["use"],
+
     #[token("fn")]
     FN_KW = ["fn"] @KEYWORD_LAST,
 
@@ -362,6 +366,7 @@ def! {
 
     FN_ITEM,
     STRUCT_ITEM,
+    IMPL_ITEM,
     MOD_ITEM,
 
     PATH,

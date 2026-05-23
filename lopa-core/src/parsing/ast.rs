@@ -254,6 +254,7 @@ structs! {
         right_paren_token: T![")"],
     },
     PARAM = FnParam {
+        self_token: T![self],
         pattern: Pattern,
         colon_token: T![:],
         ty: TypeExpr,
