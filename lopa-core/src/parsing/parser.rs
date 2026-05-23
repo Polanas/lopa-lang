@@ -62,6 +62,7 @@ const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![@], T![struct]]
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 
+const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
 const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"]]).union(ITEM_FIRST);
 const RECORD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["}"], T![,]]);
 const FIELD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
@@ -409,14 +410,14 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_type_param_list(&mut self) {
-        self.with(PARAM_LIST, |this| {
+        self.with(FN_TYPE_PARAM_LIST, |this| {
             this.expect(T!["("]);
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(TYPE_FIRST) || this.input.at(IDENT) {
                     this.fn_type_param();
                     this.ate(T![,]);
                 } else {
-                    if this.input.at_any(PARAM_LIST_RECOVERY) {
+                    if this.input.at_any(FN_TYPE_PARAM_LIST_RECOVERY) {
                         break;
                     }
                     this.advance_with_err(ErrorKind::ExpectedParameter);
@@ -427,7 +428,7 @@ impl<'a> Parser<'a> {
     }
 
     fn fn_type_param(&mut self) {
-        self.with(PARAM, |this| {
+        self.with(FN_TYPE_PARAM, |this| {
             if this.input.nth_skip_whitespace(1) == T![:] {
                 this.name();
                 this.expect(T![:]);
@@ -483,7 +484,8 @@ impl<'a> Parser<'a> {
                 self.path();
 
                 if self.input.at(T!["{"])
-                    && ((self.input.nth_skip_whitespace(1) == IDENT && self.input.nth_skip_whitespace(2) == T![:])
+                    && ((self.input.nth_skip_whitespace(1) == IDENT
+                        && self.input.nth_skip_whitespace(2) == T![:])
                         || self.input.nth_skip_whitespace(1) == T!["}"])
                 {
                     self.with_at(RECORD_EXPR, checkpoint, |this| this.record_field_list());

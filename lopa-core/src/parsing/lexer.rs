@@ -370,6 +370,8 @@ def! {
     ARG_LIST,
     PARAM_LIST,
     PARAM,
+    FN_TYPE_PARAM_LIST,
+    FN_TYPE_PARAM,
     RETURN_TYPE,
     FIELD_LIST,
     FIELD,

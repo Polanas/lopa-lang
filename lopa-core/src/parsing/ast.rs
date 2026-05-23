@@ -299,6 +299,20 @@ structs! {
             })
         }
     },
+    FN_TYPE = FnType {
+        fn_keyword: T![fn],
+        param_list: FnTypeParamList,
+    },
+    FN_TYPE_PARAM_LIST = FnTypeParamList {
+        left_paren_token: T!["("],
+        params: [FnTypeParam],
+        right_paren_token: T![")"],
+    },
+    FN_TYPE_PARAM = FnTypeParam {
+        name: Name,
+        colon_token: T![:],
+        ty: TypeExpr,
+    },
     PATH_TYPE = PathType {
         value: Path,
     },

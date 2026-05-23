@@ -77,6 +77,22 @@ impl<'db> LowerCtx<'db> {
     }
 }
 
+/// Returns None if type was not found.
+pub fn lower_type_expr<'db>(
+    db: &'db dyn salsa::Database,
+    ty: ast::TypeExpr,
+) -> Option<ir::TypeExpr<'db>> {
+    Some(match ty {
+        ast::TypeExpr::PathType(path_type) => todo!(),
+        ast::TypeExpr::NilableType(nilable_type) => {
+            ir::TypeExpr::Nilable(Box::new(lower_type_expr(db, nilable_type.ty()?)?))
+        }
+        ast::TypeExpr::LitType(lit_type) => ir::TypeExpr::Lit(lit_type.kind()?),
+        ast::TypeExpr::AnyType(_) => ir::TypeExpr::Any,
+        ast::TypeExpr::UnitType(_) => ir::TypeExpr::Unit,
+    })
+}
+
 pub fn lower_file<'db>(
     db: &'db dyn salsa::Database,
     parse: ide::Parse<'db>,

@@ -26,6 +26,20 @@ pub struct Function<'db> {
 }
 
 #[salsa::tracked(debug)]
+pub struct Param<'db> {
+    pub name: Option<Ustr>,
+    pub ty: TypeExpr<'db>,
+}
+
+impl<'db> Function<'db> {
+    pub fn params(&self, db: &'db dyn salsa::Database) -> Vec<Param<'db>> {
+        let ir = ide::lower_file(db, self.file(db));
+
+        todo!()
+    }
+}
+
+#[salsa::tracked(debug)]
 pub struct Struct<'db> {
     pub name: Ustr,
     pub ast_ptr: ast::AstPtr<ast::StructItem>,
@@ -43,14 +57,8 @@ pub enum TypeExpr<'db> {
     Nilable(Box<TypeExpr<'db>>),
     BareFunction {
         params: Vec<Param<'db>>,
-        output: Option<Box<TypeExpr<'db>>>
-    }
-}
-
-#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
-pub struct Param<'db> {
-    pub ty: TypeExpr<'db>,
-    pub name: Option<Ustr>,
+        output: Option<Box<TypeExpr<'db>>>,
+    },
 }
 
 // pub type ExprId = Idx<Expr>;
