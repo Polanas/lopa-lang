@@ -396,6 +396,7 @@ def! {
     FN_TYPE,
     UNIT_TYPE,
 
+    SELF_EXPR,
     RECORD_EXPR,
     UNIT_EXPR,
     PATH_EXPR,
@@ -475,7 +476,7 @@ impl Syntax {
             T![==] | T![!=] => (7, 8),
             T![<] | T![<=] | T![>] | T![>=] => (9, 10),
             T![+] | T![-] => (11, 12),
-            T![*] | T![/] | T![%] => (13, 14),
+            T![*] | T![/] | T![%] | T!["//"] => (13, 14),
             _ => return None,
         })
     }

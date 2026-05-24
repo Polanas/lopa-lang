@@ -36,35 +36,76 @@ impl<'db> Type<'db> {
         if let Type::Nilable(inner) = self {
             inner.collapse_nil();
 
-            if inner.nilable()
+            if inner.is_nilable()
                 && let Type::Nilable(deep_inner) = std::mem::replace(&mut **inner, Type::Unknown)
             {
                 *self = Type::Nilable(deep_inner)
             }
         }
     }
+
+    pub fn int() -> Self {
+        Self::Lit(LitKind::Int)
+    }
+
+    pub fn float() -> Self {
+        Self::Lit(LitKind::Float)
+    }
+
+    pub fn bool() -> Self {
+        Self::Lit(LitKind::Bool)
+    }
+
+    pub fn any() -> Self {
+        Self::Any
+    }
+
+    pub fn unit() -> Self {
+        Self::Unit
+    }
+
+    pub fn unknown() -> Self {
+        Self::Unknown
+    }
+
+    pub fn never() -> Self {
+        Self::Never
+    }
+
+    pub fn is_number(&self) -> bool {
+        self.is_int() || self.is_float()
+    }
+
+    pub fn is_float(&self) -> bool {
+        matches!(self, Self::Lit(LitKind::Float))
+    }
+
+    pub fn is_int(&self) -> bool {
+        matches!(self, Self::Lit(LitKind::Int))
+    }
+
     pub fn collapse_nil(&mut self) {
         self.collapse_nil_inner();
-        if let Type::Nilable(inner) = self
-            && **inner == Type::Lit(LitKind::Nil)
+        if let Self::Nilable(inner) = self
+            && **inner == Self::Lit(LitKind::Nil)
         {
-            *self = Type::Lit(LitKind::Nil);
+            *self = Self::Lit(LitKind::Nil);
         }
     }
 
     pub fn collapsed_nil(mut self) -> Self {
         self.collapse_nil_inner();
-        if let Type::Nilable(inner) = &self
-            && inner.deref() == &Type::Lit(LitKind::Nil)
+        if let Self::Nilable(inner) = &self
+            && inner.deref() == &Self::Lit(LitKind::Nil)
         {
-            self = Type::Lit(LitKind::Nil);
+            self = Self::Lit(LitKind::Nil);
         }
         self
     }
 }
 
 impl<'db> Type<'db> {
-    pub fn nilable(&self) -> bool {
-        matches!(self, Self::Nilable(_))
+    pub fn is_nilable(&self) -> bool {
+        matches!(self, Self::Nilable(_) | Self::Lit(LitKind::Nil) | Self::Unit)
     }
 }

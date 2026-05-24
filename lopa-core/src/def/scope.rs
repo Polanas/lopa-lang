@@ -181,7 +181,7 @@ impl<'db> ExprScopesCtx<'db> {
                     self.traverse_expr(field.expr, scope);
                 }
             }
-            ir::Expr::Path(_) | ir::Expr::Lit(_) | ir::Expr::Missing | ir::Expr::Unit => {}
+            ir::Expr::Path(_) | ir::Expr::Lit(_) | ir::Expr::Missing | ir::Expr::Unit | ir::Expr::SelfVar => {}
         }
     }
 

@@ -2,6 +2,7 @@ use std::{collections::HashMap, ops::Index};
 
 use itertools::Itertools;
 use la_arena::{Arena, ArenaMap, Idx, RawIdx};
+use notify_rust::Notification;
 use rowan::ast::AstPtr;
 use salsa::Database;
 
@@ -185,14 +186,14 @@ impl<'db> BodyLowerCtx<'db> {
             ast::Expr::TryExpr(try_expr) => {
                 // let expr = self.lower_expr_opt(try_expr.expr());
                 //TODO: implement try expr
-                return self.missing_expr(ptr);
+                self.missing_expr(ptr)
             }
             ast::Expr::FieldExpr(field_expr) => {
                 let expr = self.lower_expr_opt(field_expr.expr());
                 let Some(name) = field_expr.name().and_then(|n| n.text()) else {
                     return self.missing_expr(ptr);
                 };
-                return self.alloc_expr(Expr::Field { name, expr }, ptr);
+                self.alloc_expr(Expr::Field { name, expr }, ptr)
             }
             ast::Expr::MethodExpr(method_expr) => {
                 let expr = self.lower_expr_opt(method_expr.expr());
@@ -200,7 +201,7 @@ impl<'db> BodyLowerCtx<'db> {
                     return self.missing_expr(ptr);
                 };
                 let args = self.args(method_expr.args());
-                return self.alloc_expr(Expr::Method { name, expr, args }, ptr);
+                self.alloc_expr(Expr::Method { name, expr, args }, ptr)
             }
             ast::Expr::RecordExpr(record_expr) => {
                 let Some(path) = record_expr.path().map(|p| p.segments().collect_vec()) else {
@@ -214,7 +215,10 @@ impl<'db> BodyLowerCtx<'db> {
                             .collect_vec()
                     })
                     .unwrap_or_default();
-                return self.alloc_expr(Expr::Record { path, fields }, ptr);
+                self.alloc_expr(Expr::Record { path, fields }, ptr)
+            }
+            ast::Expr::SelfExpr(self_expr) => {
+                return self.alloc_expr(Expr::SelfVar, ptr);
             }
         }
     }
@@ -226,23 +230,21 @@ impl<'db> BodyLowerCtx<'db> {
     }
 
     fn args(&mut self, args: Option<ast::ArgList>) -> Vec<Arg> {
-        let args = args
-            .map(|l| {
-                l.args()
-                    .map(|arg| {
-                        if let Some(label) = arg.label().and_then(|l| l.text()) {
-                            let value = self.lower_expr_opt(arg.value());
-                            Arg::Labeled { label, value }
-                        } else {
-                            Arg::NonLabeled {
-                                value: self.lower_expr_opt(arg.value()),
-                            }
+        args.map(|l| {
+            l.args()
+                .map(|arg| {
+                    if let Some(label) = arg.label().and_then(|l| l.text()) {
+                        let value = self.lower_expr_opt(arg.value());
+                        Arg::Labeled { label, value }
+                    } else {
+                        Arg::NonLabeled {
+                            value: self.lower_expr_opt(arg.value()),
                         }
-                    })
-                    .collect_vec()
-            })
-            .unwrap_or_default();
-        args
+                    }
+                })
+                .collect_vec()
+        })
+        .unwrap_or_default()
     }
 
     fn lower_expr_opt(&mut self, expr: Option<ast::Expr>) -> ExprId {
@@ -290,9 +292,7 @@ impl<'db> BodyLowerCtx<'db> {
                 }
             }
             ast::Stmt::ExprStmt(expr_stmt) => {
-                let Some(expr) = expr_stmt.expr() else {
-                    return None;
-                };
+                let expr = expr_stmt.expr()?;
                 Stmt::Expr {
                     expr: self.lower_expr(expr),
                     semi: expr_stmt.semi_token().map(|_| ()),

@@ -227,7 +227,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn impl_item(&mut self) {}
+    fn impl_item(&mut self) {
+        self.with(IMPL_ITEM, |this| {});
+    }
 
     fn struct_item(&mut self) {
         self.with(STRUCT_ITEM, |this| {
@@ -345,11 +347,11 @@ impl<'a> Parser<'a> {
         self.with(PARAM, |this| {
             if !this.ate(T![self]) {
                 this.pattern();
-            }
-            this.expect(T![:]);
-            this.type_expr();
-            if this.ate(T![=]) {
-                this.expr();
+                this.expect(T![:]);
+                this.type_expr();
+                if this.ate(T![=]) {
+                    this.expr();
+                }
             }
         })
     }
@@ -475,7 +477,7 @@ impl<'a> Parser<'a> {
                         this.expect(T![")"]);
                     })
                 } else {
-                    self.with_at(PATH_EXPR, checkpoint, |this| {
+                    self.with_at(PAREN_EXPR, checkpoint, |this| {
                         this.expr();
                         this.expect(T![")"]);
                     });
@@ -489,6 +491,9 @@ impl<'a> Parser<'a> {
             }
             T![|] => {
                 self.closure_expr();
+            }
+            T![self] => {
+                self.with(SELF_EXPR, |this| this.expect(T![self]));
             }
             IDENT => {
                 let checkpoint = self.builder.checkpoint();

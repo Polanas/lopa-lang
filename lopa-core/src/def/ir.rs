@@ -180,6 +180,7 @@ pub enum Expr<'db> {
         path: Vec<Ustr>,
         fields: Vec<RecordField>,
     },
+    SelfVar,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]

@@ -1,4 +1,9 @@
-use std::{borrow::Cow, ops::Deref, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow,
+    ops::{Deref, Not},
+    sync::Arc,
+    time::Duration,
+};
 
 use super::Type;
 use itertools::{Itertools, Position};
@@ -8,6 +13,7 @@ use rowan::TextRange;
 use ustr::Ustr;
 
 use crate::{
+    B,
     common::LitKind,
     def::{
         self, body,
@@ -16,10 +22,9 @@ use crate::{
     },
     ide::{self, diagnostics, source_map},
     parsing::{
-        ast::{SyntaxNode, SyntaxNodePtr},
+        ast::{self, BinaryOpKind, SyntaxNode, SyntaxNodePtr},
         lexer,
     },
-    ptr::Ptr,
     ty::{self, BareFn},
 };
 
@@ -51,6 +56,11 @@ pub enum TypeDiagnostic<'db> {
         expected: Type<'db>,
         actual: Type<'db>,
         expr: ExprId,
+    },
+    UnsupportedBinaryOp {
+        left: ExprId,
+        right: ExprId,
+        op: BinaryOpKind,
     },
     UnknownValue {
         expr: ExprId,
@@ -176,25 +186,80 @@ impl<'db> InferCtx<'db> {
                 }
             }
             ir::Expr::Unary { expr, kind } => {}
-            ir::Expr::Binary { left, right, kind } => {}
+            ir::Expr::Binary { left, right, kind } => {
+                self.infer_expr(*left);
+                self.infer_expr(*right);
+
+                let lhs = self.expr_ty_map.get((*left).into())?;
+                let rhs = self.expr_ty_map.get((*right).into())?;
+
+                if let Some(result) = self.binary_op_result(lhs, rhs, *kind) {
+                    self.expr_ty_map.insert(expr_id.into(), result);
+                } else {
+                    self.add_error(TypeDiagnostic::UnsupportedBinaryOp {
+                        left: *left,
+                        right: *right,
+                        op: *kind,
+                    });
+                }
+            }
+            ir::Expr::Paren { expr } => {
+                self.infer_expr(*expr);
+                let ty = self.expr_ty_map.get((*expr).into())?.clone();
+                self.expr_ty_map.insert(expr_id.into(), ty);
+            }
             ir::Expr::Return { expr } => {}
             ir::Expr::Index { base, index } => {}
             ir::Expr::Call { func, args } => {}
-            ir::Expr::Paren { expr } => {}
             ir::Expr::Field { name, expr } => {}
             ir::Expr::Method { name, expr, args } => {}
             ir::Expr::Record { path, fields } => {}
+            ir::Expr::SelfVar {} => {}
         };
         Some(expr_id)
     }
 
+    fn binary_op_result(
+        &self,
+        lhs: &Type<'db>,
+        rhs: &Type<'db>,
+        op: BinaryOpKind,
+    ) -> Option<Type<'db>> {
+        Some(match op {
+            B![+] | B![*] | B![/] | B!["//"] | B!["//="] | B![%] => match (lhs, rhs) {
+                (lhs, rhs) if lhs.is_int() && rhs.is_int() => Type::int(),
+                (lhs, rhs) if lhs.is_number() && rhs.is_number() => Type::float(),
+                _ => return None,
+            },
+            B![<] | B![<=] | B![>] | B![>=] => match (lhs, rhs) {
+                (lhs, rhs) if lhs.is_number() && rhs.is_number() => Type::bool(),
+                _ => return None,
+            },
+            B![==] | B![!=] => Type::bool(),
+            B![or] => return self.unify_or(lhs.clone(), rhs.clone()),
+            _ => return None,
+        })
+    }
+    fn unify_or(&self, left: Type<'db>, right: Type<'db>) -> Option<Type<'db>> {
+        Some(match (left, right) {
+            (Type::Nilable(lhs), rhs) if rhs.is_nilable() => *lhs,
+            (lhs, rhs) if !lhs.is_nilable() && rhs.is_nilable() => lhs,
+            (lhs, Type::Nilable(rhs)) if lhs.is_nilable() => *rhs,
+            (lhs, rhs) if lhs.is_nilable() && !rhs.is_nilable() => rhs,
+            (left, right) if left == right => right,
+            _ => return None,
+        })
+    }
+
     fn unify_nilable(&self, left: Type<'db>, right: Type<'db>) -> Option<Type<'db>> {
         Some(match (left, right) {
-            ((Type::Lit(LitKind::Nil) | Type::Unit), not_nilable)
-            | (not_nilable, (Type::Lit(LitKind::Nil) | Type::Unit)) => {
-                Type::Nilable(not_nilable.into())
-            }
-            (nilable @ Type::Nilable(_), _) | (_, nilable @ Type::Nilable(_)) => nilable,
+            (lhs, rhs) if !lhs.is_nilable() && rhs.is_nilable() => Type::Nilable(lhs.into()),
+            (lhs, rhs) if lhs.is_nilable() && !rhs.is_nilable() => Type::Nilable(rhs.into()),
+            // (Type::Lit(LitKind::Nil) | Type::Unit, not_nilable)
+            // | (not_nilable, Type::Lit(LitKind::Nil) | Type::Unit) => {
+            //     Type::Nilable(not_nilable.into())
+            // }
+            // (nilable @ Type::Nilable(_), _) | (_, nilable @ Type::Nilable(_)) => nilable,
             (left, right) if left == right => right,
             _ => return None,
         })
@@ -256,9 +321,9 @@ impl<'db> InferCtx<'db> {
         match (lhs, rhs) {
             (Type::Nilable(lhs), Type::Nilable(rhs)) => self.can_assign_type(lhs, rhs),
             (Type::Nilable(lhs), rhs) => {
-                matches!(lhs.deref(), Type::Lit(LitKind::Nil)) || self.can_assign_type(lhs, rhs)
+                matches!(rhs.deref(), Type::Lit(LitKind::Nil)) || self.can_assign_type(lhs, rhs)
             }
-            (rhs, Type::Nilable(_)) if !rhs.nilable() => false,
+            (rhs, Type::Nilable(_)) if !rhs.is_nilable() => false,
             (Type::Any, _) | (_, Type::Any) => true,
             (Type::Lit(lhs), Type::Lit(rhs)) => {
                 rhs == lhs || (*lhs == LitKind::Float && *rhs == LitKind::Int)
@@ -423,7 +488,7 @@ fn range_exlude_whitespace(node: SyntaxNode) -> TextRange {
     let range = node.text_range();
 
     if let Some(last_child) = node.last_child_or_token()
-        && last_child.kind() == lexer::Syntax::WHITESPACE
+        && last_child.kind().is_whitespace()
     {
         TextRange::new(range.start(), range.end() - last_child.text_range().len())
     } else {
@@ -439,12 +504,26 @@ fn expr_range<'db>(
     expr_node(db, func, expr).map(range_exlude_whitespace)
 }
 
+fn binary_op_range<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    expr: ExprId,
+) -> Option<TextRange> {
+    let node = expr_node(db, func, expr)?;
+    ast::BinaryExpr(node.parent()?)
+        .op_token()
+        .map(|t| t.text_range())
+}
+
 fn expr_text<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
     expr: ExprId,
 ) -> Option<Ustr> {
-    expr_node(db, func, expr).map(|n| n.text().to_string().into())
+    let range = expr_node(db, func, expr).map(range_exlude_whitespace)?;
+    let contents = func.file(db).contents(db).read().unwrap();
+    let contents = contents.as_str();
+    Some(Ustr::from(&contents[range]))
 }
 
 #[salsa::tracked]
@@ -490,6 +569,15 @@ pub fn type_diagnostics<'db>(
                     expr_text(db, func, *expr).unwrap()
                 ),
                 expr_range(db, func, *expr).unwrap(),
+            ),
+            TypeDiagnostic::UnsupportedBinaryOp { left, right, op } => (
+                format!(
+                    "`{}` operation not supported for `{}` and `{}`",
+                    op,
+                    expr_text(db, func, *left).unwrap(),
+                    expr_text(db, func, *right).unwrap(),
+                ),
+                binary_op_range(db, func, *left).unwrap(),
             ),
         })
         .collect_vec()
