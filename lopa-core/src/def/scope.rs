@@ -238,7 +238,7 @@ impl<'db> ExprScopes<'db> {
 
     pub fn resolve_name_in_scope(&self, scope: ScopeId, name: &Ustr) -> Option<&ScopeEntry> {
         self.scope_chain(Some(scope))
-            .find_map(|scope| self.entries(scope).iter().find(|it| it.name == *name))
+            .find_map(|scope| self.entries(scope).iter().rev().find(|it| it.name == *name))
     }
 }
 
