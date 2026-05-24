@@ -117,7 +117,7 @@ impl<'db> InferCtx<'db> {
                         self.expr_ty_map
                             .insert(expr_id.into(), Type::Function(function));
                     }
-                    resolver::ResolveResult::Struct(_) => todo!(),
+                    resolver::ResolveResult::Struct(_) => {}
                 };
             }
             ir::Expr::Lit(lit_kind) => {
@@ -134,7 +134,46 @@ impl<'db> InferCtx<'db> {
                 else_branch,
             } => {
                 self.infer_expr(*if_cond);
-                let if_branch_ty = self.block_expr(if_branch);
+                let if_branch_ty = self.block_expr(if_branch).collapsed_nil();
+                if let Some(else_branch) = else_branch {
+                    match else_branch {
+                        ir::ElseBranch::Else { stmts } => {
+                            let else_branch_ty = self.block_expr(stmts);
+                            let Some(ty) =
+                                self.unify_nilable(if_branch_ty.clone(), else_branch_ty.clone())
+                            else {
+                                self.add_error(TypeDiagnostic::TypeMismatch {
+                                    expected: if_branch_ty,
+                                    actual: else_branch_ty,
+                                    expr: expr_id,
+                                });
+                                return None;
+                            };
+
+                            self.expr_ty_map.insert(expr_id.into(), ty);
+                        }
+                        ir::ElseBranch::ElseIf { expr } => {
+                            self.infer_expr(*expr)?;
+                            let else_branch_ty = self.expr_ty_map.get((*expr).into())?;
+                            let Some(ty) =
+                                self.unify_nilable(if_branch_ty.clone(), else_branch_ty.clone())
+                            else {
+                                self.add_error(TypeDiagnostic::TypeMismatch {
+                                    expected: if_branch_ty,
+                                    actual: else_branch_ty.clone(),
+                                    expr: expr_id,
+                                });
+                                return None;
+                            };
+                            self.expr_ty_map.insert(expr_id.into(), ty);
+                        }
+                    }
+                } else {
+                    self.expr_ty_map.insert(
+                        expr_id.into(),
+                        self.unify_nilable(if_branch_ty, Type::Lit(LitKind::Nil))?,
+                    );
+                }
             }
             ir::Expr::Unary { expr, kind } => {}
             ir::Expr::Binary { left, right, kind } => {}
@@ -149,17 +188,16 @@ impl<'db> InferCtx<'db> {
         Some(expr_id)
     }
 
-    fn unify_nilable(&self, left: Type<'db>, right: Type<'db>) -> Type<'db> {
-        match (left, right) {
-            (Type::Lit(LitKind::Nil), not_nilable) | (not_nilable, Type::Lit(LitKind::Nil)) => {
+    fn unify_nilable(&self, left: Type<'db>, right: Type<'db>) -> Option<Type<'db>> {
+        Some(match (left, right) {
+            ((Type::Lit(LitKind::Nil) | Type::Unit), not_nilable)
+            | (not_nilable, (Type::Lit(LitKind::Nil) | Type::Unit)) => {
                 Type::Nilable(not_nilable.into())
             }
             (nilable @ Type::Nilable(_), _) | (_, nilable @ Type::Nilable(_)) => nilable,
-            (left, right) => {
-                assert!(right == left);
-                right
-            }
-        }
+            (left, right) if left == right => right,
+            _ => return None,
+        })
     }
 
     fn block_expr(&mut self, stmts: &'db [Stmt<'db>]) -> Type<'db> {
@@ -295,7 +333,7 @@ fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
         Type::Unknown => "unknown".into(),
         Type::Unit => "()".into(),
         Type::Any => "any".into(),
-        Type::Nilable(nilable) => Ustr::from(&format!("{}", type_to_string(db, nilable))),
+        Type::Nilable(nilable) => Ustr::from(&format!("{}?", type_to_string(db, nilable))),
         Type::Lit(lit_kind) => match lit_kind {
             LitKind::Float => "float".into(),
             LitKind::Int => "int".into(),

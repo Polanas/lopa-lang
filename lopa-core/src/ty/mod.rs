@@ -1,6 +1,6 @@
 pub mod infer;
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use ustr::Ustr;
 
@@ -43,7 +43,24 @@ impl<'db> Type<'db> {
             }
         }
     }
-    pub fn collapse_nil(&mut self) {}
+    pub fn collapse_nil(&mut self) {
+        self.collapse_nil_inner();
+        if let Type::Nilable(inner) = self
+            && **inner == Type::Lit(LitKind::Nil)
+        {
+            *self = Type::Lit(LitKind::Nil);
+        }
+    }
+
+    pub fn collapsed_nil(mut self) -> Self {
+        self.collapse_nil_inner();
+        if let Type::Nilable(inner) = &self
+            && inner.deref() == &Type::Lit(LitKind::Nil)
+        {
+            self = Type::Lit(LitKind::Nil);
+        }
+        self
+    }
 }
 
 impl<'db> Type<'db> {
