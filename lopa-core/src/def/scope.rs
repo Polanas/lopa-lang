@@ -143,11 +143,11 @@ impl<'db> ExprScopesCtx<'db> {
                 self.traverse_expr(*base, scope);
                 self.traverse_expr(*index, scope);
             }
-            ir::Expr::Call { func, args } => {
+            ir::Expr::Call { func: expr, args } | ir::Expr::Method { expr, args, .. } => {
                 for arg in args {
                     self.traverse_expr(arg.value(), scope);
                 }
-                self.traverse_expr(*func, scope);
+                self.traverse_expr(*expr, scope);
             }
             ir::Expr::If {
                 if_cond,
@@ -170,8 +170,16 @@ impl<'db> ExprScopesCtx<'db> {
                     }
                 }
             }
-            ir::Expr::Unary { expr, .. } | ir::Expr::Return { expr } | ir::Expr::Paren { expr } => {
+            ir::Expr::Unary { expr, .. }
+            | ir::Expr::Return { expr }
+            | ir::Expr::Paren { expr }
+            | ir::Expr::Field { expr, .. } => {
                 self.traverse_expr(*expr, scope);
+            }
+            ir::Expr::Record { fields, .. } => {
+                for field in fields {
+                    self.traverse_expr(field.expr, scope);
+                }
             }
             ir::Expr::Path(_) | ir::Expr::Lit(_) | ir::Expr::Missing | ir::Expr::Unit => {}
         }

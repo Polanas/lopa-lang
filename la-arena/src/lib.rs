@@ -1,6 +1,10 @@
 //! Yet another index-based arena.
 
-#![warn(rust_2018_idioms, unused_lifetimes, semicolon_in_expressions_from_macros)]
+#![warn(
+    rust_2018_idioms,
+    unused_lifetimes,
+    semicolon_in_expressions_from_macros
+)]
 #![warn(missing_docs)]
 
 use std::{
@@ -17,6 +21,12 @@ pub use map::{ArenaMap, Entry, OccupiedEntry, VacantEntry};
 /// The raw index of a value in an arena.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, salsa::Update)]
 pub struct RawIdx(u32);
+
+impl<T> From<RawIdx> for Idx<T> {
+    fn from(value: RawIdx) -> Self {
+        Self::from_raw(value)
+    }
+}
 
 impl RawIdx {
     /// Constructs a [`RawIdx`] from a u32.
@@ -108,7 +118,10 @@ impl<T> fmt::Debug for Idx<T> {
 impl<T> Idx<T> {
     /// Creates a new index from a [`RawIdx`].
     pub const fn from_raw(raw: RawIdx) -> Self {
-        Idx { raw, _ty: PhantomData }
+        Idx {
+            raw,
+            _ty: PhantomData,
+        }
     }
 
     /// Converts this index into the underlying [`RawIdx`].
@@ -138,7 +151,10 @@ impl<T> IdxRange<T> {
     /// assert_eq!(&arena[range], &["b", "c"]);
     /// ```
     pub fn new(range: Range<Idx<T>>) -> Self {
-        Self { range: range.start.into_raw().into()..range.end.into_raw().into(), _p: PhantomData }
+        Self {
+            range: range.start.into_raw().into()..range.end.into_raw().into(),
+            _p: PhantomData,
+        }
     }
 
     /// Creates a new index range
@@ -237,7 +253,10 @@ impl<T> fmt::Debug for IdxRange<T> {
 
 impl<T> Clone for IdxRange<T> {
     fn clone(&self) -> Self {
-        Self { range: self.range.clone(), _p: PhantomData }
+        Self {
+            range: self.range.clone(),
+            _p: PhantomData,
+        }
     }
 }
 
@@ -257,7 +276,10 @@ pub struct Arena<T> {
 
 impl<T: fmt::Debug> fmt::Debug for Arena<T> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.debug_struct("Arena").field("len", &self.len()).field("data", &self.data).finish()
+        fmt.debug_struct("Arena")
+            .field("len", &self.len())
+            .field("data", &self.data)
+            .finish()
     }
 }
 
@@ -279,7 +301,9 @@ impl<T> Arena<T> {
     /// assert!(arena.is_empty());
     /// ```
     pub fn with_capacity(capacity: usize) -> Arena<T> {
-        Arena { data: Vec::with_capacity(capacity) }
+        Arena {
+            data: Vec::with_capacity(capacity),
+        }
     }
 
     /// Empties the arena, removing all contained values.
@@ -376,7 +400,10 @@ impl<T> Arena<T> {
     pub fn iter(
         &self,
     ) -> impl Iterator<Item = (Idx<T>, &T)> + ExactSizeIterator + DoubleEndedIterator + Clone {
-        self.data.iter().enumerate().map(|(idx, value)| (Idx::from_raw(RawIdx(idx as u32)), value))
+        self.data
+            .iter()
+            .enumerate()
+            .map(|(idx, value)| (Idx::from_raw(RawIdx(idx as u32)), value))
     }
 
     /// Returns an iterator over the arena’s mutable elements.
@@ -493,7 +520,9 @@ impl<T> FromIterator<T> for Arena<T> {
     where
         I: IntoIterator<Item = T>,
     {
-        Arena { data: Vec::from_iter(iter) }
+        Arena {
+            data: Vec::from_iter(iter),
+        }
     }
 }
 
@@ -504,7 +533,9 @@ impl<T> Iterator for IntoIter<T> {
     type Item = (Idx<T>, T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(idx, value)| (Idx::from_raw(RawIdx(idx as u32)), value))
+        self.0
+            .next()
+            .map(|(idx, value)| (Idx::from_raw(RawIdx(idx as u32)), value))
     }
 }
 

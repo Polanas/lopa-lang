@@ -15,12 +15,13 @@ pub struct Param<'db> {
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update, Hash)]
 pub struct BareFn<'db> {
     pub params: Vec<Param<'db>>,
-    pub return_type: Option<Box<Type<'db>>>,
+    pub return_type: Box<Type<'db>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update, Hash)]
 pub enum Type<'db> {
     Unknown,
+    Never,
     Unit,
     Any,
     Nilable(Box<Type<'db>>),
@@ -28,6 +29,21 @@ pub enum Type<'db> {
     BareFn(BareFn<'db>),
     Function(ir::Function<'db>),
     Struct(ir::Struct<'db>),
+}
+
+impl<'db> Type<'db> {
+    fn collapse_nil_inner(&mut self) {
+        if let Type::Nilable(inner) = self {
+            inner.collapse_nil();
+
+            if inner.nilable()
+                && let Type::Nilable(deep_inner) = std::mem::replace(&mut **inner, Type::Unknown)
+            {
+                *self = Type::Nilable(deep_inner)
+            }
+        }
+    }
+    pub fn collapse_nil(&mut self) {}
 }
 
 impl<'db> Type<'db> {

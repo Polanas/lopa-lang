@@ -167,6 +167,25 @@ pub enum Expr<'db> {
     Paren {
         expr: ExprId,
     },
+    Field {
+        name: Ustr,
+        expr: ExprId,
+    },
+    Method {
+        name: Ustr,
+        expr: ExprId,
+        args: Vec<Arg>,
+    },
+    Record {
+        path: Vec<Ustr>,
+        fields: Vec<RecordField>,
+    },
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
+pub struct RecordField {
+    pub name: Ustr,
+    pub expr: ExprId,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]

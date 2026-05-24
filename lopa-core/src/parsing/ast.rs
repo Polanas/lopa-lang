@@ -467,7 +467,7 @@ structs! {
     },
     RECORD_EXPR = RecordExpr {
         path: Path,
-        list: RecordFieldList,
+        fields_list: RecordFieldList,
     },
     RECORD_FIELD_LIST = RecordFieldList {
         left_brace_token: T!["{"],
@@ -477,7 +477,7 @@ structs! {
     RECORD_FIELD = RecordField {
         name: Name,
         colon_token: T![:],
-        exrp: Expr,
+        expr: Expr,
     },
     TRY_EXPR = TryExpr {
         expr: Expr,

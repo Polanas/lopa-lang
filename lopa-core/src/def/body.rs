@@ -83,6 +83,10 @@ impl<'db> BodyLowerCtx<'db> {
         id.into_raw()
     }
 
+    fn missing_expr(&mut self, ptr: AstPtr<ast::Expr>) -> ExprId {
+        self.alloc_expr(Expr::Missing, ptr)
+    }
+
     fn alloc_pattern(&mut self, pattern: Pattern, ptr: AstPtr<ast::Pattern>) -> PatternId {
         let ptr = InFile::new(self.file, ptr);
         let id = self.body.patterns.alloc(pattern);
@@ -104,7 +108,7 @@ impl<'db> BodyLowerCtx<'db> {
             }
             ast::Expr::BinaryExpr(binary_expr) => {
                 let Some(kind) = binary_expr.op_kind() else {
-                    return self.alloc_expr(Expr::Missing, ptr);
+                    return self.missing_expr(ptr);
                 };
                 let left = self.lower_expr_opt(binary_expr.lhs());
                 let right = self.lower_expr_opt(binary_expr.rhs());
@@ -113,7 +117,7 @@ impl<'db> BodyLowerCtx<'db> {
             }
             ast::Expr::UnaryExpr(unary_expr) => {
                 let Some(kind) = unary_expr.op_kind() else {
-                    return self.alloc_expr(Expr::Missing, ptr);
+                    return self.missing_expr(ptr);
                 };
                 let expr = self.lower_expr_opt(unary_expr.expr());
                 self.alloc_expr(Expr::Unary { expr, kind }, ptr)
@@ -132,23 +136,7 @@ impl<'db> BodyLowerCtx<'db> {
             }
             ast::Expr::CallExpr(call_expr) => {
                 let func = self.lower_expr_opt(call_expr.func());
-                let args = call_expr
-                    .args()
-                    .map(|l| {
-                        l.args()
-                            .map(|arg| {
-                                if let Some(label) = arg.label().and_then(|l| l.text()) {
-                                    let value = self.lower_expr_opt(arg.value());
-                                    Arg::Labeled { label, value }
-                                } else {
-                                    Arg::NonLabeled {
-                                        value: self.lower_expr_opt(arg.value()),
-                                    }
-                                }
-                            })
-                            .collect_vec()
-                    })
-                    .unwrap_or_default();
+                let args = self.args(call_expr.args());
                 self.alloc_expr(Expr::Call { func, args }, ptr)
             }
             ast::Expr::IfExpr(if_expr) => {
@@ -197,12 +185,64 @@ impl<'db> BodyLowerCtx<'db> {
             ast::Expr::TryExpr(try_expr) => {
                 // let expr = self.lower_expr_opt(try_expr.expr());
                 //TODO: implement try expr
-                self.alloc_expr(Expr::Missing, ptr)
+                return self.missing_expr(ptr);
             }
-            ast::Expr::FieldExpr(field_expr) => todo!(),
-            ast::Expr::MethodExpr(method_expr) => todo!(),
-            ast::Expr::RecordExpr(record_expr) => todo!(),
+            ast::Expr::FieldExpr(field_expr) => {
+                let expr = self.lower_expr_opt(field_expr.expr());
+                let Some(name) = field_expr.name().and_then(|n| n.text()) else {
+                    return self.missing_expr(ptr);
+                };
+                return self.alloc_expr(Expr::Field { name, expr }, ptr);
+            }
+            ast::Expr::MethodExpr(method_expr) => {
+                let expr = self.lower_expr_opt(method_expr.expr());
+                let Some(name) = method_expr.name().and_then(|n| n.text()) else {
+                    return self.missing_expr(ptr);
+                };
+                let args = self.args(method_expr.args());
+                return self.alloc_expr(Expr::Method { name, expr, args }, ptr);
+            }
+            ast::Expr::RecordExpr(record_expr) => {
+                let Some(path) = record_expr.path().map(|p| p.segments().collect_vec()) else {
+                    return self.missing_expr(ptr);
+                };
+                let fields = record_expr
+                    .fields_list()
+                    .map(|list| {
+                        list.fields()
+                            .filter_map(|field| self.field(field))
+                            .collect_vec()
+                    })
+                    .unwrap_or_default();
+                return self.alloc_expr(Expr::Record { path, fields }, ptr);
+            }
         }
+    }
+
+    fn field(&mut self, field: ast::RecordField) -> Option<ir::RecordField> {
+        let name = field.name().and_then(|n| n.text())?;
+        let expr = self.lower_expr_opt(field.expr());
+        Some(ir::RecordField { name, expr })
+    }
+
+    fn args(&mut self, args: Option<ast::ArgList>) -> Vec<Arg> {
+        let args = args
+            .map(|l| {
+                l.args()
+                    .map(|arg| {
+                        if let Some(label) = arg.label().and_then(|l| l.text()) {
+                            let value = self.lower_expr_opt(arg.value());
+                            Arg::Labeled { label, value }
+                        } else {
+                            Arg::NonLabeled {
+                                value: self.lower_expr_opt(arg.value()),
+                            }
+                        }
+                    })
+                    .collect_vec()
+            })
+            .unwrap_or_default();
+        args
     }
 
     fn lower_expr_opt(&mut self, expr: Option<ast::Expr>) -> ExprId {
