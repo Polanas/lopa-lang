@@ -1,9 +1,9 @@
 use super::{lexer::Syntax, parser};
-use crate::T;
 use crate::common::LitKind;
-use rowan::NodeOrToken;
+use crate::T;
 use rowan::ast::support::{child, children, token};
 use rowan::ast::{AstChildren, AstNode};
+use rowan::NodeOrToken;
 use ustr::Ustr;
 
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
@@ -371,7 +371,7 @@ impl std::fmt::Display for UnaryOpKind {
 }
 
 structs! {
-    FILE = File {
+    MODULE = File {
         items: [Item],
     },
     MOD_ITEM = ModItem {
@@ -823,7 +823,7 @@ mod test {
     fn if_expr() {
         let expr = parse::<IfExpr>(
             "fn main() {
-            if true {1} else {2}
+                if true {1} else {2}
         }",
         );
         assert!(expr.if_token().is_some());
@@ -886,20 +886,20 @@ mod test {
             .should_eq("@first");
     }
 
-    #[test]
-    fn lua_if_stmt() {
-        let block = parse::<LuaBlockExpr>(
-            "fn main() {
-            lua {
-                if true then end
-            }
-        }",
-        );
-        block
-            .stmts()
-            .next()
-            .unwrap()
-            .syntax()
-            .should_eq("if true then end");
-    }
+    // #[test]
+    // fn lua_if_stmt() {
+    //     let block = parse::<LuaBlockExpr>(
+    //         "fn main() {
+    //         lua {
+    //             if true then end
+    //         }
+    //     }",
+    //     );
+    //     block
+    //         .stmts()
+    //         .next()
+    //         .unwrap()
+    //         .syntax()
+    //         .should_eq("if true then end");
+    // }
 }

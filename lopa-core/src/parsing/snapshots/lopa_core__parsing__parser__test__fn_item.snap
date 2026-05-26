@@ -9,7 +9,7 @@ FN_ITEM: 0..41
     IDENT: 3..7 "test"
   PARAM_LIST: 7..26 
     L_PAREN: 7..8 "("
-    PARAM: 8..16 
+    PARAM: 8..15 
       NAME_PATTERN: 8..9 
         NAME: 8..9 
           IDENT: 8..9 "a"
@@ -20,7 +20,7 @@ FN_ITEM: 0..41
           PATH: 11..14 
             IDENT: 11..14 "int"
       COMMA: 14..15 ","
-      WHITESPACE: 15..16 
+    WHITESPACE: 15..16 
     PARAM: 16..25 
       NAME_PATTERN: 16..17 
         NAME: 16..17 
@@ -32,20 +32,20 @@ FN_ITEM: 0..41
           PATH: 19..25 
             IDENT: 19..25 "string"
     R_PAREN: 25..26 ")"
-  RETURN_TYPE: 26..32 
+  RETURN_TYPE: 26..31 
     ARROW: 26..28 "->"
-    LIT_TYPE: 28..32 
-      PATH_TYPE: 28..32 
-        PATH: 28..32 
+    LIT_TYPE: 28..31 
+      PATH_TYPE: 28..31 
+        PATH: 28..31 
           IDENT: 28..31 "int"
-          WHITESPACE: 31..32 
+  WHITESPACE: 31..32 
   BLOCK_EXPR: 32..41 
     L_BRACE: 32..33 "{"
     WHITESPACE: 33..34 
-    EXPR_STMT: 34..40 
+    EXPR_STMT: 34..39 
       PATH_EXPR: 34..38 
         PATH: 34..38 
           IDENT: 34..38 "stmt"
       SEMI: 38..39 ";"
-      WHITESPACE: 39..40 
+    WHITESPACE: 39..40 
     R_BRACE: 40..41 "}"

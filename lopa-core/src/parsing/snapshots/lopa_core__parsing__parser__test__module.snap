@@ -1,8 +1,8 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"fn some_func(){}\", |p| p.file())"
+expression: "parse(\"fn some_func(){}\", |p| p.module())"
 ---
-FILE: 0..16 
+MODULE: 0..16 
   FN_ITEM: 0..16 
     FN_KW: 0..2 "fn"
     WHITESPACE: 2..3 

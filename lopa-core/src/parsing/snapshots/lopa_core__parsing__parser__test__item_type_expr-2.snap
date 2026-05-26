@@ -2,26 +2,25 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"enum Name {\n                    value: String\n                }\n                \",\n|p| p.item_type_expr())"
 ---
-ITEM_TYPE: 0..80 
-  ENUM_ITEM: 0..80 
+ITEM_TYPE: 0..63 
+  ENUM_ITEM: 0..63 
     ENUM_KW: 0..4 "enum"
     WHITESPACE: 4..5 
-    NAME: 5..10 
+    NAME: 5..9 
       IDENT: 5..9 "Name"
-      WHITESPACE: 9..10 
-    ENUM_ELEMENT_LIST: 10..80 
+    WHITESPACE: 9..10 
+    ENUM_ELEMENT_LIST: 10..63 
       L_BRACE: 10..11 "{"
       WHITESPACE: 11..32 
-      ENUM_ELEMENT: 32..62 
-        FIELD: 32..62 
+      ENUM_ELEMENT: 32..45 
+        FIELD: 32..45 
           NAME: 32..37 
             IDENT: 32..37 "value"
           COLON: 37..38 ":"
           WHITESPACE: 38..39 
-          ITEM_TYPE: 39..62 
-            PATH_TYPE: 39..62 
-              PATH: 39..62 
+          ITEM_TYPE: 39..45 
+            PATH_TYPE: 39..45 
+              PATH: 39..45 
                 IDENT: 39..45 "String"
-                WHITESPACE: 45..62 
+      WHITESPACE: 45..62 
       R_BRACE: 62..63 "}"
-      WHITESPACE: 63..80

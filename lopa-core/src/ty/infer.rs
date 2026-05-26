@@ -12,10 +12,6 @@ use notify_rust::Notification;
 use rowan::TextRange;
 use ustr::Ustr;
 
-trait GenericTrait<T> {
-    fn next() ->T;
-}
-
 use crate::{
     B,
     common::LitKind,
@@ -488,25 +484,12 @@ fn expr_node<'db>(
         .map(|n| n.value.0.syntax_node_ptr().to_node(&parse.syntax_node(db)))
 }
 
-//TODO: move this to somewhere more appropriate
-fn range_exlude_whitespace(node: SyntaxNode) -> TextRange {
-    let range = node.text_range();
-
-    if let Some(last_child) = node.last_child_or_token()
-        && last_child.kind().is_whitespace()
-    {
-        TextRange::new(range.start(), range.end() - last_child.text_range().len())
-    } else {
-        range
-    }
-}
-
 fn expr_range<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
     expr: ExprId,
 ) -> Option<TextRange> {
-    expr_node(db, func, expr).map(range_exlude_whitespace)
+    expr_node(db, func, expr).map(|node| node.text_range())
 }
 
 fn binary_op_range<'db>(
@@ -525,7 +508,7 @@ fn expr_text<'db>(
     func: ir::Function<'db>,
     expr: ExprId,
 ) -> Option<Ustr> {
-    let range = expr_node(db, func, expr).map(range_exlude_whitespace)?;
+    let range = expr_range(db, func, expr)?;
     let contents = func.file(db).contents(db).read().unwrap();
     let contents = contents.as_str();
     Some(Ustr::from(&contents[range]))

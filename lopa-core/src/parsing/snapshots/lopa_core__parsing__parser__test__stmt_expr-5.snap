@@ -4,9 +4,9 @@ expression: "parse(\"vec2 { };\", |p| { _ = p.stmt_expr() })"
 ---
 EXPR_STMT: 0..9 
   RECORD_EXPR: 0..8 
-    PATH: 0..5 
+    PATH: 0..4 
       IDENT: 0..4 "vec2"
-      WHITESPACE: 4..5 
+    WHITESPACE: 4..5 
     RECORD_FIELD_LIST: 5..8 
       L_BRACE: 5..6 "{"
       WHITESPACE: 6..7 

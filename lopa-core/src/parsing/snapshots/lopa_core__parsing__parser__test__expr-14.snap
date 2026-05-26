@@ -1,7 +1,13 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"()\", |p| p.expr())"
+expression: "parse(\"1.abs()\", |p| p.expr())"
 ---
-UNIT_EXPR: 0..2 
-  L_PAREN: 0..1 "("
-  R_PAREN: 1..2 ")"
+METHOD_EXPR: 0..7 
+  LIT_EXPR: 0..1 
+    INT: 0..1 "1"
+  DOT: 1..2 "."
+  NAME: 2..5 
+    IDENT: 2..5 "abs"
+  ARG_LIST: 5..7 
+    L_PAREN: 5..6 "("
+    R_PAREN: 6..7 ")"

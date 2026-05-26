@@ -1,4 +1,5 @@
 use logos::Logos;
+use rowan::{TextRange, TextSize};
 use std::fmt;
 
 macro_rules! def {
@@ -362,7 +363,7 @@ def! {
     EOF,
     ERROR,
 
-    FILE,
+    MODULE,
 
     FN_ITEM,
     STRUCT_ITEM,
@@ -466,6 +467,40 @@ def! {
     LUA_LOCAL_STMT,
     LUA_REPEAT_STMT,
 
+}
+
+#[derive(Clone)]
+pub struct Lexer<'a> {
+    inner: logos::SpannedIter<'a, Syntax>,
+}
+
+impl<'a> Lexer<'a> {
+    pub fn new(input: &'a str) -> Self {
+        Self {
+            inner: Syntax::lexer(input).spanned(),
+        }
+    }
+}
+
+impl<'a> Iterator for Lexer<'a> {
+    type Item = LexToken<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (syntax, span) = self.inner.next()?;
+        let range = TextRange::new(TextSize::new(span.start as _), TextSize::new(span.end as _));
+        Some(LexToken {
+            token: syntax.unwrap_or(Syntax::ERROR),
+            text: self.inner.slice(),
+            range,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LexToken<'a> {
+    pub token: Syntax,
+    pub text: &'a str,
+    pub range: TextRange,
 }
 
 impl Syntax {

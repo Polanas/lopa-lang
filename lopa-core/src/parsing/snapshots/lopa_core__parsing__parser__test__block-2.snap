@@ -5,8 +5,8 @@ expression: "parse(\"{ 1 }\", |p| p.block())"
 BLOCK_EXPR: 0..5 
   L_BRACE: 0..1 "{"
   WHITESPACE: 1..2 
-  EXPR_STMT: 2..4 
-    LIT_EXPR: 2..4 
+  EXPR_STMT: 2..3 
+    LIT_EXPR: 2..3 
       INT: 2..3 "1"
-      WHITESPACE: 3..4 
+  WHITESPACE: 3..4 
   R_BRACE: 4..5 "}"

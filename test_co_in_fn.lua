@@ -1,38 +1,9 @@
---lets pretend it exists
-local ring_buffer = require("ring_buffer")
-local buffer = ring_buffer.new({
-	capacity = 2048,
-})
+local ffi = require("ffi")
 
---also lets pretend there's a metatable here
-local Vec2 = {
-	new = function(x, y)
-		local vec = buffer:fetch()
-		vec.x = x
-		vec.y = y
-		return vec
-	end,
+local array = ffi.new("uint8_t[?]", 10)
+array[0] = 51
+array[1] = 32
+array[2] = 51
 
-	--making sure the vec will persist
-	box = function(vec)
-		return { x = vec.x, y = vec.y }
-	end,
-
-	__add = function(a, b)
-		local result = buffer:fetch()
-		return result
-	end,
-	--other metafuntions...
-}
-
---a temp vec for calculations within a frame
-local vec = Vec2.new(1, 2) + Vec2.new(30, 40)
-
--- ...
-
-player.positon = Vec2.box(vec)
-
---You'd also need to have copy semantics form rust to ensure that this doesn't happen:
-local v1 = Vec2.new(1, 2)
-local v1_ref = v1
-v1_ref.x = 0 --this shouldn't affect v1
+local str = ffi.string(array, 10)
+print(str)

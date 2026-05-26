@@ -1,6 +1,7 @@
 pub mod base;
 pub mod diagnostics;
 
+use rowan::GreenNode;
 use rowan::ast::AstNode as _;
 use salsa::{Database, Setter};
 
@@ -135,7 +136,7 @@ pub struct File {
 
 #[salsa::tracked]
 pub struct Parse<'db> {
-    pub node: parser::Cst,
+    pub node: GreenNode,
     #[returns(ref)]
     pub errors: Vec<parser::ParseError>,
 }
