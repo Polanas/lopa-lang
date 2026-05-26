@@ -6,6 +6,5 @@ RECORD_EXPR: 0..7
   PATH: 0..4 
     IDENT: 0..4 "Vec2"
   WHITESPACE: 4..5 
-  RECORD_FIELD_LIST: 5..7 
-    L_BRACE: 5..6 "{"
-    R_BRACE: 6..7 "}"
+  L_BRACE: 5..6 "{"
+  R_BRACE: 6..7 "}"

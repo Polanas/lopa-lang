@@ -360,29 +360,25 @@ impl<'a> Parser<'a> {
     }
 
     fn enum_elem_list(&mut self) {
-        self.with(ENUM_ELEMENT_LIST, |this| {
-            this.expect(T!["{"]);
-            while !this.at(T!["}"]) && !this.at(EOF) {
-                this.compiler_attrib_list();
-                if this.at_any(ELEMENT_FIRST) {
-                    this.enum_element();
-                } else {
-                    if this.at_any(ELEMENT_RECOVERY) {
-                        break;
-                    }
-                    this.advance_with_error(ErrorKind::ExpectedEnumElement);
+        self.expect(T!["{"]);
+        while !self.at(T!["}"]) && !self.at(EOF) {
+            self.compiler_attrib_list();
+            if self.at_any(ELEMENT_FIRST) {
+                self.enum_element();
+            } else {
+                if self.at_any(ELEMENT_RECOVERY) {
+                    break;
                 }
+                self.advance_with_error(ErrorKind::ExpectedEnumElement);
             }
-            this.expect(T!["}"]);
-        });
+        }
+        self.expect(T!["}"]);
     }
 
     fn enum_element(&mut self) {
         self.with(ENUM_ELEMENT, |this| {
             if this.at(T![fn]) {
-                this.with(ENUM_FN, |this| {
-                    this.fn_item();
-                });
+                this.fn_item();
             } else {
                 this.field();
                 if !this.at(T!["}"]) {
@@ -404,7 +400,18 @@ impl<'a> Parser<'a> {
     }
 
     fn impl_item(&mut self) {
-        self.with(IMPL_ITEM, |this| {});
+        self.with(IMPL_ITEM, |this| {
+            this.expect(T![impl]);
+            this.path();
+            if this.ate(T![for]) {
+                this.path();
+            }
+            this.expect(T!["{"]);
+
+            while !this.at(T!["}"]) && !this.eof() {
+                this.fn_item();
+            }
+        });
     }
 
     fn struct_item(&mut self) {
@@ -419,21 +426,19 @@ impl<'a> Parser<'a> {
     }
 
     fn struct_elem_list(&mut self) {
-        self.with(STRUCT_ELEMENT_LIST, |this| {
-            this.expect(T!["{"]);
-            while !this.at(T!["}"]) && !this.at(EOF) {
-                this.compiler_attrib_list();
-                if this.at_any(ELEMENT_FIRST) {
-                    this.struct_element();
-                } else {
-                    if this.at_any(ELEMENT_RECOVERY) {
-                        break;
-                    }
-                    this.advance_with_error(ErrorKind::ExpectedStructElement);
+        self.expect(T!["{"]);
+        while !self.at(T!["}"]) && !self.at(EOF) {
+            self.compiler_attrib_list();
+            if self.at_any(ELEMENT_FIRST) {
+                self.struct_element();
+            } else {
+                if self.at_any(ELEMENT_RECOVERY) {
+                    break;
                 }
+                self.advance_with_error(ErrorKind::ExpectedStructElement);
             }
-            this.expect(T!["}"]);
-        });
+        }
+        self.expect(T!["}"]);
     }
 
     fn struct_element(&mut self) {
@@ -824,20 +829,18 @@ impl<'a> Parser<'a> {
     }
 
     fn record_field_list(&mut self) {
-        self.with(RECORD_FIELD_LIST, |this| {
-            this.expect(T!["{"]);
-            while !this.at(T!["}"]) && !this.at(EOF) {
-                if this.at(IDENT) {
-                    this.record_field();
-                } else {
-                    if this.at_any(RECORD_LIST_RECOVERY) {
-                        break;
-                    }
-                    this.advance_with_error(ErrorKind::ExpectedField);
+        self.expect(T!["{"]);
+        while !self.at(T!["}"]) && !self.at(EOF) {
+            if self.at(IDENT) {
+                self.record_field();
+            } else {
+                if self.at_any(RECORD_LIST_RECOVERY) {
+                    break;
                 }
+                self.advance_with_error(ErrorKind::ExpectedField);
             }
-            this.expect(T!["}"]);
-        });
+        }
+        self.expect(T!["}"]);
     }
 
     fn record_field(&mut self) {
@@ -1138,6 +1141,17 @@ mod test {
     fn mod_item() {
         insta::assert_snapshot!(parse("mod my_mod { fn some_item() {} }", |p| p.mod_item()));
         insta::assert_snapshot!(parse("mod my_mod;", |p| p.mod_item()));
+    }
+
+    #[test]
+    fn impl_item() {
+        insta::assert_snapshot!(parse(
+            "impl Debug for Vec2 {
+                fn debug_fmt(self, f: Formatter) {
+                }
+            }",
+            |p| p.impl_item()
+        ));
     }
 
     #[test]

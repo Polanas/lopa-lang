@@ -97,14 +97,8 @@ impl<'db> Struct<'db> {
         let mut fields = vec![];
         let file = self.file(db);
         let root = ide::parse(db, file).syntax_node(db);
-        for element in self
-            .ast_ptr(db)
-            .to_node(&root)
-            .elements()
-            .into_iter()
-            .flat_map(|p| p.fields())
-        {
-            if let ast::StructElem::StructField(field) = element {
+        for element in self.ast_ptr(db).to_node(&root).elements() {
+            if let ast::StructElem::Field(field) = element {
                 let Some(name) = field.name().and_then(|n| n.text()) else {
                     continue;
                 };

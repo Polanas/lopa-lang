@@ -1,9 +1,9 @@
 use super::{lexer::Syntax, parser};
-use crate::common::LitKind;
 use crate::T;
+use crate::common::LitKind;
+use rowan::NodeOrToken;
 use rowan::ast::support::{child, children, token};
 use rowan::ast::{AstChildren, AstNode};
-use rowan::NodeOrToken;
 use ustr::Ustr;
 
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
@@ -379,20 +379,28 @@ structs! {
         semi: T![;],
         items: [FnItem],
     },
+    IMPL_ITEM = ImplItem {
+
+    },
+    ENUM_ITEM = EnumItem {
+        enum_token: T![enum],
+        name: Name,
+        left_brace_token: T!["{"],
+        elements: [EnumElem],
+        right_brace_token: T!["}"],
+    },
     STRUCT_ITEM = StructItem {
         struct_token: T![struct],
         name: Name,
-        elements: StructElemList,
-    },
-    STRUCT_ELEMENT_LIST = StructElemList {
+        parents: Parents,
         left_brace_token: T!["{"],
-        fields: [StructElem],
+        elements: [StructElem],
         right_brace_token: T!["}"],
     },
-    STRUCT_FN = StructFn {
-        fn_item: FnItem,
+    PARENTS_LIST = Parents {
+        parents: [Name],
     },
-    FIELD = StructField {
+    FIELD = Field {
         name: Name,
         colon_token: T![:],
         ty: TypeExpr,
@@ -633,11 +641,8 @@ structs! {
     },
     RECORD_EXPR = RecordExpr {
         path: Path,
-        fields_list: RecordFieldList,
-    },
-    RECORD_FIELD_LIST = RecordFieldList {
         left_brace_token: T!["{"],
-        fields: [RecordField],
+        fields_list: [RecordField],
         right_brace_token: T!["}"],
     },
     RECORD_FIELD = RecordField {
@@ -696,7 +701,6 @@ structs! {
             self.ident().map(|t| Ustr::from(t.text()))
         }
     },
-
     LUA_BLOCK_EXPR = LuaBlockExpr {
         stmts: [LuaStmt],
     },
@@ -748,8 +752,11 @@ enums! {
         IfExpr,
     },
     StructElem {
-        StructField,
-        StructFn,
+        Field,
+        FnItem,
+    },
+    EnumElem {
+        FnItem,
     },
     //TODO: finish patterns
     Pattern {

@@ -10,19 +10,18 @@ BLOCK_EXPR: 0..19
       PATH: 2..6 
         IDENT: 2..6 "vec2"
       WHITESPACE: 6..7 
-      RECORD_FIELD_LIST: 7..16 
-        L_BRACE: 7..8 "{"
-        WHITESPACE: 8..9 
-        RECORD_FIELD: 9..14 
-          NAME: 9..10 
-            IDENT: 9..10 "a"
-          WHITESPACE: 10..11 
-          COLON: 11..12 ":"
-          WHITESPACE: 12..13 
-          LIT_EXPR: 13..14 
-            INT: 13..14 "1"
-        WHITESPACE: 14..15 
-        R_BRACE: 15..16 "}"
+      L_BRACE: 7..8 "{"
+      WHITESPACE: 8..9 
+      RECORD_FIELD: 9..14 
+        NAME: 9..10 
+          IDENT: 9..10 "a"
+        WHITESPACE: 10..11 
+        COLON: 11..12 ":"
+        WHITESPACE: 12..13 
+        LIT_EXPR: 13..14 
+          INT: 13..14 "1"
+      WHITESPACE: 14..15 
+      R_BRACE: 15..16 "}"
     SEMI: 16..17 ";"
   WHITESPACE: 17..18 
   R_BRACE: 18..19 "}"

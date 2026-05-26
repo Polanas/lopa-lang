@@ -209,17 +209,11 @@ impl<'db> BodyLowerCtx<'db> {
                 };
                 let fields = record_expr
                     .fields_list()
-                    .map(|list| {
-                        list.fields()
-                            .filter_map(|field| self.field(field))
-                            .collect_vec()
-                    })
-                    .unwrap_or_default();
+                    .filter_map(|field| self.field(field))
+                    .collect_vec();
                 self.alloc_expr(Expr::Record { path, fields }, ptr)
             }
-            ast::Expr::SelfExpr(self_expr) => {
-                return self.alloc_expr(Expr::SelfVar, ptr);
-            }
+            ast::Expr::SelfExpr(_) => self.alloc_expr(Expr::SelfVar, ptr),
         }
     }
 
