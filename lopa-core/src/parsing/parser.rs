@@ -59,13 +59,14 @@ pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
 
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
 const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use]]);
+const STRUCT_ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
-const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 
+const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
-const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"]]).union(ITEM_FIRST);
+const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"], T![;]]).union(ITEM_FIRST);
 const RECORD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["}"], T![,]]);
-const FIELD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
+const STRUCT_ELEMENT_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
 const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
 const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]]);
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
@@ -86,6 +87,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T!["{"],
     T!["("],
     T![|],
+    T![self],
 ]);
 
 pub struct Parser<'a> {
@@ -232,10 +234,10 @@ impl<'a> Parser<'a> {
     }
 
     fn struct_item(&mut self) {
-        self.with(STRUCT_ITEM, |this| {
+        self.with(STRUCT_ELEMENT, |this| {
             this.expect(T![struct]);
             this.name();
-            this.field_list();
+            this.struct_item_list();
             this.expect(T!["}"]);
         })
     }
@@ -266,10 +268,17 @@ impl<'a> Parser<'a> {
             if this.input.at(T![->]) {
                 this.return_type();
             }
-            if this.input.at(T!["{"]) {
-                this.block();
-            } else {
-                this.add_error(ErrorKind::ExpectedToken(T!["{"]), None);
+
+            match this.input.peek() {
+                T!["{"] => {
+                    this.block();
+                }
+                T![;] => {
+                    this.expect(T![;]);
+                }
+                _ => {
+                    this.add_error(ErrorKind::ExpectedToken(T!["{"]), None);
+                }
             }
         })
     }
@@ -294,17 +303,16 @@ impl<'a> Parser<'a> {
         });
     }
 
-    fn field_list(&mut self) {
-        self.with(FIELD_LIST, |this| {
+    fn struct_item_list(&mut self) {
+        self.with(STRUCT_ELEMENT_LIST, |this| {
             this.expect(T!["{"]);
 
             while !this.input.at(T!["}"]) && !this.input.at(EOF) {
                 this.compiler_attrib_list();
-                if this.input.at(IDENT) {
-                    this.field();
-                    this.ate(T![,]);
+                if this.input.at_any(STRUCT_ELEMENT_FIRST) {
+                    this.struct_element();
                 } else {
-                    if this.input.at_any(FIELD_LIST_RECOVERY) {
+                    if this.input.at_any(STRUCT_ELEMENT_RECOVERY) {
                         break;
                     }
                     this.advance_with_err(ErrorKind::ExpectedParameter);
@@ -313,8 +321,23 @@ impl<'a> Parser<'a> {
         });
     }
 
+    fn struct_element(&mut self) {
+        self.with(STRUCT_ELEMENT, |this| {
+            if this.input.at(T![fn]) {
+                this.with(STRUCT_FN, |this| {
+                    this.fn_item();
+                });
+            } else {
+                this.field();
+                if !this.input.at(T!["}"]) {
+                    this.expect(T![,]);
+                }
+            }
+        });
+    }
+
     fn field(&mut self) {
-        self.with(FIELD, |this| {
+        self.with(STRUCT_FIELD, |this| {
             this.name();
             this.expect(T![:]);
             this.type_expr();
@@ -331,7 +354,6 @@ impl<'a> Parser<'a> {
                 this.compiler_attrib_list();
                 if this.input.at_any(PATTERN_FIRST) || this.input.at(T![self]) {
                     this.param();
-                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(PARAM_LIST_RECOVERY) {
                         break;
@@ -352,6 +374,9 @@ impl<'a> Parser<'a> {
                 if this.ate(T![=]) {
                     this.expr();
                 }
+            }
+            if !this.input.at(T![")"]) {
+                this.expect(T![,]);
             }
         })
     }
@@ -422,7 +447,6 @@ impl<'a> Parser<'a> {
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(TYPE_FIRST) || this.input.at(IDENT) {
                     this.fn_type_param();
-                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(FN_TYPE_PARAM_LIST_RECOVERY) {
                         break;
@@ -441,6 +465,9 @@ impl<'a> Parser<'a> {
                 this.expect(T![:]);
             }
             this.type_expr();
+            if !this.input.at(T![")"]) {
+                this.expect(T![,]);
+            }
         })
     }
 
@@ -548,7 +575,6 @@ impl<'a> Parser<'a> {
             while !this.input.at(T!["}"]) && !this.input.at(EOF) {
                 if this.input.at(IDENT) {
                     this.record_field();
-                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(RECORD_LIST_RECOVERY) {
                         break;
@@ -565,6 +591,9 @@ impl<'a> Parser<'a> {
             this.name();
             this.expect(T![:]);
             this.expr();
+            if !this.input.at(T!["}"]) {
+                this.expect(T![,]);
+            }
         });
     }
 
@@ -584,7 +613,6 @@ impl<'a> Parser<'a> {
             while !this.input.at(T![|]) && !this.input.at(EOF) {
                 if this.input.at_any(PATTERN_FIRST) {
                     this.closure_param();
-                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(CLOSURE_PARAM_LIST_RECOVERY) {
                         break;
@@ -600,6 +628,9 @@ impl<'a> Parser<'a> {
             this.pattern();
             if this.ate(T![:]) {
                 this.type_expr();
+            }
+            if !this.input.at(T![|]) {
+                this.expect(T![,]);
             }
         });
     }
@@ -634,7 +665,6 @@ impl<'a> Parser<'a> {
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(EXPR_FIRST) {
                     this.arg();
-                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(ARG_LIST_RECOVERY) {
                         break;
@@ -662,6 +692,9 @@ impl<'a> Parser<'a> {
             }
             if this.input.at_any(EXPR_FIRST) || !has_label {
                 this.expr();
+            }
+            if !this.input.at(T![")"]) {
+                this.expect(T![,]);
             }
         });
     }
@@ -805,7 +838,6 @@ impl<'a> Parser<'a> {
             while !this.input.at(T![")"]) && !this.input.at(EOF) {
                 if this.input.at_any(EXPR_FIRST) {
                     this.compiler_attrib_item();
-                    this.ate(T![,]);
                 } else {
                     if this.input.at_any(COMPILER_ATTRIB_RECOVERY) {
                         break;
@@ -822,6 +854,9 @@ impl<'a> Parser<'a> {
             this.expr();
             if this.ate(T![=]) {
                 this.expr();
+            }
+            if !this.input.at(T![")"]) {
+                this.expect(T![,]);
             }
         });
     }
@@ -1352,6 +1387,7 @@ pub enum ErrorKind {
     ExpectedStatement,
     ExpectedType,
     ExpectedParameter,
+    ExpectedStructItem,
     ExpectedField,
     ExpectedAttribute,
     ExpectedPattern,
@@ -1374,6 +1410,7 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedItem => "expected item",
             Self::ExpectedOperator => "expected operator",
             Self::ExpectedField => "expected field",
+            Self::ExpectedStructItem => "expected struct item",
             Self::Other(text) => text,
         }
         .fmt(f)
@@ -1642,7 +1679,7 @@ mod test {
 
     #[test]
     fn param() {
-        insta::assert_snapshot!(parse("param: type", |p| p.param()));
+        insta::assert_snapshot!(parse("param: type,", |p| p.param()));
     }
 
     #[test]
@@ -1707,6 +1744,17 @@ mod test {
     #[test]
     fn strct() {
         insta::assert_snapshot!(parse("struct Vec2 {x: Y, y: Y }", |p| p.struct_item()));
+        insta::assert_snapshot!(parse(
+            "struct MyStruct {
+                    foo: Foo,
+                    bar: Bar,
+                    fn test(self) -> FooBar {
+                        self.foo + self.bar
+                    }
+                }
+                ",
+            |p| p.struct_item()
+        ));
     }
 
     #[test]

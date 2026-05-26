@@ -1,8 +1,8 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"param: type\", |p| p.param())"
+expression: "parse(\"param: type,\", |p| p.param())"
 ---
-PARAM: 0..11 
+PARAM: 0..12 
   NAME_PATTERN: 0..5 
     NAME: 0..5 
       IDENT: 0..5 "param"
@@ -11,3 +11,4 @@ PARAM: 0..11
   PATH_TYPE: 7..11 
     PATH: 7..11 
       IDENT: 7..11 "type"
+  COMMA: 11..12 ","

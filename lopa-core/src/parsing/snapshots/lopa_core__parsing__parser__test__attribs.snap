@@ -20,7 +20,7 @@ COMPILER_ATTRIB_LIST: 0..38
     NAME: 18..23 
       IDENT: 18..23 "third"
     L_PAREN: 23..24 "("
-    COMPILER_ATTRIB_ITEM: 24..27 
+    COMPILER_ATTRIB_ITEM: 24..28 
       BINARY_EXPR: 24..27 
         PATH_EXPR: 24..25 
           PATH: 24..25 
@@ -28,8 +28,8 @@ COMPILER_ATTRIB_LIST: 0..38
         EQ: 25..26 "="
         LIT_EXPR: 26..27 
           INT: 26..27 "3"
-    COMMA: 27..28 ","
-    COMPILER_ATTRIB_ITEM: 28..31 
+      COMMA: 27..28 ","
+    COMPILER_ATTRIB_ITEM: 28..33 
       BINARY_EXPR: 28..31 
         PATH_EXPR: 28..29 
           PATH: 28..29 
@@ -37,8 +37,8 @@ COMPILER_ATTRIB_LIST: 0..38
         EQ: 29..30 "="
         LIT_EXPR: 30..31 
           INT: 30..31 "4"
-    COMMA: 31..32 ","
-    WHITESPACE: 32..33 
+      COMMA: 31..32 ","
+      WHITESPACE: 32..33 
     COMPILER_ATTRIB_ITEM: 33..37 
       PATH_EXPR: 33..37 
         PATH: 33..37 

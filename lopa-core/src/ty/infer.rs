@@ -12,6 +12,10 @@ use notify_rust::Notification;
 use rowan::TextRange;
 use ustr::Ustr;
 
+trait GenericTrait<T> {
+    fn next() ->T;
+}
+
 use crate::{
     B,
     common::LitKind,
@@ -240,6 +244,7 @@ impl<'db> InferCtx<'db> {
             _ => return None,
         })
     }
+
     fn unify_or(&self, left: Type<'db>, right: Type<'db>) -> Option<Type<'db>> {
         Some(match (left, right) {
             (Type::Nilable(lhs), rhs) if rhs.is_nilable() => *lhs,

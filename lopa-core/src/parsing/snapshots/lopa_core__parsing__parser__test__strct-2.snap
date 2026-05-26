@@ -1,0 +1,79 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"struct MyStruct {\n                    foo: Foo,\n                    bar: Bar,\n                    fn test(self) -> FooBar {\n                        self.foo + self.bar\n                    }\n                }\n                \",\n|p| p.struct_item())"
+---
+STRUCT_ELEMENT: 0..224 
+  STRUCT_KW: 0..6 "struct"
+  WHITESPACE: 6..7 
+  NAME: 7..16 
+    IDENT: 7..15 "MyStruct"
+    WHITESPACE: 15..16 
+  STRUCT_ELEMENT_LIST: 16..206 
+    L_BRACE: 16..17 "{"
+    WHITESPACE: 17..38 
+    STRUCT_ELEMENT: 38..68 
+      FIELD: 38..46 
+        NAME: 38..41 
+          IDENT: 38..41 "foo"
+        COLON: 41..42 ":"
+        WHITESPACE: 42..43 
+        PATH_TYPE: 43..46 
+          PATH: 43..46 
+            IDENT: 43..46 "Foo"
+      COMMA: 46..47 ","
+      WHITESPACE: 47..68 
+    STRUCT_ELEMENT: 68..98 
+      FIELD: 68..76 
+        NAME: 68..71 
+          IDENT: 68..71 "bar"
+        COLON: 71..72 ":"
+        WHITESPACE: 72..73 
+        PATH_TYPE: 73..76 
+          PATH: 73..76 
+            IDENT: 73..76 "Bar"
+      COMMA: 76..77 ","
+      WHITESPACE: 77..98 
+    STRUCT_ELEMENT: 98..206 
+      FN_ITEM: 98..206 
+        FN_KW: 98..100 "fn"
+        WHITESPACE: 100..101 
+        NAME: 101..105 
+          IDENT: 101..105 "test"
+        PARAM_LIST: 105..112 
+          L_PAREN: 105..106 "("
+          PARAM: 106..110 
+            SELF_KW: 106..110 "self"
+          R_PAREN: 110..111 ")"
+          WHITESPACE: 111..112 
+        RETURN_TYPE: 112..122 
+          ARROW: 112..114 "->"
+          WHITESPACE: 114..115 
+          PATH_TYPE: 115..122 
+            PATH: 115..122 
+              IDENT: 115..121 "FooBar"
+              WHITESPACE: 121..122 
+        BLOCK_EXPR: 122..206 
+          L_BRACE: 122..123 "{"
+          WHITESPACE: 123..148 
+          EXPR_STMT: 148..188 
+            BINARY_EXPR: 148..188 
+              FIELD_EXPR: 148..157 
+                SELF_EXPR: 148..152 
+                  SELF_KW: 148..152 "self"
+                DOT: 152..153 "."
+                NAME: 153..157 
+                  IDENT: 153..156 "foo"
+                  WHITESPACE: 156..157 
+              PLUS: 157..158 "+"
+              WHITESPACE: 158..159 
+              FIELD_EXPR: 159..188 
+                SELF_EXPR: 159..163 
+                  SELF_KW: 159..163 "self"
+                DOT: 163..164 "."
+                NAME: 164..188 
+                  IDENT: 164..167 "bar"
+                  WHITESPACE: 167..188 
+          R_BRACE: 188..189 "}"
+          WHITESPACE: 189..206 
+  R_BRACE: 206..207 "}"
+  WHITESPACE: 207..224

@@ -78,6 +78,12 @@ pub struct Struct<'db> {
     pub file: ide::File,
 }
 
+#[derive(salsa::Supertype, salsa::Update, PartialEq, Eq, Debug, Clone, Copy, Hash)]
+pub enum StructElem<'db> {
+    Field(Field<'db>),
+    Fn(Function<'db>),
+}
+
 #[salsa::tracked(debug)]
 pub struct Field<'db> {
     pub name: Ustr,
@@ -91,22 +97,24 @@ impl<'db> Struct<'db> {
         let mut fields = vec![];
         let file = self.file(db);
         let root = ide::parse(db, file).syntax_node(db);
-        for field in self
+        for element in self
             .ast_ptr(db)
             .to_node(&root)
-            .fields()
+            .elements()
             .into_iter()
             .flat_map(|p| p.fields())
         {
-            let Some(name) = field.name().and_then(|n| n.text()) else {
-                continue;
-            };
+            if let ast::StructElem::StructField(field) = element {
+                let Some(name) = field.name().and_then(|n| n.text()) else {
+                    continue;
+                };
 
-            let ty = field
-                .ty()
-                .map(|ty| lower_type_expr(db, file, ty))
-                .unwrap_or_else(|| TypeExpr::Unknown);
-            fields.push(Field::new(db, name, ty));
+                let ty = field
+                    .ty()
+                    .map(|ty| lower_type_expr(db, file, ty))
+                    .unwrap_or_else(|| TypeExpr::Unknown);
+                fields.push(Field::new(db, name, ty));
+            }
         }
 
         fields

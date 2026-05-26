@@ -382,14 +382,17 @@ structs! {
     STRUCT_ITEM = StructItem {
         struct_token: T![struct],
         name: Name,
-        fields: FieldList,
+        elements: StructElemList,
     },
-    FIELD_LIST = FieldList {
+    STRUCT_ELEMENT_LIST = StructElemList {
         left_brace_token: T!["{"],
-        fields: [Field],
+        fields: [StructElem],
         right_brace_token: T!["}"],
     },
-    FIELD = Field {
+    STRUCT_FN = StructFn {
+        fn_item: FnItem,
+    },
+    STRUCT_FIELD = StructField {
         name: Name,
         colon_token: T![:],
         ty: TypeExpr,
@@ -401,6 +404,7 @@ structs! {
         name: Name,
         params: ParamList,
         output: ReturnType,
+        semi_token: T![;],
         body: BlockExpr,
     },
     RETURN_TYPE = ReturnType {
@@ -742,6 +746,10 @@ enums! {
         LitExpr,
         TryExpr,
         IfExpr,
+    },
+    StructElem {
+        StructField,
+        StructFn,
     },
     //TODO: finish patterns
     Pattern {
