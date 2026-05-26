@@ -26,9 +26,10 @@ STRUCT_ITEM: 0..242
           IDENT: 56..59 "foo"
         COLON: 59..60 ":"
         WHITESPACE: 60..61 
-        PATH_TYPE: 61..64 
-          PATH: 61..64 
-            IDENT: 61..64 "Foo"
+        ITEM_TYPE: 61..64 
+          PATH_TYPE: 61..64 
+            PATH: 61..64 
+              IDENT: 61..64 "Foo"
       COMMA: 64..65 ","
       WHITESPACE: 65..86 
     STRUCT_ELEMENT: 86..116 
@@ -37,9 +38,10 @@ STRUCT_ITEM: 0..242
           IDENT: 86..89 "bar"
         COLON: 89..90 ":"
         WHITESPACE: 90..91 
-        PATH_TYPE: 91..94 
-          PATH: 91..94 
-            IDENT: 91..94 "Bar"
+        ITEM_TYPE: 91..94 
+          PATH_TYPE: 91..94 
+            PATH: 91..94 
+              IDENT: 91..94 "Bar"
       COMMA: 94..95 ","
       WHITESPACE: 95..116 
     STRUCT_ELEMENT: 116..224 

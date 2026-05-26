@@ -37,6 +37,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T![self],
 ]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
+const ITEM_TYPE_FIRST: TokenSet = TokenSet::new(&[T![struct], T![enum]]).union(TYPE_FIRST);
 const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
 const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
@@ -368,7 +369,7 @@ impl<'a> Parser<'a> {
         self.with(FIELD, |this| {
             this.name();
             this.expect(T![:]);
-            this.type_expr();
+            this.item_type_expr();
             if this.ate(T![=]) {
                 this.expr();
             }
@@ -407,6 +408,22 @@ impl<'a> Parser<'a> {
                 this.expect(T![,]);
             }
         })
+    }
+
+    fn item_type_expr(&mut self) {
+        if self.input.at_any(ITEM_TYPE_FIRST) {
+            self.with(ITEM_TYPE, |this| match this.input.peek() {
+                T![struct] => {
+                    this.struct_item();
+                }
+                T![enum] => {
+                    this.enum_item();
+                }
+                _ => this.type_expr(),
+            });
+        } else {
+            self.advance_with_err(ErrorKind::ExpectedType);
+        }
     }
 
     fn type_expr(&mut self) {
@@ -499,15 +516,16 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn stmt_expr(&mut self) -> Option<Semicolon> {
+    fn stmt_expr(&mut self) {
         self.with(EXPR_STMT, |this| {
             this.expr();
 
-            if this.input.nth_skip_whitespace(1) != T!["}"] && !(this.input.at(T!["}"])) {
+            if this.input.at(T![;]) {
                 this.expect(T![;]);
-                Some(Semicolon)
             } else {
-                this.ate(T![;]).then_some(Semicolon)
+                if !this.input.at(T!["}"]) {
+                    this.expect(T![;]);
+                }
             }
         })
     }
@@ -1763,6 +1781,23 @@ mod test {
         insta::assert_snapshot!(parse("int", |p| p.type_expr()));
         insta::assert_snapshot!(parse("NotInt", |p| p.type_expr()));
         insta::assert_snapshot!(parse("fn(a : int, string) -> Result", |p| p.type_expr()));
+    }
+
+    #[test]
+    fn item_type_expr() {
+        insta::assert_snapshot!(parse(
+            "struct Name {
+            value: String
+        }",
+            |p| p.item_type_expr()
+        ));
+        insta::assert_snapshot!(parse(
+            "enum Name {
+                    value: String
+                }
+                ",
+            |p| p.item_type_expr()
+        ));
     }
 
     #[test]

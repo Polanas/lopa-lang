@@ -20,29 +20,31 @@ ENUM_ITEM: 0..213
   ENUM_ELEMENT_LIST: 30..213 
     L_BRACE: 30..31 "{"
     WHITESPACE: 31..52 
-    STRUCT_ELEMENT: 52..82 
+    ENUM_ELEMENT: 52..82 
       FIELD: 52..60 
         NAME: 52..55 
           IDENT: 52..55 "foo"
         COLON: 55..56 ":"
         WHITESPACE: 56..57 
-        PATH_TYPE: 57..60 
-          PATH: 57..60 
-            IDENT: 57..60 "Foo"
+        ITEM_TYPE: 57..60 
+          PATH_TYPE: 57..60 
+            PATH: 57..60 
+              IDENT: 57..60 "Foo"
       COMMA: 60..61 ","
       WHITESPACE: 61..82 
-    STRUCT_ELEMENT: 82..112 
+    ENUM_ELEMENT: 82..112 
       FIELD: 82..90 
         NAME: 82..85 
           IDENT: 82..85 "bar"
         COLON: 85..86 ":"
         WHITESPACE: 86..87 
-        PATH_TYPE: 87..90 
-          PATH: 87..90 
-            IDENT: 87..90 "Bar"
+        ITEM_TYPE: 87..90 
+          PATH_TYPE: 87..90 
+            PATH: 87..90 
+              IDENT: 87..90 "Bar"
       COMMA: 90..91 ","
       WHITESPACE: 91..112 
-    STRUCT_ELEMENT: 112..212 
+    ENUM_ELEMENT: 112..212 
       ENUM_FN: 112..212 
         FN_ITEM: 112..212 
           FN_KW: 112..114 "fn"

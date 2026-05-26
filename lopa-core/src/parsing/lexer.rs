@@ -396,6 +396,7 @@ def! {
     LET_STMT,
     EXPR_STMT,
 
+    ITEM_TYPE,
     NILABLE_TYPE,
     PAREN_TYPE,
     LIT_TYPE,
