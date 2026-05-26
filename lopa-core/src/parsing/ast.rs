@@ -392,7 +392,7 @@ structs! {
     STRUCT_FN = StructFn {
         fn_item: FnItem,
     },
-    STRUCT_FIELD = StructField {
+    FIELD = StructField {
         name: Name,
         colon_token: T![:],
         ty: TypeExpr,

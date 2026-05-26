@@ -14,63 +14,10 @@ use super::lexer::Syntax;
 
 pub type Cst = GreenNode;
 
-pub trait Prettify {
-    fn prettify(&self) -> String;
-}
-
-impl Prettify for SyntaxNode<Lang> {
-    fn prettify(&self) -> String {
-        fn children(
-            node_or_token: &NodeOrToken<SyntaxNode<Lang>, SyntaxToken<Lang>>,
-            result: &mut String,
-            depth: u32,
-        ) {
-            match node_or_token {
-                NodeOrToken::Node(n) => {
-                    (0..(depth)).for_each(|_| result.push(' '));
-                    result.push_str(&n.kind().to_string());
-                    result.push('\n');
-                }
-                NodeOrToken::Token(t) => {
-                    if !matches!(t.kind(), T![" "]) {
-                        (0..(depth)).for_each(|_| result.push(' '));
-                        result.push('\'');
-                        result.push_str(t.text());
-                        result.push('\'');
-                        result.push('\n');
-                    }
-                }
-            }
-            if let NodeOrToken::Node(node) = node_or_token {
-                for node in node.children_with_tokens() {
-                    children(&node, result, depth + 1);
-                }
-            }
-        }
-        let mut result = String::new();
-        children(&NodeOrToken::Node(self.clone()), &mut result, 0);
-        result
-    }
-}
-
 pub fn parse(input: &str) -> (Cst, Vec<ParseError>) {
     Parser::new(input).parse()
 }
 
-const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
-const ITEM_FIRST: TokenSet = TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use]]);
-const STRUCT_ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
-const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
-
-const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
-const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
-const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"], T![;]]).union(ITEM_FIRST);
-const RECORD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["}"], T![,]]);
-const STRUCT_ELEMENT_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
-const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
-const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]]);
-const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
-const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
 const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
     INT,
@@ -89,6 +36,22 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T![|],
     T![self],
 ]);
+const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
+const ITEM_FIRST: TokenSet =
+    TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
+const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
+const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
+
+const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
+const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
+const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"], T![;]]).union(ITEM_FIRST);
+const RECORD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["}"], T![,]]);
+const ELEMENT_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
+const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
+const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]]);
+const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
+const PARENT_LIST_RECOVERY: TokenSet = TokenSet::new(&[T!["{"]]).union(ITEM_FIRST);
+const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
 
 pub struct Parser<'a> {
     input: Input<'a>,
@@ -222,6 +185,7 @@ impl<'a> Parser<'a> {
                 T![mod] => self.mod_item(),
                 T![struct] => self.struct_item(),
                 T![impl] => self.impl_item(),
+                T![enum] => self.enum_item(),
                 _ => {}
             };
         } else {
@@ -229,16 +193,80 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn enum_item(&mut self) {
+        self.with(ENUM_ITEM, |this| {
+            this.expect(T![enum]);
+            this.name();
+            if this.ate(T![:]) {
+                this.parents_list();
+            }
+            this.enum_elem_list();
+        });
+    }
+
+    fn enum_elem_list(&mut self) {
+        self.with(ENUM_ELEMENT_LIST, |this| {
+            this.expect(T!["{"]);
+            while !this.input.at(T!["}"]) && !this.input.at(EOF) {
+                this.compiler_attrib_list();
+                if this.input.at_any(ELEMENT_FIRST) {
+                    this.enum_element();
+                } else {
+                    if this.input.at_any(ELEMENT_RECOVERY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedEnumElement);
+                }
+            }
+            this.expect(T!["}"]);
+        });
+    }
+
+    fn enum_element(&mut self) {
+        self.with(ENUM_ELEMENT, |this| {
+            if this.input.at(T![fn]) {
+                this.with(ENUM_FN, |this| {
+                    this.fn_item();
+                });
+            } else {
+                this.field();
+                if !this.input.at(T!["}"]) {
+                    this.expect(T![,]);
+                }
+            }
+        });
+    }
+
     fn impl_item(&mut self) {
         self.with(IMPL_ITEM, |this| {});
     }
 
     fn struct_item(&mut self) {
-        self.with(STRUCT_ELEMENT, |this| {
+        self.with(STRUCT_ITEM, |this| {
             this.expect(T![struct]);
             this.name();
-            this.struct_item_list();
-            this.expect(T!["}"]);
+            if this.ate(T![:]) {
+                this.parents_list();
+            }
+            this.struct_elem_list();
+        })
+    }
+
+    fn parents_list(&mut self) {
+        self.with(PARENTS_LIST, |this| {
+            while !this.input.at(T!["{"]) && !this.input.at(EOF) {
+                if this.input.at(IDENT) {
+                    this.name();
+                    if !this.input.at(T!["{"]) {
+                        this.expect(T![,]);
+                    }
+                } else {
+                    if this.input.at_any(ARG_LIST_RECOVERY) {
+                        break;
+                    }
+                    this.advance_with_err(ErrorKind::ExpectedParent);
+                }
+            }
         })
     }
 
@@ -303,21 +331,21 @@ impl<'a> Parser<'a> {
         });
     }
 
-    fn struct_item_list(&mut self) {
+    fn struct_elem_list(&mut self) {
         self.with(STRUCT_ELEMENT_LIST, |this| {
             this.expect(T!["{"]);
-
             while !this.input.at(T!["}"]) && !this.input.at(EOF) {
                 this.compiler_attrib_list();
-                if this.input.at_any(STRUCT_ELEMENT_FIRST) {
+                if this.input.at_any(ELEMENT_FIRST) {
                     this.struct_element();
                 } else {
-                    if this.input.at_any(STRUCT_ELEMENT_RECOVERY) {
+                    if this.input.at_any(ELEMENT_RECOVERY) {
                         break;
                     }
-                    this.advance_with_err(ErrorKind::ExpectedParameter);
+                    this.advance_with_err(ErrorKind::ExpectedStructElement);
                 }
             }
+            this.expect(T!["}"]);
         });
     }
 
@@ -337,7 +365,7 @@ impl<'a> Parser<'a> {
     }
 
     fn field(&mut self) {
-        self.with(STRUCT_FIELD, |this| {
+        self.with(FIELD, |this| {
             this.name();
             this.expect(T![:]);
             this.type_expr();
@@ -1387,7 +1415,9 @@ pub enum ErrorKind {
     ExpectedStatement,
     ExpectedType,
     ExpectedParameter,
-    ExpectedStructItem,
+    ExpectedParent,
+    ExpectedStructElement,
+    ExpectedEnumElement,
     ExpectedField,
     ExpectedAttribute,
     ExpectedPattern,
@@ -1410,7 +1440,9 @@ impl fmt::Display for ErrorKind {
             Self::ExpectedItem => "expected item",
             Self::ExpectedOperator => "expected operator",
             Self::ExpectedField => "expected field",
-            Self::ExpectedStructItem => "expected struct item",
+            Self::ExpectedParent => "expected parent",
+            Self::ExpectedStructElement => "expected struct element",
+            Self::ExpectedEnumElement => "expected enum element",
             Self::Other(text) => text,
         }
         .fmt(f)
@@ -1563,6 +1595,45 @@ impl rowan::Language for Lang {
 
     fn kind_to_raw(kind: Self::Kind) -> rowan::SyntaxKind {
         kind.into()
+    }
+}
+
+pub trait Prettify {
+    fn prettify(&self) -> String;
+}
+
+impl Prettify for SyntaxNode<Lang> {
+    fn prettify(&self) -> String {
+        fn children(
+            node_or_token: &NodeOrToken<SyntaxNode<Lang>, SyntaxToken<Lang>>,
+            result: &mut String,
+            depth: u32,
+        ) {
+            match node_or_token {
+                NodeOrToken::Node(n) => {
+                    (0..(depth)).for_each(|_| result.push(' '));
+                    result.push_str(&n.kind().to_string());
+                    result.push('\n');
+                }
+                NodeOrToken::Token(t) => {
+                    if !matches!(t.kind(), T![" "]) {
+                        (0..(depth)).for_each(|_| result.push(' '));
+                        result.push('\'');
+                        result.push_str(t.text());
+                        result.push('\'');
+                        result.push('\n');
+                    }
+                }
+            }
+            if let NodeOrToken::Node(node) = node_or_token {
+                for node in node.children_with_tokens() {
+                    children(&node, result, depth + 1);
+                }
+            }
+        }
+        let mut result = String::new();
+        children(&NodeOrToken::Node(self.clone()), &mut result, 0);
+        result
     }
 }
 
@@ -1742,10 +1813,24 @@ mod test {
     }
 
     #[test]
-    fn strct() {
+    fn enum_item() {
+        insta::assert_snapshot!(parse(
+            "enum MyEnum: Parent1, Parent2 {
+                    foo: Foo,
+                    bar: Bar,
+                    fn test(self) -> FooBar {
+                        self.foo + self.bar
+                    }
+        }",
+            |p| p.enum_item()
+        ));
+    }
+
+    #[test]
+    fn struct_item() {
         insta::assert_snapshot!(parse("struct Vec2 {x: Y, y: Y }", |p| p.struct_item()));
         insta::assert_snapshot!(parse(
-            "struct MyStruct {
+            "struct MyStruct: Parent1, Parent2 {
                     foo: Foo,
                     bar: Bar,
                     fn test(self) -> FooBar {
