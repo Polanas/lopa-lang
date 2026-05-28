@@ -1,13 +1,12 @@
 use std::{
     borrow::Cow,
+    collections::HashMap,
     ops::{Deref, Not},
-    sync::Arc,
-    time::Duration,
 };
 
 use super::Type;
 use itertools::{Itertools, Position};
-use la_arena::{ArenaMap, Idx};
+use la_arena::{ArenaMap, Idx, RawIdx};
 use notify_rust::Notification;
 use rowan::TextRange;
 use ustr::Ustr;
@@ -18,7 +17,8 @@ use crate::{
     def::{
         self, body,
         ir::{self, Expr, ExprId, PatternId, Stmt, TypeExpr},
-        resolver, scope,
+        resolver::{self, ResolveResult},
+        scope::{self, ScopeId},
     },
     ide::{self, diagnostics, source_map},
     parsing::{
@@ -30,7 +30,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub struct InferenceResult<'db> {
-    pub pattern_ty_map: ArenaMap<PatternId, Type<'db>>,
+    pattern_ty_map: ArenaMap<PatternId, Type<'db>>,
     pub expr_ty_map: ArenaMap<Idx<Expr<'db>>, Type<'db>>,
     pub diagnostics: Vec<TypeDiagnostic<'db>>,
 }
@@ -74,7 +74,19 @@ struct InferCtx<'db> {
     scopes: &'db scope::ExprScopes<'db>,
     diagnostics: Vec<TypeDiagnostic<'db>>,
     pattern_ty_map: ArenaMap<PatternId, Type<'db>>,
-    pub expr_ty_map: ArenaMap<Idx<Expr<'db>>, Type<'db>>,
+    //this won't work because of this
+    /*
+     * let x: int? = 10
+     * if x {
+     *  {
+     *    //x should be int here as well
+     *    let y: int = x;
+     *  }
+     * }
+     * */
+    pattern_narrow_map: HashMap<(PatternId, ScopeId), Type<'db>>,
+    expr_ty_map: ArenaMap<Idx<Expr<'db>>, Type<'db>>,
+    current_scope: ScopeId,
 }
 
 impl<'db> InferCtx<'db> {
@@ -92,6 +104,10 @@ impl<'db> InferCtx<'db> {
 
     fn insert_pattern_ty(&mut self, pattern_id: PatternId, ty: Type<'db>) {
         self.pattern_ty_map.insert(pattern_id, ty);
+    }
+
+    fn pattern_ty(&self, pattern_id: PatternId) -> &Type {
+        todo!()
     }
 
     fn expr_ty(&mut self, expr_id: ExprId) -> Option<&Type> {
@@ -117,7 +133,11 @@ impl<'db> InferCtx<'db> {
                 };
                 match result {
                     resolver::ResolveResult::Local(local) => {
-                        let Some(pattern_ty) = self.pattern_ty_map.get(local.pattern_id) else {
+                        let Some(pattern_ty) = self
+                            .pattern_narrow_map
+                            .get(&(local.pattern_id, self.current_scope))
+                            .or_else(|| self.pattern_ty_map.get(local.pattern_id))
+                        else {
                             self.add_error(TypeDiagnostic::UnknownValue { expr: expr_id });
                             return None;
                         };
@@ -135,7 +155,12 @@ impl<'db> InferCtx<'db> {
                     .insert(expr_id.into(), Type::Lit(*lit_kind));
             }
             ir::Expr::BlockExpr { stmts } => {
+                let scope = self.current_scope;
+
+                self.current_scope = self.scopes.scope_for_expr(self.body.body_expr()).unwrap();
                 let ty = self.block_expr(stmts);
+                self.current_scope = scope;
+
                 self.expr_ty_map.insert(expr_id.into(), ty);
             }
             ir::Expr::If {
@@ -144,40 +169,31 @@ impl<'db> InferCtx<'db> {
                 else_branch,
             } => {
                 self.infer_expr(*if_cond);
-                let if_branch_ty = self.block_expr(if_branch).collapsed_nil();
+                self.narrow_nilable(*if_cond, *if_branch);
+                self.infer_expr(*if_branch);
+                let if_branch_ty = self
+                    .expr_ty_map
+                    .get((*if_branch).into())?
+                    .clone()
+                    .collapsed_nil();
                 if let Some(else_branch) = else_branch {
-                    match else_branch {
-                        ir::ElseBranch::Else { stmts } => {
-                            let else_branch_ty = self.block_expr(stmts);
-                            let Some(ty) =
-                                self.unify_nilable(if_branch_ty.clone(), else_branch_ty.clone())
-                            else {
-                                self.add_error(TypeDiagnostic::TypeMismatch {
-                                    expected: if_branch_ty,
-                                    actual: else_branch_ty,
-                                    expr: expr_id,
-                                });
-                                return None;
-                            };
+                    self.infer_expr(*else_branch);
+                    let else_branch_ty = self
+                        .expr_ty_map
+                        .get((*else_branch).into())?
+                        .clone()
+                        .collapsed_nil();
+                    let Some(ty) = self.unify_nilable(if_branch_ty.clone(), else_branch_ty.clone())
+                    else {
+                        self.add_error(TypeDiagnostic::TypeMismatch {
+                            expected: if_branch_ty,
+                            actual: else_branch_ty,
+                            expr: expr_id,
+                        });
+                        return None;
+                    };
 
-                            self.expr_ty_map.insert(expr_id.into(), ty);
-                        }
-                        ir::ElseBranch::ElseIf { expr } => {
-                            self.infer_expr(*expr)?;
-                            let else_branch_ty = self.expr_ty_map.get((*expr).into())?;
-                            let Some(ty) =
-                                self.unify_nilable(if_branch_ty.clone(), else_branch_ty.clone())
-                            else {
-                                self.add_error(TypeDiagnostic::TypeMismatch {
-                                    expected: if_branch_ty,
-                                    actual: else_branch_ty.clone(),
-                                    expr: expr_id,
-                                });
-                                return None;
-                            };
-                            self.expr_ty_map.insert(expr_id.into(), ty);
-                        }
-                    }
+                    self.expr_ty_map.insert(expr_id.into(), ty);
                 } else {
                     self.expr_ty_map.insert(
                         expr_id.into(),
@@ -219,6 +235,28 @@ impl<'db> InferCtx<'db> {
         Some(expr_id)
     }
 
+    fn narrow_nilable(&mut self, cond_expr: ExprId, if_branch: ExprId) {
+        let scope_id = self.scopes.scope_for_expr(if_branch).unwrap();
+        let expr = self.body.expr(cond_expr);
+        match &expr {
+            Expr::Path(path) => {
+                if let [single] = path.as_slice() {
+                    let result =
+                        resolver::resolve_name_for_expr(self.db, cond_expr, self.func, single);
+                    if let Some(ResolveResult::Local(local)) = result
+                        && let Some(ty) = self.pattern_ty_map.get(local.pattern_id)
+                        && let Type::Nilable(inner) = ty
+                    {
+                        self.pattern_narrow_map
+                            .insert((local.pattern_id, scope_id), *inner.clone());
+                    }
+                }
+            }
+            Expr::Binary { left, right, kind } => {}
+            _ => {}
+        }
+    }
+
     fn binary_op_result(
         &self,
         lhs: &Type<'db>,
@@ -256,11 +294,6 @@ impl<'db> InferCtx<'db> {
         Some(match (left, right) {
             (lhs, rhs) if !lhs.is_nilable() && rhs.is_nilable() => Type::Nilable(lhs.into()),
             (lhs, rhs) if lhs.is_nilable() && !rhs.is_nilable() => Type::Nilable(rhs.into()),
-            // (Type::Lit(LitKind::Nil) | Type::Unit, not_nilable)
-            // | (not_nilable, Type::Lit(LitKind::Nil) | Type::Unit) => {
-            //     Type::Nilable(not_nilable.into())
-            // }
-            // (nilable @ Type::Nilable(_), _) | (_, nilable @ Type::Nilable(_)) => nilable,
             (left, right) if left == right => right,
             _ => return None,
         })
@@ -586,6 +619,8 @@ pub fn infer_function<'db>(
         pattern_ty_map: Default::default(),
         expr_ty_map: Default::default(),
         scopes,
+        pattern_narrow_map: Default::default(),
+        current_scope: Idx::from_raw(RawIdx::from_u32(0)),
     };
     ctx.infer_function();
     ctx.results()

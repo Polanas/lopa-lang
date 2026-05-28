@@ -374,7 +374,6 @@ def! {
     PATH,
     NAME,
     ARG,
-    ARG_LIST,
     PARAM_LIST,
     PARAM,
     FN_TYPE_PARAM_LIST,

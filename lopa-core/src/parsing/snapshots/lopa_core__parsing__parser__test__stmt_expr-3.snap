@@ -7,7 +7,6 @@ EXPR_STMT: 0..8
     PATH_EXPR: 0..5 
       PATH: 0..5 
         IDENT: 0..5 "print"
-    ARG_LIST: 5..7 
-      L_PAREN: 5..6 "("
-      R_PAREN: 6..7 ")"
+    L_PAREN: 5..6 "("
+    R_PAREN: 6..7 ")"
   SEMI: 7..8 ";"

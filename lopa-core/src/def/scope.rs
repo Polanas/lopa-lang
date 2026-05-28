@@ -155,19 +155,9 @@ impl<'db> ExprScopesCtx<'db> {
                 else_branch,
             } => {
                 self.traverse_expr(*if_cond, scope);
-                let if_branch_scope = self.scopes.alloc(ScopeData::from_parent(scope));
-                self.traverse_expr_stmts(if_branch, if_branch_scope);
+                self.traverse_expr(*if_branch, scope);
                 if let Some(else_branch) = else_branch {
-                    match else_branch {
-                        ir::ElseBranch::Else { stmts } => {
-                            let else_branch_scope =
-                                self.scopes.alloc(ScopeData::from_parent(scope));
-                            self.traverse_expr_stmts(stmts, else_branch_scope);
-                        }
-                        ir::ElseBranch::ElseIf { expr } => {
-                            self.traverse_expr(*expr, scope);
-                        }
-                    }
+                    self.traverse_expr(*else_branch, scope);
                 }
             }
             ir::Expr::Unary { expr, .. }
@@ -181,7 +171,11 @@ impl<'db> ExprScopesCtx<'db> {
                     self.traverse_expr(field.expr, scope);
                 }
             }
-            ir::Expr::Path(_) | ir::Expr::Lit(_) | ir::Expr::Missing | ir::Expr::Unit | ir::Expr::SelfVar => {}
+            ir::Expr::Path(_)
+            | ir::Expr::Lit(_)
+            | ir::Expr::Missing
+            | ir::Expr::Unit
+            | ir::Expr::SelfVar => {}
         }
     }
 

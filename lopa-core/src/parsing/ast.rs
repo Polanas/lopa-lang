@@ -592,11 +592,6 @@ structs! {
         index[1]: Expr,
         right_bracket_token: T!["]"],
     },
-    ARG_LIST = ArgList {
-        left_paren_token: T!["("],
-        args: [Arg],
-        right_paren_token: T![")"],
-    },
     ARG = Arg {
         label: Name,
         colon_token: T![:],
@@ -604,7 +599,9 @@ structs! {
     },
     CALL_EXPR = CallExpr {
         func: Expr,
-        args: ArgList,
+        left_paren_token: T!["("],
+        args: [Arg],
+        right_paren_token: T![")"],
     },
     PAREN_EXPR = ParenExpr {
         left_paren_token: T!["("],
@@ -636,7 +633,9 @@ structs! {
         expr: Expr,
         dot_token: T![.],
         name: Name,
-        args: ArgList,
+        left_paren_token: T!["("],
+        args: [Arg],
+        right_paren_token: T![")"],
 
     },
     RECORD_EXPR = RecordExpr {

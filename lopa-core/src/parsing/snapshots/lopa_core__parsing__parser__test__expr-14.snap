@@ -8,6 +8,5 @@ METHOD_EXPR: 0..7
   DOT: 1..2 "."
   NAME: 2..5 
     IDENT: 2..5 "abs"
-  ARG_LIST: 5..7 
-    L_PAREN: 5..6 "("
-    R_PAREN: 6..7 ")"
+  L_PAREN: 5..6 "("
+  R_PAREN: 6..7 ")"

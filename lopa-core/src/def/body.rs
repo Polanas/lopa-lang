@@ -124,11 +124,8 @@ impl<'db> BodyLowerCtx<'db> {
                 self.alloc_expr(Expr::Unary { expr, kind }, ptr)
             }
             ast::Expr::BlockExpr(block_expr) => {
-                let stmts = block_expr
-                    .stmts()
-                    .filter_map(|s| self.lower_stmt(s))
-                    .collect_vec();
-                self.alloc_expr(Expr::BlockExpr { stmts }, ptr)
+                let block = self.lower_block(&block_expr);
+                self.alloc_expr(block, ptr)
             }
             ast::Expr::IndexExpr(index_expr) => {
                 let base = self.lower_expr_opt(index_expr.base());
@@ -137,25 +134,30 @@ impl<'db> BodyLowerCtx<'db> {
             }
             ast::Expr::CallExpr(call_expr) => {
                 let func = self.lower_expr_opt(call_expr.func());
-                let args = self.args(call_expr.args());
+                let args = self.lower_args(call_expr.args());
                 self.alloc_expr(Expr::Call { func, args }, ptr)
             }
             ast::Expr::IfExpr(if_expr) => {
                 let if_cond = self.lower_expr_opt(if_expr.if_condition());
-                let if_branch = if_expr
-                    .if_branch()
-                    .map(|b| b.stmts().filter_map(|s| self.lower_stmt(s)).collect_vec())
-                    .unwrap_or_default();
-                let else_branch = if_expr.else_token().map(|_| {
+                let Some(if_branch) = if_expr.if_branch().map(|b| {
+                    let block = self.lower_block(&b);
+                    let ptr = AstPtr::new(&ast::Expr::BlockExpr(b));
+                    self.alloc_expr(block, ptr)
+                }) else {
+                    return self.alloc_expr(Expr::Missing, ptr);
+                };
+                let else_branch = if_expr.else_token().and_then(|_| {
                     if let Some(else_if_expr) = if_expr.else_if_expr() {
                         let expr = self.lower_expr(ast::Expr::IfExpr(else_if_expr));
-                        ir::ElseBranch::ElseIf { expr }
+                        Some(expr)
                     } else {
-                        let stmts = if_expr
-                            .else_branch()
-                            .map(|b| b.stmts().filter_map(|s| self.lower_stmt(s)).collect_vec())
-                            .unwrap_or_default();
-                        ir::ElseBranch::Else { stmts }
+                        if let Some(else_branch) = if_expr.else_branch() {
+                            let block = self.lower_block(&else_branch);
+                            let ptr = AstPtr::new(&ast::Expr::BlockExpr(else_branch));
+                            Some(self.alloc_expr(block, ptr))
+                        } else {
+                            None
+                        }
                     }
                 });
                 self.alloc_expr(
@@ -200,7 +202,7 @@ impl<'db> BodyLowerCtx<'db> {
                 let Some(name) = method_expr.name().and_then(|n| n.text()) else {
                     return self.missing_expr(ptr);
                 };
-                let args = self.args(method_expr.args());
+                let args = self.lower_args(method_expr.args());
                 self.alloc_expr(Expr::Method { name, expr, args }, ptr)
             }
             ast::Expr::RecordExpr(record_expr) => {
@@ -209,7 +211,7 @@ impl<'db> BodyLowerCtx<'db> {
                 };
                 let fields = record_expr
                     .fields_list()
-                    .filter_map(|field| self.field(field))
+                    .filter_map(|field| self.lower_field(field))
                     .collect_vec();
                 self.alloc_expr(Expr::Record { path, fields }, ptr)
             }
@@ -217,28 +219,33 @@ impl<'db> BodyLowerCtx<'db> {
         }
     }
 
-    fn field(&mut self, field: ast::RecordField) -> Option<ir::RecordField> {
+    fn lower_block(&mut self, block: &ast::BlockExpr) -> Expr<'db> {
+        Expr::BlockExpr {
+            stmts: block
+                .stmts()
+                .filter_map(|s| self.lower_stmt(s))
+                .collect_vec(),
+        }
+    }
+
+    fn lower_field(&mut self, field: ast::RecordField) -> Option<ir::RecordField> {
         let name = field.name().and_then(|n| n.text())?;
         let expr = self.lower_expr_opt(field.expr());
         Some(ir::RecordField { name, expr })
     }
 
-    fn args(&mut self, args: Option<ast::ArgList>) -> Vec<Arg> {
-        args.map(|l| {
-            l.args()
-                .map(|arg| {
-                    if let Some(label) = arg.label().and_then(|l| l.text()) {
-                        let value = self.lower_expr_opt(arg.value());
-                        Arg::Labeled { label, value }
-                    } else {
-                        Arg::NonLabeled {
-                            value: self.lower_expr_opt(arg.value()),
-                        }
-                    }
-                })
-                .collect_vec()
+    fn lower_args(&mut self, args: impl Iterator<Item = ast::Arg>) -> Vec<Arg> {
+        args.map(|arg| {
+            if let Some(label) = arg.label().and_then(|l| l.text()) {
+                let value = self.lower_expr_opt(arg.value());
+                Arg::Labeled { label, value }
+            } else {
+                Arg::NonLabeled {
+                    value: self.lower_expr_opt(arg.value()),
+                }
+            }
         })
-        .unwrap_or_default()
+        .collect_vec()
     }
 
     fn lower_expr_opt(&mut self, expr: Option<ast::Expr>) -> ExprId {

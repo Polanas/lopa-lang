@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use la_arena::{Arena, Idx};
-use ustr::Ustr;
 
 use crate::{
     def::{

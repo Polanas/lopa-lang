@@ -143,8 +143,8 @@ pub enum Expr<'db> {
     },
     If {
         if_cond: ExprId,
-        if_branch: Vec<Stmt<'db>>,
-        else_branch: Option<ElseBranch<'db>>,
+        if_branch: ExprId,
+        else_branch: Option<ExprId>,
     },
     Unary {
         expr: ExprId,
@@ -189,12 +189,6 @@ pub enum Expr<'db> {
 pub struct RecordField {
     pub name: Ustr,
     pub expr: ExprId,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
-pub enum ElseBranch<'db> {
-    Else { stmts: Vec<Stmt<'db>> },
-    ElseIf { expr: ExprId },
 }
 
 pub type PatternId = Idx<Pattern>;
