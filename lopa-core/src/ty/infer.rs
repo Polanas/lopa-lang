@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, linked_list},
+    mem::transmute,
     ops::{Deref, Not},
 };
 
@@ -25,6 +26,7 @@ use crate::{
         ast::{self, BinaryOpKind, SyntaxNode, SyntaxNodePtr},
         lexer,
     },
+    ptr::Ptr,
     ty::{self, BareFn},
 };
 
@@ -67,52 +69,50 @@ pub enum TypeDiagnostic<'db> {
     },
 }
 
-struct InferCtx<'db> {
-    db: &'db dyn salsa::Database,
-    body: &'db def::body::Body<'db>,
-    func: ir::Function<'db>,
-    scopes: &'db scope::ExprScopes<'db>,
-    diagnostics: Vec<TypeDiagnostic<'db>>,
-    pattern_ty_map: ArenaMap<PatternId, Type<'db>>,
-    expr_ty_map: ArenaMap<Idx<Expr<'db>>, Type<'db>>,
-    current_scope: ScopeId,
+struct InferCtx {
+    db: &'static dyn salsa::Database,
+    body: &'static def::body::Body<'static>,
+    func: ir::Function<'static>,
+    scopes: &'static scope::ExprScopes<'static>,
+    diagnostics: Ptr<Vec<TypeDiagnostic<'static>>>,
+    pattern_ty_map: Ptr<ArenaMap<PatternId, Type<'static>>>,
+    expr_ty_map: Ptr<ArenaMap<Idx<Expr<'static>>, Type<'static>>>,
 }
 
-impl<'db> InferCtx<'db> {
-    fn results(self) -> InferenceResult<'db> {
+impl InferCtx {
+    fn results(self) -> InferenceResult<'static> {
         InferenceResult {
-            pattern_ty_map: self.pattern_ty_map,
-            expr_ty_map: self.expr_ty_map,
-            diagnostics: self.diagnostics,
+            pattern_ty_map: Ptr::try_unwrap(self.pattern_ty_map).unwrap(),
+            expr_ty_map: Ptr::try_unwrap(self.expr_ty_map).unwrap(),
+            diagnostics: Ptr::try_unwrap(self.diagnostics).unwrap(),
         }
     }
 
-    fn infer_function(&mut self) {
+    fn infer_function(&self) {
         self.infer_expr(self.body.body_expr());
     }
 
-    fn insert_pattern_ty(&mut self, pattern_id: PatternId, ty: Type<'db>) {
-        self.pattern_ty_map.insert(pattern_id, ty);
+    fn insert_pattern_ty(&self, pattern_id: PatternId, ty: Type<'static>) {
+        self.pattern_ty_map.clone().insert(pattern_id, ty);
     }
 
-    fn pattern_ty(&self, pattern_id: PatternId) -> &Type {
-        todo!()
+    fn insert_expr_ty(&self, expr_id: ExprId, ty: Type<'static>) {
+        self.expr_ty_map.clone().insert(expr_id.into(), ty);
     }
 
-    fn expr_ty(&mut self, expr_id: ExprId) -> Option<&Type> {
-        self.infer_expr(expr_id);
-        self.expr_ty_map.get(expr_id.into())
+    fn pattern_ty(&self, pattern_id: PatternId) -> Option<&Type<'static>> {
+        self.pattern_ty_map.get(pattern_id.into())
     }
 
     //TODO: add expected type
-    fn infer_expr(&mut self, expr_id: ExprId) -> Option<ExprId> {
-        if self.expr_ty_map.contains_idx(expr_id.into()) {
-            return Some(expr_id);
+    fn infer_expr(&self, expr_id: ExprId) -> Option<&Type<'static>> {
+        if let Some(ty) = self.expr_ty_map.get(expr_id.into()) {
+            return Some(ty);
         };
         match self.body.expr(expr_id) {
             ir::Expr::Missing => return None,
             ir::Expr::Unit => {
-                self.expr_ty_map.insert(expr_id.into(), Type::Unit);
+                self.insert_expr_ty(expr_id, Type::Unit);
             }
             ir::Expr::Path(ustr) => {
                 let result = resolver::resolve_name_for_expr(self.db, expr_id, self.func, &ustr[0]);
@@ -122,31 +122,24 @@ impl<'db> InferCtx<'db> {
                 };
                 match result {
                     resolver::ResolveResult::Local(local) => {
-                        let Some(pattern_ty) = self.pattern_ty_map.get(local.pattern_id) else {
+                        let Some(pattern_ty) = self.pattern_ty(local.pattern_id) else {
                             self.add_error(TypeDiagnostic::UnknownValue { expr: expr_id });
                             return None;
                         };
-                        self.expr_ty_map.insert(expr_id.into(), pattern_ty.clone());
+                        self.insert_expr_ty(expr_id, pattern_ty.clone());
                     }
                     resolver::ResolveResult::Function(function) => {
-                        self.expr_ty_map
-                            .insert(expr_id.into(), Type::Function(function));
+                        self.insert_expr_ty(expr_id, Type::Function(function));
                     }
                     resolver::ResolveResult::Struct(_) => {}
                 };
             }
             ir::Expr::Lit(lit_kind) => {
-                self.expr_ty_map
-                    .insert(expr_id.into(), Type::Lit(*lit_kind));
+                self.insert_expr_ty(expr_id, Type::Lit(*lit_kind));
             }
             ir::Expr::BlockExpr { stmts } => {
-                let scope = self.current_scope;
-
-                self.current_scope = self.scopes.scope_for_expr(self.body.body_expr()).unwrap();
                 let ty = self.block_expr(stmts);
-                self.current_scope = scope;
-
-                self.expr_ty_map.insert(expr_id.into(), ty);
+                self.insert_expr_ty(expr_id, ty);
             }
             ir::Expr::If {
                 if_cond,
@@ -154,19 +147,9 @@ impl<'db> InferCtx<'db> {
                 else_branch,
             } => {
                 self.infer_expr(*if_cond);
-                self.infer_expr(*if_branch);
-                let if_branch_ty = self
-                    .expr_ty_map
-                    .get((*if_branch).into())?
-                    .clone()
-                    .collapsed_nil();
+                let if_branch_ty = self.infer_expr(*if_branch)?.clone().collapsed_nil();
                 if let Some(else_branch) = else_branch {
-                    self.infer_expr(*else_branch);
-                    let else_branch_ty = self
-                        .expr_ty_map
-                        .get((*else_branch).into())?
-                        .clone()
-                        .collapsed_nil();
+                    let else_branch_ty = self.infer_expr(*else_branch)?.clone().collapsed_nil();
                     let Some(ty) = self.unify_nilable(if_branch_ty.clone(), else_branch_ty.clone())
                     else {
                         self.add_error(TypeDiagnostic::TypeMismatch {
@@ -177,24 +160,21 @@ impl<'db> InferCtx<'db> {
                         return None;
                     };
 
-                    self.expr_ty_map.insert(expr_id.into(), ty);
+                    self.insert_expr_ty(expr_id, ty);
                 } else {
-                    self.expr_ty_map.insert(
-                        expr_id.into(),
+                    self.insert_expr_ty(
+                        expr_id,
                         self.unify_nilable(if_branch_ty, Type::Lit(LitKind::Nil))?,
                     );
                 }
             }
             ir::Expr::Unary { expr, kind } => {}
             ir::Expr::Binary { left, right, kind } => {
-                self.infer_expr(*left);
-                self.infer_expr(*right);
-
-                let lhs = self.expr_ty_map.get((*left).into())?;
-                let rhs = self.expr_ty_map.get((*right).into())?;
+                let lhs = self.infer_expr(*left)?;
+                let rhs = self.infer_expr(*right)?;
 
                 if let Some(result) = self.binary_op_result(lhs, rhs, *kind) {
-                    self.expr_ty_map.insert(expr_id.into(), result);
+                    self.insert_expr_ty(expr_id, result);
                 } else {
                     self.add_error(TypeDiagnostic::UnsupportedBinaryOp {
                         left: *left,
@@ -204,9 +184,8 @@ impl<'db> InferCtx<'db> {
                 }
             }
             ir::Expr::Paren { expr } => {
-                self.infer_expr(*expr);
-                let ty = self.expr_ty_map.get((*expr).into())?.clone();
-                self.expr_ty_map.insert(expr_id.into(), ty);
+                let ty = self.infer_expr(*expr)?.clone();
+                self.insert_expr_ty(expr_id, ty);
             }
             ir::Expr::Return { expr } => {}
             ir::Expr::Index { base, index } => {}
@@ -216,15 +195,15 @@ impl<'db> InferCtx<'db> {
             ir::Expr::Record { path, fields } => {}
             ir::Expr::SelfVar {} => {}
         };
-        Some(expr_id)
+        self.expr_ty_map.get(expr_id.into())
     }
 
     fn binary_op_result(
         &self,
-        lhs: &Type<'db>,
-        rhs: &Type<'db>,
+        lhs: &Type<'static>,
+        rhs: &Type<'static>,
         op: BinaryOpKind,
-    ) -> Option<Type<'db>> {
+    ) -> Option<Type<'static>> {
         Some(match op {
             B![+] | B![*] | B![/] | B!["//"] | B!["//="] | B![%] => match (lhs, rhs) {
                 (lhs, rhs) if lhs.is_int() && rhs.is_int() => Type::int(),
@@ -241,7 +220,7 @@ impl<'db> InferCtx<'db> {
         })
     }
 
-    fn unify_or(&self, left: Type<'db>, right: Type<'db>) -> Option<Type<'db>> {
+    fn unify_or(&self, left: Type<'static>, right: Type<'static>) -> Option<Type<'static>> {
         Some(match (left, right) {
             (Type::Nilable(lhs), rhs) if rhs.is_nilable() => *lhs,
             (lhs, rhs) if !lhs.is_nilable() && rhs.is_nilable() => lhs,
@@ -252,7 +231,7 @@ impl<'db> InferCtx<'db> {
         })
     }
 
-    fn unify_nilable(&self, left: Type<'db>, right: Type<'db>) -> Option<Type<'db>> {
+    fn unify_nilable(&self, left: Type<'static>, right: Type<'static>) -> Option<Type<'static>> {
         Some(match (left, right) {
             (lhs, rhs) if !lhs.is_nilable() && rhs.is_nilable() => Type::Nilable(lhs.into()),
             (lhs, rhs) if lhs.is_nilable() && !rhs.is_nilable() => Type::Nilable(rhs.into()),
@@ -261,7 +240,7 @@ impl<'db> InferCtx<'db> {
         })
     }
 
-    fn block_expr(&mut self, stmts: &'db [Stmt<'db>]) -> Type<'db> {
+    fn block_expr(&self, stmts: &'static [Stmt<'static>]) -> Type<'static> {
         let mut ty = Type::Unit;
         for (position, stmt) in stmts.iter().with_position() {
             let output = self.infer_stmt(stmt);
@@ -275,7 +254,7 @@ impl<'db> InferCtx<'db> {
         ty
     }
 
-    fn infer_stmt(&mut self, stmt: &'db Stmt) -> Option<Type<'db>> {
+    fn infer_stmt(&self, stmt: &'static Stmt) -> Option<Type<'static>> {
         match stmt {
             Stmt::Let {
                 pattern: pattern_id,
@@ -338,8 +317,8 @@ impl<'db> InferCtx<'db> {
         }
     }
 
-    fn add_error(&mut self, diagnostic: TypeDiagnostic<'db>) {
-        self.diagnostics.push(diagnostic);
+    fn add_error(&self, diagnostic: TypeDiagnostic<'static>) {
+        self.diagnostics.clone().push(diagnostic);
     }
 }
 
@@ -571,17 +550,19 @@ pub fn infer_function<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
 ) -> InferenceResult<'db> {
+    let db: &'static dyn salsa::Database = unsafe { transmute(db) };
+    let func: ir::Function<'static> = unsafe { transmute(func) };
+
     let body = ide::body(db, func);
     let scopes = scope::expr_scopes(db, func);
     let mut ctx = InferCtx {
         db,
         body,
         func,
-        diagnostics: Default::default(),
-        pattern_ty_map: Default::default(),
-        expr_ty_map: Default::default(),
+        diagnostics: Ptr::new(Default::default()),
+        pattern_ty_map: Ptr::new(Default::default()),
+        expr_ty_map: Ptr::new(Default::default()),
         scopes,
-        current_scope: Idx::from_raw(RawIdx::from_u32(0)),
     };
     ctx.infer_function();
     ctx.results()
