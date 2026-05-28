@@ -74,17 +74,6 @@ struct InferCtx<'db> {
     scopes: &'db scope::ExprScopes<'db>,
     diagnostics: Vec<TypeDiagnostic<'db>>,
     pattern_ty_map: ArenaMap<PatternId, Type<'db>>,
-    //this won't work because of this
-    /*
-     * let x: int? = 10
-     * if x {
-     *  {
-     *    //x should be int here as well
-     *    let y: int = x;
-     *  }
-     * }
-     * */
-    pattern_narrow_map: HashMap<(PatternId, ScopeId), Type<'db>>,
     expr_ty_map: ArenaMap<Idx<Expr<'db>>, Type<'db>>,
     current_scope: ScopeId,
 }
@@ -133,11 +122,7 @@ impl<'db> InferCtx<'db> {
                 };
                 match result {
                     resolver::ResolveResult::Local(local) => {
-                        let Some(pattern_ty) = self
-                            .pattern_narrow_map
-                            .get(&(local.pattern_id, self.current_scope))
-                            .or_else(|| self.pattern_ty_map.get(local.pattern_id))
-                        else {
+                        let Some(pattern_ty) = self.pattern_ty_map.get(local.pattern_id) else {
                             self.add_error(TypeDiagnostic::UnknownValue { expr: expr_id });
                             return None;
                         };
@@ -169,7 +154,6 @@ impl<'db> InferCtx<'db> {
                 else_branch,
             } => {
                 self.infer_expr(*if_cond);
-                self.narrow_nilable(*if_cond, *if_branch);
                 self.infer_expr(*if_branch);
                 let if_branch_ty = self
                     .expr_ty_map
@@ -233,28 +217,6 @@ impl<'db> InferCtx<'db> {
             ir::Expr::SelfVar {} => {}
         };
         Some(expr_id)
-    }
-
-    fn narrow_nilable(&mut self, cond_expr: ExprId, if_branch: ExprId) {
-        let scope_id = self.scopes.scope_for_expr(if_branch).unwrap();
-        let expr = self.body.expr(cond_expr);
-        match &expr {
-            Expr::Path(path) => {
-                if let [single] = path.as_slice() {
-                    let result =
-                        resolver::resolve_name_for_expr(self.db, cond_expr, self.func, single);
-                    if let Some(ResolveResult::Local(local)) = result
-                        && let Some(ty) = self.pattern_ty_map.get(local.pattern_id)
-                        && let Type::Nilable(inner) = ty
-                    {
-                        self.pattern_narrow_map
-                            .insert((local.pattern_id, scope_id), *inner.clone());
-                    }
-                }
-            }
-            Expr::Binary { left, right, kind } => {}
-            _ => {}
-        }
     }
 
     fn binary_op_result(
@@ -619,7 +581,6 @@ pub fn infer_function<'db>(
         pattern_ty_map: Default::default(),
         expr_ty_map: Default::default(),
         scopes,
-        pattern_narrow_map: Default::default(),
         current_scope: Idx::from_raw(RawIdx::from_u32(0)),
     };
     ctx.infer_function();
