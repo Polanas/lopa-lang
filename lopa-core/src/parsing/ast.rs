@@ -384,6 +384,7 @@ structs! {
         implementee: TypeExpr,
         impl_ty: ImplTraitType,
         for_token: T![for],
+        functions: [FnItem],
     },
     IMPL_STRUCT_TYPE = ImplTraitType {
         ty: TypeExpr,
@@ -493,6 +494,9 @@ structs! {
         ty: TypeExpr,
     },
     PATH_TYPE = PathType {
+        value: Path,
+    },
+    SELF_TYPE = SelfType {
         value: Path,
     },
     UNARY_EXPR = UnaryExpr {
@@ -775,6 +779,7 @@ enums! {
         AnyType,
         UnitType,
         FnType,
+        SelfType,
     },
 
     LuaStmt {
@@ -847,6 +852,20 @@ mod test {
         expr.if_branch().unwrap().syntax().should_eq("{1}");
         expr.if_condition().unwrap().syntax().should_eq("true");
         expr.else_branch().unwrap().syntax().should_eq("{2}");
+    }
+
+    #[test]
+    fn impl_item() {
+        let impl_item = parse::<ast::ImplItem>("impl X { fn test() {} }");
+        impl_item.implementee().unwrap().syntax().should_eq("X");
+        let func = impl_item.functions().next().unwrap();
+        func.syntax().should_eq("fn test() {}");
+
+        let impl_item = parse::<ast::ImplItem>("impl X for Y { fn test() {} }");
+        impl_item.implementee().unwrap().syntax().should_eq("X");
+        impl_item.impl_ty().unwrap().syntax().should_eq("Y");
+        let func = impl_item.functions().next().unwrap();
+        func.syntax().should_eq("fn test() {}");
     }
 
     #[test]

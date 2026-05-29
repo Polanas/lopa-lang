@@ -3,20 +3,22 @@ use std::ops::Deref;
 use la_arena::{Idx, RawIdx};
 use rowan::ast::{AstNode, AstPtr};
 use salsa::Accumulator;
-use ustr::Ustr;
+use ustr::{Ustr, UstrMap};
 
 use crate::{
     common::LitKind,
     def::{
-        lower::{self, lower_type_expr},
+        ir,
+        lower::{self, lower_type_expr, lower_type_expr_with_self},
         scope,
     },
     ide::{
-        self,
+        self, Files,
         diagnostics::{Diagnostic, DiagnosticKind},
     },
     parsing::ast::{self, BinaryOpKind, UnaryOpKind},
     ty::infer::TypeErrorKind,
+    ustr_hash::{UstrHash, UstrIndexMap},
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Local<'db> {
@@ -28,6 +30,53 @@ pub struct Local<'db> {
 pub enum ModuleDef<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
+}
+
+#[salsa::tracked(debug)]
+pub struct ImplFunction<'db> {
+    pub func: Function<'db>,
+    pub owner: Type<'db>,
+}
+
+#[salsa::tracked]
+impl<'db> ImplFunction<'db> {
+    #[salsa::tracked(returns(ref))]
+    fn is_method(self, db: &'db dyn salsa::Database) -> bool {
+        self.params(db)
+            .iter()
+            .next()
+            .map(|p| p.ty == self.owner(db))
+            .unwrap_or_default()
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn params(self, db: &'db dyn salsa::Database) -> Vec<Param<'db>> {
+        let mut params = vec![];
+        let file = self.func(db).file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        for param in self
+            .func(db)
+            .ast_ptr(db)
+            .to_node(&root)
+            .params()
+            .into_iter()
+            .flat_map(|p| p.params())
+        {
+            let name = param.pattern().and_then(|p| {
+                Some(match p {
+                    ast::Pattern::NamePattern(name_patern) => name_patern,
+                })
+                .and_then(|n| n.name())
+                .and_then(|n| n.text())
+            });
+            let ty = param
+                .ty()
+                .map(|ty| lower_type_expr_with_self(db, file, ty, Some(self.owner(db))))
+                .unwrap_or_else(|| Type::Unknown(Ustr::from("")));
+            params.push(Param { name, ty });
+        }
+        params
+    }
 }
 
 #[salsa::tracked(debug)]
@@ -115,6 +164,48 @@ pub struct Field<'db> {
     pub ty: Type<'db>,
     pub ast_ptr: ast::AstPtr<ast::Field>,
 }
+
+// #[salsa::tracked(returns(ref))]
+// pub fn struct_non_static_methods<'db>(
+//     db: &'db dyn salsa::Database,
+//     struct_item: Struct<'db>,
+//     files: Files,
+// ) -> UstrIndexMap<ir::ImplFunction<'db>> {
+//     // ide::impls(db, files)
+//     //     .functions
+//     //     .get(&ImplPair {
+//     //         implementee: Type::Struct(struct_item),
+//     //         impl_ty: None,
+//     //     })
+//     //     .map(|fns| {
+//     //         fns.iter()
+//     //             .filter(|f| *f.is_method(db))
+//     //             .map(|f| (UstrHash(f.func(db).name(db)), *f))
+//     //             .collect::<UstrIndexMap<ir::ImplFunction<'db>>>()
+//     //     })
+//     //     .unwrap_or_default()
+// }
+
+// #[salsa::tracked(returns(ref))]
+// pub fn struct_fns_for_ty<'db>(
+//     db: &'db dyn salsa::Database,
+//     struct_item: Struct<'db>,
+//     impl_ty: Type<'db>,
+//     files: Files,
+// ) -> UstrIndexMap<ir::Function<'db>> {
+//     ide::impls(db, files)
+//         .functions
+//         .get(&ImplPair {
+//             implementee: Type::Struct(struct_item),
+//             impl_ty: Some(impl_ty),
+//         })
+//         .map(|fns| {
+//             fns.iter()
+//                 .map(|f| (UstrHash(f.name(db)), *f))
+//                 .collect::<UstrIndexMap<ir::ImplFunction<'db>>>()
+//         })
+//         .unwrap_or_default()
+// }
 
 #[salsa::tracked(returns(ref))]
 pub fn struct_fields<'db>(

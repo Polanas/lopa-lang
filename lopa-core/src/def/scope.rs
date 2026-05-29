@@ -8,8 +8,9 @@ use crate::{
     def::{
         body,
         ir::{self, Expr, ExprId, ModuleDef, PatternId, Type},
+        lower,
     },
-    ide::{self, lower_file},
+    ide::{self},
     parsing::ast::{self, AstPtr},
     ustr_hash::{UstrHash, UstrIndexMap},
 };
@@ -59,26 +60,26 @@ pub fn module_scope_with_source_map<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
 ) -> (Arc<ModuleScope<'db>>, Arc<ModuleSourceMap<'db>>) {
-    let ir_file = lower_file(db, file);
+    let ir_file = lower::lower_structs_fns(db, file);
     let mut source_map = ModuleSourceMap::default();
     let mut scope = ModuleScope::default();
 
     for func in ir_file.functions(db) {
         source_map
             .functions
-            .insert(MyAstPtr(func.ast_ptr(db).clone()), func);
+            .insert(MyAstPtr(func.ast_ptr(db).clone()), *func);
         scope
             .values
-            .insert(func.name(db).into(), ir::ModuleDef::Function(func));
+            .insert(func.name(db).into(), ir::ModuleDef::Function(*func));
     }
 
     for strct in ir_file.structs(db) {
         source_map
             .structs
-            .insert(MyAstPtr(strct.ast_ptr(db).clone()), strct);
+            .insert(MyAstPtr(strct.ast_ptr(db).clone()), *strct);
         scope
             .types
-            .insert(strct.name(db).into(), ir::ModuleDef::Struct(strct));
+            .insert(strct.name(db).into(), ir::ModuleDef::Struct(*strct));
     }
 
     (scope.into(), source_map.into())

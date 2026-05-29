@@ -1,0 +1,14 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"impl Vec2 {\n            }\", |p| p.impl_item())"
+---
+IMPL_ITEM: 0..25 
+  IMPL_KW: 0..4 "impl"
+  WHITESPACE: 4..5 
+  PATH_TYPE: 5..9 
+    PATH: 5..9 
+      IDENT: 5..9 "Vec2"
+  WHITESPACE: 9..10 
+  L_BRACE: 10..11 "{"
+  WHITESPACE: 11..24 
+  R_BRACE: 24..25 "}"

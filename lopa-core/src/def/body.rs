@@ -11,7 +11,7 @@ use crate::{
         lower::{self, lower_type_expr},
         scope::MyAstPtr,
     },
-    ide::{self, base::InFile, lower_file},
+    ide::{self, base::InFile},
     parsing::ast::{self},
 };
 

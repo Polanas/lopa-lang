@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use la_arena::{Arena, Idx};
 use rowan::ast::AstNode;
+use ustr::Ustr;
 
 use crate::{
     def::{
@@ -11,41 +12,92 @@ use crate::{
     parsing::ast,
 };
 
-pub type FunctionId<'db> = Idx<Function<'db>>;
-
 #[salsa::tracked]
-pub struct IrFile<'db> {
+pub struct MoudleIr<'db> {
+    #[returns(ref)]
+    pub structs_fns_ir: StructsFnsIr<'db>,
+    #[returns(ref)]
+    pub impl_blocks_ir: ImplBlocksIr<'db>,
+}
+
+#[salsa::tracked(debug)]
+pub struct StructsFnsIr<'db> {
+    #[returns(ref)]
     pub functions: Vec<ir::Function<'db>>,
+    #[returns(ref)]
     pub structs: Vec<ir::Struct<'db>>,
+}
+
+#[salsa::tracked(debug)]
+pub struct ImplBlocksIr<'db> {
+    #[returns(ref)]
+    pub impl_blocks: Vec<ImplBlock<'db>>,
+}
+
+#[salsa::tracked(debug)]
+pub struct ImplBlock<'db> {
+    pub implementee: Type<'db>,
+    pub impl_ty: Option<Type<'db>>,
+    #[returns(ref)]
+    pub methods: Vec<ir::ImplFunction<'db>>,
 }
 
 struct LowerCtx<'db> {
     db: &'db dyn salsa::Database,
     functions: Vec<ir::Function<'db>>,
     structs: Vec<ir::Struct<'db>>,
-    root: ast::File,
+    impl_blocks: Vec<ImplBlock<'db>>,
     file: ide::File,
 }
 
 impl<'db> LowerCtx<'db> {
-    pub fn new(db: &'db dyn salsa::Database, parse: ide::Parse<'db>, file: ide::File) -> Self {
+    pub fn new(db: &'db dyn salsa::Database, file: ide::File) -> Self {
         Self {
             functions: Default::default(),
             structs: Default::default(),
-            root: parse.file(db),
+            impl_blocks: Default::default(),
             file,
             db,
         }
     }
 
-    pub fn lower(mut self, file: ast::File) -> IrFile<'db> {
-        for item in file.items() {
-            self.item(item);
+    pub fn lower_impls(mut self, file: ast::File) -> ImplBlocksIr<'db> {
+        for item in file.items().filter_map(|i| match i {
+            ast::Item::ImplItem(i) => Some(i),
+            _ => None,
+        }) {
+            if let Some(item) = self.impl_item(item) {
+                self.impl_blocks.push(item);
+            }
         }
-        IrFile::new(self.db, self.functions, self.structs)
+        ImplBlocksIr::new(self.db, self.impl_blocks)
     }
 
-    fn item(&mut self, item: ast::Item) {
+    pub fn lower_structs_fns(mut self, file: ast::File) -> StructsFnsIr<'db> {
+        for item in file.items() {
+            self.type_item(item);
+        }
+
+        StructsFnsIr::new(self.db, self.functions, self.structs)
+    }
+
+    fn impl_item(&mut self, item: ast::ImplItem) -> Option<ImplBlock<'db>> {
+        let implementee = item
+            .implementee()
+            .map(|i| lower_type_expr(self.db, self.file, i))?;
+        let impl_ty = item
+            .impl_ty()
+            .and_then(|t| t.ty())
+            .map(|i| lower_type_expr(self.db, self.file, i));
+        let methods = item
+            .functions()
+            .filter_map(|f| self.fn_item(f))
+            .map(|f| ir::ImplFunction::new(self.db, f, implementee.clone()))
+            .collect_vec();
+        Some(ImplBlock::new(self.db, implementee, impl_ty, methods))
+    }
+
+    fn type_item(&mut self, item: ast::Item) {
         match item {
             ast::Item::FnItem(fn_item) => {
                 if let Some(item) = self.fn_item(fn_item) {
@@ -57,8 +109,7 @@ impl<'db> LowerCtx<'db> {
                     self.structs.push(item);
                 }
             }
-            ast::Item::ModItem(mod_item) => {}
-            ast::Item::ImplItem(impl_item) => {},
+            _ => {}
         };
     }
 
@@ -80,11 +131,19 @@ impl<'db> LowerCtx<'db> {
         ))
     }
 }
-
 pub fn lower_type_expr<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
     ty: ast::TypeExpr,
+) -> ir::Type<'db> {
+    lower_type_expr_with_self(db, file, ty, None)
+}
+
+pub fn lower_type_expr_with_self<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    ty: ast::TypeExpr,
+    owner: Option<Type<'db>>,
 ) -> ir::Type<'db> {
     match ty {
         ast::TypeExpr::PathType(path_type) => {
@@ -144,14 +203,24 @@ pub fn lower_type_expr<'db>(
                 .unwrap_or_else(|| Type::Unit)
                 .into(),
         }),
+        ast::TypeExpr::SelfType(_) => owner.unwrap_or_else(|| Type::Unknown(Ustr::from("Self"))),
     }
 }
 
-pub fn lower_file<'db>(
-    db: &'db dyn salsa::Database,
-    parse: ide::Parse<'db>,
-    file: ide::File,
-) -> IrFile<'db> {
-    let ctx = LowerCtx::new(db, parse, file);
-    ctx.lower(parse.file(db))
+#[salsa::tracked]
+pub fn lower_structs_fns<'db>(db: &'db dyn salsa::Database, file: ide::File) -> StructsFnsIr<'db> {
+    let parse = ide::parse(db, file);
+    let ctx = LowerCtx::new(db, file);
+    ctx.lower_structs_fns(parse.file(db))
+}
+
+#[salsa::tracked]
+pub fn lower_impl_blocks<'db>(db: &'db dyn salsa::Database, file: ide::File) -> ImplBlocksIr<'db> {
+    let parse = ide::parse(db, file);
+    let ctx = LowerCtx::new(db, file);
+    ctx.lower_impls(parse.file(db))
+}
+#[salsa::tracked(returns(ref))]
+pub fn lower_module<'db>(db: &'db dyn salsa::Database, file: ide::File) -> MoudleIr<'db> {
+    MoudleIr::new(db, lower_structs_fns(db, file), lower_impl_blocks(db, file))
 }

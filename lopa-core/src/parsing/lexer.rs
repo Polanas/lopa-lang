@@ -398,6 +398,7 @@ def! {
     PATH_TYPE,
     FN_TYPE,
     UNIT_TYPE,
+    SELF_TYPE,
 
     SELF_EXPR,
     RECORD_EXPR,

@@ -1,14 +1,15 @@
 pub mod base;
 pub mod diagnostics;
 
+use notify_rust::Notification;
 use rowan::GreenNode;
 use rowan::ast::AstNode as _;
 use salsa::{Accumulator, Database, Setter};
 use ustr::Ustr;
 
-use crate::def;
-use crate::def::ir::Function;
-use crate::def::lower::{self};
+use crate::def::ir::{Function, ImplFunction, Struct, Type};
+use crate::def::lower::{self, lower_impl_blocks, lower_structs_fns};
+use crate::def::{self, ir};
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
 use crate::parsing::parser::{self};
@@ -143,13 +144,7 @@ pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
     Parse::new(db, parse.0, parse.1)
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn lower_file<'db>(db: &'db dyn salsa::Database, file: File) -> lower::IrFile<'db> {
-    let parse = parse(db, file);
-    lower::lower_file(db, parse, file)
-}
-
-#[salsa::tracked(returns(ref))]
+#[salsa::tracked]
 pub fn body_with_source_map<'db>(
     db: &'db dyn salsa::Database,
     func: Function<'db>,
@@ -180,30 +175,65 @@ pub struct Files {
     value: Option<Vec<File>>,
 }
 
-#[salsa::accumulator]
-pub struct ImplData {
-    file: File,
-    item_name: Ustr,
-    fn_name: Ustr,
-}
-
-#[salsa::tracked]
-pub fn collect_impls(db: &dyn salsa::Database, files: Files) {
-    for file in files.value(db).as_ref().unwrap().iter() {
-        let parse = parse(db, *file);
-        let node = file.contents(db);
-
-        // ImplData {}.accumulate(db);
-    }
+#[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Default)]
+pub struct ImplFunctions<'db> {
+    pub fns: Vec<ImplFunction<'db>>,
+    pub from_impls: Vec<Type<'db>>,
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn impls(db: &dyn salsa::Database, files: Files) -> indexmap::IndexMap<i32, i32> {
-    collect_impls(db, files);
-    collect_impls::accumulated::<ImplData>(db, files)
-        .into_iter()
-        .map(|v| (1, 2))
-        .collect()
+pub fn impl_fns_list<'db>(
+    db: &'db dyn salsa::Database,
+    ty: Type<'db>,
+    files: Files,
+) -> Option<Vec<ImplFunction<'db>>> {
+    let impl_fns = impls(db, files).functions.get(&ty)?;
+
+    let mut result = impl_fns.fns.clone();
+    for fns in impl_fns
+        .from_impls
+        .iter()
+        .filter(|t| **t != ty)
+        .filter_map(|t| impl_fns_list(db, t.clone(), files).clone())
+    {
+        result.extend(fns);
+    }
+    Some(result)
+}
+
+type ImplMap<'db> = indexmap::IndexMap<ir::Type<'db>, ImplFunctions<'db>>;
+
+#[derive(salsa::Update, Debug, Default, PartialEq, Eq, Clone)]
+pub struct ImplItems<'db> {
+    pub functions: ImplMap<'db>,
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn impls(db: &dyn salsa::Database, files: Files) -> ImplItems<'_> {
+    let mut functions: ImplMap = Default::default();
+    for &file in files.value(db).as_ref().unwrap().iter() {
+        let lower = lower_impl_blocks(db, file);
+
+        for block in lower.impl_blocks(db) {
+            let implementee = block.implementee(db);
+            if let Some(impl_ty) = block.impl_ty(db)
+                && impl_ty != block.implementee(db)
+            {
+                let fns = functions.entry(impl_ty.clone()).or_default();
+                for func in block.methods(db) {
+                    fns.fns.push(*func);
+                }
+                fns.from_impls.push(implementee);
+            } else {
+                let fns = functions.entry(implementee).or_default();
+                for func in block.methods(db) {
+                    fns.fns.push(*func);
+                }
+            }
+        }
+    }
+
+    ImplItems { functions }
 }
 
 #[salsa::db]
@@ -228,9 +258,8 @@ impl Analysis {
     }
 
     pub fn diagnostics(&self, file: File) -> Vec<Diagnostic> {
-        collect_impls(&self.db, self.files);
         //TODO: use Cancelled::catch
-        diagnostics::diagnostics(&self.db, file)
+        diagnostics::diagnostics(&self.db, file, self.files)
     }
 
     pub fn insert_file(&mut self, file: File) {

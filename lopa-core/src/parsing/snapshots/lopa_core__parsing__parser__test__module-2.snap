@@ -1,0 +1,38 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"struct X {\n        }\n        impl X {\n              fn test() {}\n        }\",\n|p| p.module())"
+---
+MODULE: 0..74 
+  STRUCT_ITEM: 0..20 
+    STRUCT_KW: 0..6 "struct"
+    WHITESPACE: 6..7 
+    NAME: 7..8 
+      IDENT: 7..8 "X"
+    WHITESPACE: 8..9 
+    L_BRACE: 9..10 "{"
+    WHITESPACE: 10..19 
+    R_BRACE: 19..20 "}"
+  WHITESPACE: 20..29 
+  IMPL_ITEM: 29..74 
+    IMPL_KW: 29..33 "impl"
+    WHITESPACE: 33..34 
+    PATH_TYPE: 34..35 
+      PATH: 34..35 
+        IDENT: 34..35 "X"
+    WHITESPACE: 35..36 
+    L_BRACE: 36..37 "{"
+    WHITESPACE: 37..52 
+    FN_ITEM: 52..64 
+      FN_KW: 52..54 "fn"
+      WHITESPACE: 54..55 
+      NAME: 55..59 
+        IDENT: 55..59 "test"
+      PARAM_LIST: 59..61 
+        L_PAREN: 59..60 "("
+        R_PAREN: 60..61 ")"
+      WHITESPACE: 61..62 
+      BLOCK_EXPR: 62..64 
+        L_BRACE: 62..63 "{"
+        R_BRACE: 63..64 "}"
+    WHITESPACE: 64..73 
+    R_BRACE: 73..74 "}"

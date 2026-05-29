@@ -1,10 +1,15 @@
 use crate::{
-    def::{self, ir::Struct, scope},
-    ide::{self, File, base::FileRange, diagnostics, parse},
+    def::{
+        self,
+        ir::{Struct, Type},
+        scope,
+    },
+    ide::{self, File, Files, base::FileRange, diagnostics, impls, parse},
     parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
     ty::infer,
 };
 use itertools::Itertools;
+use notify_rust::Notification;
 use rowan::{TextRange, TextSize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -65,23 +70,23 @@ pub enum DiagnosticKind {
     TypeError(infer::TypeErrorKind),
 }
 
-pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
+pub fn diagnostics(db: &dyn salsa::Database, file: File, files: Files) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
 
     let parse = parse(db, file);
     diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
 
-    let ir = ide::lower_file(db, file);
+    let ir = ide::lower_structs_fns(db, file);
     for struct_item in ir.structs(db) {
         diagnostics.extend(
-            def::ir::struct_fields::accumulated::<Diagnostic>(db, struct_item)
+            def::ir::struct_fields::accumulated::<Diagnostic>(db, *struct_item)
                 .into_iter()
                 .cloned(),
         );
     }
     for func in ir.functions(db) {
         diagnostics.extend(
-            infer::type_diagnostics(db, func)
+            infer::type_diagnostics(db, *func)
                 .into_iter()
                 .map(|(err, range)| Diagnostic {
                     range,

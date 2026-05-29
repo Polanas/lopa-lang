@@ -1,4 +1,4 @@
-use std::{cell::Cell, f32::consts::E, iter::Peekable, ops::Range};
+use std::{cell::Cell, iter::Peekable, ops::Range};
 
 use crate::{
     ide::TextRange,
@@ -30,7 +30,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T![|],
     T![self],
 ]);
-const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("]]);
+const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("], T![Self]]);
 const ITEM_TYPE_FIRST: TokenSet = TokenSet::new(&[T![struct], T![enum]]).union(TYPE_FIRST);
 const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
@@ -74,6 +74,7 @@ pub enum ErrorKind {
     ExpectedParent,
     ExpectedStructElement,
     ExpectedEnumElement,
+    ExpectedImplElement,
     ExpectedField,
     ExpectedAttribute,
     ExpectedPattern,
@@ -98,6 +99,7 @@ impl std::fmt::Display for ErrorKind {
             Self::ExpectedParent => "expected parent",
             Self::ExpectedStructElement => "expected struct element",
             Self::ExpectedEnumElement => "expected enum element",
+            Self::ExpectedImplElement => "expected impl element",
             Self::Other(text) => text,
         }
         .fmt(f)
@@ -348,7 +350,9 @@ impl<'a> Parser<'a> {
                 T![struct] => self.struct_item(),
                 T![impl] => self.impl_item(),
                 T![enum] => self.enum_item(),
-                _ => {}
+                _ => {
+                    self.advance_with_error(ErrorKind::ExpectedItem);
+                }
             };
         } else {
             self.advance_with_error(ErrorKind::ExpectedItem);
@@ -410,18 +414,26 @@ impl<'a> Parser<'a> {
     fn impl_item(&mut self) {
         self.with(IMPL_ITEM, |this| {
             this.expect(T![impl]);
-            let checkpoint = this.checkpoint();
             this.type_expr();
-            if this.at(T![for]) {
-                this.with_at(IMPL_STRUCT_TYPE, checkpoint, |_| {});
-                this.expect(T![for]);
+            if this.ate(T![for]) {
+                this.with(IMPL_STRUCT_TYPE, |this| {
+                    this.type_expr();
+                });
             }
-            this.type_expr();
             this.expect(T!["{"]);
 
             while !this.at(T!["}"]) && !this.eof() {
-                this.fn_item();
+                if this.at(T![fn]) {
+                    this.fn_item();
+                } else {
+                    if this.at_any(ITEM_FIRST) {
+                        break;
+                    } else {
+                        this.advance_with_error(ErrorKind::ExpectedItem);
+                    }
+                }
             }
+            this.expect(T!["}"]);
         });
     }
 
@@ -601,6 +613,9 @@ impl<'a> Parser<'a> {
                 T![fn] => {
                     self.fn_type();
                 }
+                T![Self] => self.with(SELF_TYPE, |this| {
+                    this.expect(T![Self]);
+                }),
                 T!["("] => {
                     self.expect(T!["("]);
                     if self.at(T![")"]) {
@@ -1128,7 +1143,7 @@ mod test {
         f(&mut parser);
         let (node, errors) = parser.build_tree();
         if !errors.is_empty() {
-            // panic!("{:?}", errors);
+            panic!("{:?}", errors);
         }
         let node = SyntaxNode::new_root(node);
         let mut result = String::new();
@@ -1140,6 +1155,14 @@ mod test {
     #[test]
     fn module() {
         insta::assert_snapshot!(parse("fn some_func(){}", |p| p.module()));
+        insta::assert_snapshot!(parse(
+            "struct X {
+        }
+        impl X {
+              fn test() {}
+        }",
+            |p| p.module()
+        ));
     }
 
     #[test]
@@ -1160,6 +1183,12 @@ mod test {
         insta::assert_snapshot!(parse(
             "impl Vec2 {
                 fn length();
+                fn unit(self) -> Self; 
+            }",
+            |p| p.impl_item()
+        ));
+        insta::assert_snapshot!(parse(
+            "impl Vec2 {
             }",
             |p| p.impl_item()
         ));
@@ -1315,6 +1344,20 @@ mod test {
         insta::assert_snapshot!(parse("10.10", |p| p.expr()));
         insta::assert_snapshot!(parse("1_000_000", |p| p.expr()));
     }
+
+    // #[test]
+    // fn temp() {
+    //     println!(
+    //         "{}",
+    //         parse(
+    //             "
+    //             impl Y
+    //             struct X {
+    //             }",
+    //             |p| p.module()
+    //         )
+    //     );
+    // }
 
     #[test]
     fn lua() {
