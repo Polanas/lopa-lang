@@ -168,11 +168,15 @@ impl<'a> Builder<'a> {
     }
 
     fn build_tree(mut self, events: &[Event]) -> (GreenNode, Vec<ParseError>) {
-        let mut events = events.iter().peekable();
-        while let Some(event) = events.next() {
+        let mut events_iter = events.iter().peekable();
+        while let Some(event) = events_iter.next() {
             match event {
                 Event::Open { node } => {
-                    self.skip_whitespace();
+                    //we don't want to insert tokens before the first node (fixes a crash on
+                    //builder.finish()
+                    if node != &MODULE {
+                        self.skip_whitespace();
+                    }
                     self.builder.start_node((*node).into());
                 }
                 Event::Close => {
@@ -185,7 +189,7 @@ impl<'a> Builder<'a> {
                     };
                     self.builder.token((*token).into(), next.text);
 
-                    if !matches!(events.peek(), Some(Event::Close)) {
+                    if !matches!(events_iter.peek(), Some(Event::Close)) {
                         self.skip_whitespace();
                     }
                 }
@@ -395,7 +399,8 @@ impl<'a> Parser<'a> {
         self.with(FIELD, |this| {
             this.name();
             this.expect(T![:]);
-            this.item_type_expr();
+            this.type_expr();
+            // this.item_type_expr();
             if this.ate(T![=]) {
                 this.expr();
             }
@@ -405,10 +410,13 @@ impl<'a> Parser<'a> {
     fn impl_item(&mut self) {
         self.with(IMPL_ITEM, |this| {
             this.expect(T![impl]);
-            this.path();
-            if this.ate(T![for]) {
-                this.path();
+            let checkpoint = this.checkpoint();
+            this.type_expr();
+            if this.at(T![for]) {
+                this.with_at(IMPL_STRUCT_TYPE, checkpoint, |_| {});
+                this.expect(T![for]);
             }
+            this.type_expr();
             this.expect(T!["{"]);
 
             while !this.at(T!["}"]) && !this.eof() {
@@ -445,18 +453,14 @@ impl<'a> Parser<'a> {
     }
 
     fn struct_element(&mut self) {
-        self.with(STRUCT_ELEMENT, |this| {
-            if this.at(T![fn]) {
-                this.with(STRUCT_FN, |this| {
-                    this.fn_item();
-                });
-            } else {
-                this.field();
-                if !this.at(T!["}"]) {
-                    this.expect(T![,]);
-                }
+        if self.at(T![fn]) {
+            self.fn_item();
+        } else {
+            self.field();
+            if !self.at(T!["}"]) {
+                self.expect(T![,]);
             }
-        });
+        }
     }
 
     fn parents_list(&mut self) {
@@ -1091,7 +1095,7 @@ mod test {
         parser::{Lang, Parser},
     };
 
-    use rowan::{NodeOrToken, SyntaxToken};
+    use rowan::{GreenNodeBuilder, NodeOrToken, SyntaxKind, SyntaxToken};
 
     fn parse_rec(
         child: NodeOrToken<SyntaxNode, SyntaxToken<Lang>>,
@@ -1150,6 +1154,12 @@ mod test {
             "impl Debug for Vec2 {
                 fn debug_fmt(self, f: Formatter) {
                 }
+            }",
+            |p| p.impl_item()
+        ));
+        insta::assert_snapshot!(parse(
+            "impl Vec2 {
+                fn length();
             }",
             |p| p.impl_item()
         ));

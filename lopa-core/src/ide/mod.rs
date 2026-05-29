@@ -3,7 +3,8 @@ pub mod diagnostics;
 
 use rowan::GreenNode;
 use rowan::ast::AstNode as _;
-use salsa::{Database, Setter};
+use salsa::{Accumulator, Database, Setter};
+use ustr::Ustr;
 
 use crate::def;
 use crate::def::ir::Function;
@@ -117,23 +118,6 @@ pub struct File {
     pub contents: Arc<RwLock<FileContent>>,
 }
 
-//A singleton input that associates green nodes with file ids
-// #[salsa::input]
-// pub struct FileRootMap {
-//     pub map: dashmap::DashMap<parser::Cst, File>,
-// }
-
-// //0 argument query -> return value always memoized
-// #[salsa::tracked]
-// fn file_root_map(db: &dyn salsa::Database) -> FileRootMap {
-//     FileRootMap::new(db, Default::default())
-// }
-
-// TODO: remove this
-// pub fn file_by_cst(db: &dyn salsa::Database, cst: parser::Cst) -> Option<File> {
-//     file_root_map(db).map(db).get(&cst).map(|f| f.clone())
-// }
-
 #[salsa::tracked]
 pub struct Parse<'db> {
     pub node: GreenNode,
@@ -156,7 +140,6 @@ pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
     let contents = file.contents(db).read().unwrap();
     let parse = parser::parse(contents.as_str());
 
-    // file_root_map(db).map(db).insert(parse.0.clone(), file);
     Parse::new(db, parse.0, parse.1)
 }
 
@@ -191,6 +174,38 @@ pub fn source_map<'db>(
     body_with_source_map(db, func).1.clone()
 }
 
+#[salsa::input]
+pub struct Files {
+    #[returns(ref)]
+    value: Option<Vec<File>>,
+}
+
+#[salsa::accumulator]
+pub struct ImplData {
+    file: File,
+    item_name: Ustr,
+    fn_name: Ustr,
+}
+
+#[salsa::tracked]
+pub fn collect_impls(db: &dyn salsa::Database, files: Files) {
+    for file in files.value(db).as_ref().unwrap().iter() {
+        let parse = parse(db, *file);
+        let node = file.contents(db);
+
+        // ImplData {}.accumulate(db);
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn impls(db: &dyn salsa::Database, files: Files) -> indexmap::IndexMap<i32, i32> {
+    collect_impls(db, files);
+    collect_impls::accumulated::<ImplData>(db, files)
+        .into_iter()
+        .map(|v| (1, 2))
+        .collect()
+}
+
 #[salsa::db]
 #[derive(Default)]
 pub struct RootDatabase {
@@ -200,15 +215,28 @@ pub struct RootDatabase {
 #[salsa::db]
 impl salsa::Database for RootDatabase {}
 
-#[derive(Default)]
 pub struct Analysis {
     pub db: RootDatabase,
+    pub files: Files,
 }
 
 impl Analysis {
+    pub fn new() -> Self {
+        let db = RootDatabase::default();
+        let files = Files::new(&db, Some(vec![]));
+        Self { db, files }
+    }
+
     pub fn diagnostics(&self, file: File) -> Vec<Diagnostic> {
+        collect_impls(&self.db, self.files);
         //TODO: use Cancelled::catch
         diagnostics::diagnostics(&self.db, file)
+    }
+
+    pub fn insert_file(&mut self, file: File) {
+        let mut files = self.files.set_value(&mut self.db).to(None).unwrap();
+        files.push(file);
+        self.files.set_value(&mut self.db).to(Some(files));
     }
 
     pub fn apply_change(&mut self, file: File) {
@@ -217,6 +245,12 @@ impl Analysis {
 
         let contents = file.contents(&self.db).clone();
         file.set_contents(&mut self.db).to(contents);
+    }
+}
+
+impl Default for Analysis {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

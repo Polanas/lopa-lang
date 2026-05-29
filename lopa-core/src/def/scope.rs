@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use la_arena::{Arena, ArenaMap, Idx};
+use rowan::{TextRange, ast::AstNode};
 use ustr::Ustr;
 
 use crate::{
     def::{
         body,
-        ir::{self, Expr, ExprId, ModuleDef, PatternId},
+        ir::{self, Expr, ExprId, ModuleDef, PatternId, Type},
     },
     ide::{self, lower_file},
     parsing::ast::{self, AstPtr},
@@ -36,15 +37,19 @@ pub struct ModuleScope<'db> {
 }
 
 impl<'db> ModuleScope<'db> {
-    pub fn resolve_name(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
+    pub fn resolve_value(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
         self.values.get(name)
     }
 
-    pub fn values(&self) -> impl Iterator<Item = (&UstrHash, &ModuleDef)> + ExactSizeIterator {
+    pub fn resolve_type(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
+        self.types.get(name)
+    }
+
+    pub fn values(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ModuleDef)> {
         self.values.iter()
     }
 
-    pub fn types(&self) -> impl Iterator<Item = (&UstrHash, &ModuleDef)> + ExactSizeIterator {
+    pub fn types(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ModuleDef)> {
         self.types.iter()
     }
 }

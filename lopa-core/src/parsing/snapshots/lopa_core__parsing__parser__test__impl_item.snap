@@ -5,13 +5,16 @@ expression: "parse(\"impl Debug for Vec2 {\n                fn debug_fmt(self, f
 IMPL_ITEM: 0..90 
   IMPL_KW: 0..4 "impl"
   WHITESPACE: 4..5 
-  PATH: 5..10 
-    IDENT: 5..10 "Debug"
+  IMPL_STRUCT_TYPE: 5..10 
+    PATH_TYPE: 5..10 
+      PATH: 5..10 
+        IDENT: 5..10 "Debug"
   WHITESPACE: 10..11 
   FOR_KW: 11..14 "for"
   WHITESPACE: 14..15 
-  PATH: 15..19 
-    IDENT: 15..19 "Vec2"
+  PATH_TYPE: 15..19 
+    PATH: 15..19 
+      IDENT: 15..19 "Vec2"
   WHITESPACE: 19..20 
   L_BRACE: 20..21 "{"
   WHITESPACE: 21..38 

@@ -1,0 +1,22 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"impl Vec2 {\n                fn length();\n            }\", |p|\np.impl_item())"
+---
+IMPL_ITEM: 0..40 
+  IMPL_KW: 0..4 "impl"
+  WHITESPACE: 4..5 
+  PATH_TYPE: 5..9 
+    PATH: 5..9 
+      IDENT: 5..9 "Vec2"
+  WHITESPACE: 9..10 
+  ERROR: 10..11 "{"
+  WHITESPACE: 11..28 
+  FN_ITEM: 28..40 
+    FN_KW: 28..30 "fn"
+    WHITESPACE: 30..31 
+    NAME: 31..37 
+      IDENT: 31..37 "length"
+    PARAM_LIST: 37..39 
+      L_PAREN: 37..38 "("
+      R_PAREN: 38..39 ")"
+    SEMI: 39..40 ";"

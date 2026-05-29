@@ -25,10 +25,9 @@ ENUM_ITEM: 0..213
         IDENT: 52..55 "foo"
       COLON: 55..56 ":"
       WHITESPACE: 56..57 
-      ITEM_TYPE: 57..60 
-        PATH_TYPE: 57..60 
-          PATH: 57..60 
-            IDENT: 57..60 "Foo"
+      PATH_TYPE: 57..60 
+        PATH: 57..60 
+          IDENT: 57..60 "Foo"
     COMMA: 60..61 ","
   WHITESPACE: 61..82 
   ENUM_ELEMENT: 82..91 
@@ -37,10 +36,9 @@ ENUM_ITEM: 0..213
         IDENT: 82..85 "bar"
       COLON: 85..86 ":"
       WHITESPACE: 86..87 
-      ITEM_TYPE: 87..90 
-        PATH_TYPE: 87..90 
-          PATH: 87..90 
-            IDENT: 87..90 "Bar"
+      PATH_TYPE: 87..90 
+        PATH: 87..90 
+          IDENT: 87..90 "Bar"
     COMMA: 90..91 ","
   WHITESPACE: 91..112 
   ENUM_ELEMENT: 112..203 

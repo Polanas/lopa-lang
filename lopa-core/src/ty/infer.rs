@@ -5,10 +5,8 @@ use std::{
     ops::{Deref, Not},
 };
 
-use super::Type;
 use itertools::{Itertools, Position};
 use la_arena::{ArenaMap, Idx, RawIdx};
-use notify_rust::Notification;
 use rowan::TextRange;
 use ustr::Ustr;
 
@@ -17,7 +15,7 @@ use crate::{
     common::LitKind,
     def::{
         self, body,
-        ir::{self, Expr, ExprId, PatternId, Stmt, TypeExpr},
+        ir::{self, Expr, ExprId, PatternId, Stmt, Type},
         resolver::{self, ResolveResult},
         scope::{self, ScopeId},
     },
@@ -27,7 +25,6 @@ use crate::{
         lexer,
     },
     ptr::Ptr,
-    ty::{self, BareFn},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
@@ -63,6 +60,9 @@ pub enum TypeDiagnostic<'db> {
         left: ExprId,
         right: ExprId,
         op: BinaryOpKind,
+    },
+    UnknownType {
+        ty: Type<'db>,
     },
     UnknownValue {
         expr: ExprId,
@@ -264,13 +264,18 @@ impl InferCtx {
                 self.infer_expr(*expr_id);
 
                 let infer_ty = self.expr_ty_map.get((*expr_id).into())?;
-                if let Some(ty) = ty.clone().map(|ty| type_from_type_expr(self.db, ty)) {
+                if let Some(ty) = ty.clone() {
+                    if matches!(ty, Type::Unknown(_)) {
+                        self.add_error(TypeDiagnostic::UnknownType { ty });
+                        return None;
+                    }
                     if !self.can_assign_type(&ty, infer_ty) {
                         self.add_error(TypeDiagnostic::TypeMismatch {
                             expected: ty.clone(),
                             actual: infer_ty.clone(),
                             expr: *expr_id,
                         });
+                        return None;
                     }
                     self.insert_pattern_ty(*pattern_id, ty);
                 } else {
@@ -296,7 +301,7 @@ impl InferCtx {
         match (lhs, rhs) {
             (Type::Nilable(lhs), Type::Nilable(rhs)) => self.can_assign_type(lhs, rhs),
             (Type::Nilable(lhs), rhs) => {
-                matches!(rhs.deref(), Type::Lit(LitKind::Nil)) || self.can_assign_type(lhs, rhs)
+                matches!(rhs, Type::Lit(LitKind::Nil)) || self.can_assign_type(lhs, rhs)
             }
             (rhs, Type::Nilable(_)) if !rhs.is_nilable() => false,
             (Type::Any, _) | (_, Type::Any) => true,
@@ -307,11 +312,11 @@ impl InferCtx {
             (Type::Function(lhs), Type::Function(rhs)) => lhs == rhs,
             (Type::Struct(lhs), Type::Struct(rhs)) => lhs == rhs,
             (Type::BareFn(lhs), Type::Function(rhs)) => {
-                let rhs_bare = func_to_bare(self.db, *rhs);
-                lhs.params == rhs_bare.params && lhs.return_type == rhs_bare.return_type
+                let rhs_bare = rhs.bare_fn_ty(self.db);
+                lhs.params == rhs_bare.params && lhs.output == rhs_bare.output
             }
             (Type::BareFn(lhs), Type::BareFn(rhs)) => {
-                lhs.params == rhs.params && lhs.return_type == rhs.return_type
+                lhs.params == rhs.params && lhs.output == rhs.output
             }
             _ => false,
         }
@@ -322,55 +327,9 @@ impl InferCtx {
     }
 }
 
-fn func_to_bare<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> BareFn<'db> {
-    BareFn {
-        params: func
-            .params(db)
-            .iter()
-            .map(|p| ty::Param {
-                name: p.name(db),
-                ty: type_from_type_expr(db, p.ty(db)),
-            })
-            .collect_vec(),
-        return_type: func
-            .output(db)
-            .clone()
-            .map(|o| type_from_type_expr(db, o))
-            .unwrap_or_else(|| Type::Unit)
-            .into(),
-    }
-}
-
-fn type_from_type_expr<'db>(db: &'db dyn salsa::Database, ty: ir::TypeExpr<'db>) -> Type<'db> {
-    match ty {
-        ir::TypeExpr::Unknown => Type::Unknown,
-        ir::TypeExpr::Nilable(nilable_type) => {
-            Type::Nilable(Box::new(type_from_type_expr(db, *nilable_type)))
-        }
-        ir::TypeExpr::Lit(kind) => Type::Lit(kind),
-        ir::TypeExpr::Any => Type::Any,
-        ir::TypeExpr::Unit => Type::Unit,
-        ir::TypeExpr::Struct(strct) => Type::Struct(strct),
-        ir::TypeExpr::Function(function) => Type::Function(function),
-        ir::TypeExpr::BareFunction { params, output } => Type::BareFn(BareFn {
-            params: params
-                .iter()
-                .map(|p| ty::Param {
-                    name: p.name(db),
-                    ty: type_from_type_expr(db, p.ty(db)),
-                })
-                .collect_vec(),
-            return_type: output
-                .map(|o| type_from_type_expr(db, *o))
-                .unwrap_or_else(|| Type::Unit)
-                .into(),
-        }),
-    }
-}
-
 fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
     match ty {
-        Type::Unknown => "unknown".into(),
+        Type::Unknown(value) => Ustr::from(&format!("unknown type `{}`", value)),
         Type::Unit => "()".into(),
         Type::Any => "any".into(),
         Type::Nilable(nilable) => Ustr::from(&format!("{}?", type_to_string(db, nilable))),
@@ -382,10 +341,10 @@ fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
             LitKind::Nil => "nil".into(),
         },
         Type::BareFn(bare_fn) => {
-            let output = if matches!(*bare_fn.return_type, Type::Unit) {
+            let output = if matches!(*bare_fn.output, Type::Unit) {
                 Cow::Borrowed("")
             } else {
-                Cow::Owned(format!(" -> {}", type_to_string(db, &bare_fn.return_type)))
+                Cow::Owned(format!(" -> {}", type_to_string(db, &bare_fn.output)))
             };
 
             format!(
@@ -407,11 +366,7 @@ fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
             .into()
         }
         Type::Function(function) => {
-            let output_ty = function
-                .output(db)
-                .clone()
-                .map(|ty| type_from_type_expr(db, ty))
-                .unwrap_or_else(|| Type::Unit);
+            let output_ty = function.output(db).clone();
             let output = if matches!(output_ty, Type::Unit) {
                 Cow::Borrowed("")
             } else {
@@ -425,16 +380,12 @@ fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
                     .iter()
                     .map(|p| {
                         //TODO: convert any patterns to strings
-                        let name = if let Some(name) = p.name(db).as_ref() {
+                        let name = if let Some(name) = p.name.as_ref() {
                             Cow::Owned(format!("{}: ", name))
                         } else {
                             Cow::Borrowed("")
                         };
-                        format!(
-                            "{}{}",
-                            name,
-                            type_to_string(db, &type_from_type_expr(db, p.ty(db)))
-                        )
+                        format!("{}{}", name, type_to_string(db, &p.ty))
                     })
                     .join(", "),
                 output
@@ -541,6 +492,7 @@ pub fn type_diagnostics<'db>(
                 ),
                 binary_op_range(db, func, *left).unwrap(),
             ),
+            TypeDiagnostic::UnknownType { ty } => todo!(),
         })
         .collect_vec()
 }

@@ -380,7 +380,13 @@ structs! {
         items: [FnItem],
     },
     IMPL_ITEM = ImplItem {
-
+        impl_token: T![impl],
+        implementee: TypeExpr,
+        impl_ty: ImplTraitType,
+        for_token: T![for],
+    },
+    IMPL_STRUCT_TYPE = ImplTraitType {
+        ty: TypeExpr,
     },
     ENUM_ITEM = EnumItem {
         enum_token: T![enum],
@@ -726,6 +732,7 @@ enums! {
     Item {
         FnItem,
         ModItem,
+        ImplItem,
         StructItem,
     },
     Stmt {
@@ -789,12 +796,15 @@ enums! {
 mod test {
     use rowan::ast::AstNode;
 
-    use crate::parsing::{
-        ast::{
-            ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr, ParenExpr,
-            SyntaxNode, SyntaxToken,
+    use crate::{
+        def::ir::StructElem,
+        parsing::{
+            ast::{
+                self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr,
+                ParenExpr, StructItem, SyntaxNode, SyntaxToken,
+            },
+            parser::Lang,
         },
-        parser::Lang,
     };
 
     trait AstTest {
@@ -837,6 +847,18 @@ mod test {
         expr.if_branch().unwrap().syntax().should_eq("{1}");
         expr.if_condition().unwrap().syntax().should_eq("true");
         expr.else_branch().unwrap().syntax().should_eq("{2}");
+    }
+
+    #[test]
+    fn struct_item() {
+        let struct_item = parse::<StructItem>("struct X { y: Y }");
+        let mut elements = struct_item.elements();
+        let ast::StructElem::Field(f) = elements.next().unwrap() else {
+            panic!()
+        };
+        f.syntax().should_eq("y: Y");
+        f.name().unwrap().syntax().should_eq("y");
+        f.ty().unwrap().syntax().should_eq("Y");
     }
 
     #[test]

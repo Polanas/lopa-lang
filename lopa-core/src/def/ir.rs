@@ -1,11 +1,22 @@
+use std::ops::Deref;
+
 use la_arena::{Idx, RawIdx};
+use rowan::ast::{AstNode, AstPtr};
+use salsa::Accumulator;
 use ustr::Ustr;
 
 use crate::{
     common::LitKind,
-    def::lower::{self, lower_type_expr},
-    ide,
+    def::{
+        lower::{self, lower_type_expr},
+        scope,
+    },
+    ide::{
+        self,
+        diagnostics::{Diagnostic, DiagnosticKind},
+    },
     parsing::ast::{self, BinaryOpKind, UnaryOpKind},
+    ty::infer::TypeErrorKind,
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Local<'db> {
@@ -26,10 +37,10 @@ pub struct Function<'db> {
     pub file: ide::File,
 }
 
-#[salsa::tracked(debug)]
+#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct Param<'db> {
     pub name: Option<Ustr>,
-    pub ty: TypeExpr<'db>,
+    pub ty: Type<'db>,
 }
 
 #[salsa::tracked]
@@ -56,18 +67,32 @@ impl<'db> Function<'db> {
             let ty = param
                 .ty()
                 .map(|ty| lower_type_expr(db, file, ty))
-                .unwrap_or_else(|| TypeExpr::Unknown);
-            params.push(Param::new(db, name, ty));
+                .unwrap_or_else(|| Type::Unknown(Ustr::from("")));
+            params.push(Param { name, ty });
         }
         params
     }
 
     #[salsa::tracked(returns(ref))]
-    pub fn output(self, db: &'db dyn salsa::Database) -> Option<TypeExpr<'db>> {
+    pub fn bare_fn_ty(self, db: &'db dyn salsa::Database) -> BareFn<'db> {
+        BareFn {
+            params: self.params(db).clone(),
+            output: self.output(db).clone().into(),
+        }
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn output(self, db: &'db dyn salsa::Database) -> Type<'db> {
         let file = self.file(db);
         let root = ide::parse(db, file).syntax_node(db);
-        let output = self.ast_ptr(db).to_node(&root).output()?.ty();
-        output.map(|o| lower_type_expr(db, file, o))
+        let output = self
+            .ast_ptr(db)
+            .to_node(&root)
+            .output()
+            .and_then(|o| o.ty());
+        output
+            .map(|o| lower_type_expr(db, file, o))
+            .unwrap_or_else(|| Type::Unit)
     }
 }
 
@@ -87,47 +112,142 @@ pub enum StructElem<'db> {
 #[salsa::tracked(debug)]
 pub struct Field<'db> {
     pub name: Ustr,
-    pub ty: TypeExpr<'db>,
+    pub ty: Type<'db>,
+    pub ast_ptr: ast::AstPtr<ast::Field>,
 }
 
-#[salsa::tracked]
-impl<'db> Struct<'db> {
-    #[salsa::tracked(returns(ref))]
-    pub fn fields(self, db: &'db dyn salsa::Database) -> Vec<Field<'db>> {
-        let mut fields = vec![];
-        let file = self.file(db);
-        let root = ide::parse(db, file).syntax_node(db);
-        for element in self.ast_ptr(db).to_node(&root).elements() {
-            if let ast::StructElem::Field(field) = element {
-                let Some(name) = field.name().and_then(|n| n.text()) else {
-                    continue;
-                };
+#[salsa::tracked(returns(ref))]
+pub fn struct_fields<'db>(
+    db: &'db dyn salsa::Database,
+    struct_item: Struct<'db>,
+) -> Vec<Field<'db>> {
+    let mut fields = vec![];
+    let file = struct_item.file(db);
+    let root = ide::parse(db, file).syntax_node(db);
+    for element in struct_item.ast_ptr(db).to_node(&root).elements() {
+        if let ast::StructElem::Field(field) = element {
+            let Some(name) = field.name().and_then(|n| n.text()) else {
+                continue;
+            };
 
-                let ty = field
-                    .ty()
-                    .map(|ty| lower_type_expr(db, file, ty))
-                    .unwrap_or_else(|| TypeExpr::Unknown);
-                fields.push(Field::new(db, name, ty));
+            let ptr = ast::AstPtr::new(&field);
+            let Some((ast_ty, ir_ty)) = field
+                .ty()
+                .map(|ty| (ty.clone(), lower_type_expr(db, file, ty)))
+            else {
+                continue;
+            };
+
+            if let Type::Unknown(name) = &ir_ty {
+                Diagnostic {
+                    range: ast_ty.syntax().text_range(),
+                    kind: DiagnosticKind::TypeError(TypeErrorKind {
+                        message: format!("cannot find value `{}` in this scope", &name),
+                    }),
+                    notes: vec![],
+                }
+                .accumulate(db);
             }
-        }
 
-        fields
+            fields.push(Field::new(db, name, ir_ty, ptr));
+        }
     }
+
+    fields
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
-pub enum TypeExpr<'db> {
-    Unknown,
-    Unit,
+pub struct BareFn<'db> {
+    pub params: Vec<Param<'db>>,
+    pub output: Box<Type<'db>>,
+}
+
+#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
+pub enum Type<'db> {
+    Unknown(Ustr),
     Any,
+    Unit,
+    Never,
     Lit(LitKind),
     Struct(Struct<'db>),
     Function(Function<'db>),
-    Nilable(Box<TypeExpr<'db>>),
-    BareFunction {
-        params: Vec<Param<'db>>,
-        output: Option<Box<TypeExpr<'db>>>,
-    },
+    Nilable(Box<Type<'db>>),
+    BareFn(BareFn<'db>),
+}
+
+impl<'db> Type<'db> {
+    pub fn is_nilable(&self) -> bool {
+        matches!(
+            self,
+            Self::Nilable(_) | Self::Lit(LitKind::Nil) | Self::Unit
+        )
+    }
+    fn collapse_nil_inner(&mut self) {
+        if let Self::Nilable(inner) = self {
+            inner.collapse_nil();
+
+            if inner.is_nilable()
+                && let Self::Nilable(deep_inner) = std::mem::replace(&mut **inner, Self::Any)
+            {
+                *self = Self::Nilable(deep_inner)
+            }
+        }
+    }
+
+    pub fn int() -> Self {
+        Self::Lit(LitKind::Int)
+    }
+
+    pub fn float() -> Self {
+        Self::Lit(LitKind::Float)
+    }
+
+    pub fn bool() -> Self {
+        Self::Lit(LitKind::Bool)
+    }
+
+    pub fn any() -> Self {
+        Self::Any
+    }
+
+    pub fn unit() -> Self {
+        Self::Unit
+    }
+
+    pub fn never() -> Self {
+        Self::Never
+    }
+
+    pub fn is_number(&self) -> bool {
+        self.is_int() || self.is_float()
+    }
+
+    pub fn is_float(&self) -> bool {
+        matches!(self, Self::Lit(LitKind::Float))
+    }
+
+    pub fn is_int(&self) -> bool {
+        matches!(self, Self::Lit(LitKind::Int))
+    }
+
+    pub fn collapse_nil(&mut self) {
+        self.collapse_nil_inner();
+        if let Self::Nilable(inner) = self
+            && **inner == Self::Lit(LitKind::Nil)
+        {
+            *self = Self::Lit(LitKind::Nil);
+        }
+    }
+
+    pub fn collapsed_nil(mut self) -> Self {
+        self.collapse_nil_inner();
+        if let Self::Nilable(inner) = &self
+            && inner.deref() == &Self::Lit(LitKind::Nil)
+        {
+            self = Self::Lit(LitKind::Nil);
+        }
+        self
+    }
 }
 
 pub type ExprId = RawIdx;
@@ -217,7 +337,7 @@ impl Arg {
 pub enum Stmt<'db> {
     Let {
         pattern: PatternId,
-        ty: Option<TypeExpr<'db>>,
+        ty: Option<Type<'db>>,
         expr: ExprId,
     },
     Expr {

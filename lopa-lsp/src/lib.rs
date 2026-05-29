@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use dashmap::DashMap;
 use lopa_core::ide::{Analysis, File};
-use notify_rust::Notification;
 use tokio::task;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
@@ -24,6 +23,17 @@ pub struct Backend {
     pub client: Client,
     pub vfs: Arc<RwLock<Vfs>>,
     pub opened_files: DashMap<Uri, FileData>,
+}
+
+impl Backend {
+    pub fn new(client: Client) -> Self {
+        Self {
+            client,
+            analysis: Arc::new(Analysis::default().into()),
+            vfs: Arc::new(RwLock::new(Vfs::new())),
+            opened_files: Default::default(),
+        }
+    }
 }
 
 pub struct FileData {}
@@ -120,12 +130,14 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let mut vfs = self.vfs.write().unwrap();
         let uri = params.text_document.uri;
-        vfs.insert_file(
+        let file = vfs.insert_file(
             uri.to_vfs_path().unwrap(),
             params.text_document.text,
             &self.analysis.lock().unwrap().db,
         );
-        self.opened_files.insert(uri, FileData {});
+        self.analysis.lock().unwrap().insert_file(file);
+        self.opened_files.insert(uri.clone(), FileData {});
+        self.spawn_update_diagnostics(uri);
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -161,10 +173,12 @@ impl LanguageServer for Backend {
             ) {
                 match std::fs::read_to_string(path) {
                     Ok(content) => {
-                        self.vfs
+                        let file = self
+                            .vfs
                             .write()
                             .unwrap()
                             .set_path_content(file_event.uri.to_vfs_path().unwrap(), content);
+                        self.analysis.lock().unwrap().insert_file(file);
                     }
                     Err(e) => {
                         panic!("{e}");
@@ -194,7 +208,6 @@ impl Backend {
         let task = task::spawn_blocking(move || {
             let state = State { analysis, vfs };
             handler::diagnostics(state, &uri_clone)
-
         });
         //TODO: termiante previous diagnostics if present (see opened_files)
         task::spawn({

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use indexmap::map::Entry;
 use itertools::Itertools;
-use notify_rust::Notification;
 use ustr::Ustr;
 
 use crate::{
@@ -220,7 +219,7 @@ pub fn resolve_name_for_expr<'db>(
     }
     let module_scope = scope::module_scope(db, func.file(db));
 
-    if let Some(result) = module_scope.resolve_name(name) {
+    if let Some(result) = module_scope.resolve_value(name) {
         match result {
             ir::ModuleDef::Function(function) => return Some(ResolveResult::Function(*function)),
             ir::ModuleDef::Struct(strct) => todo!(),

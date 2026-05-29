@@ -2,13 +2,12 @@ use std::{collections::HashMap, ops::Index};
 
 use itertools::Itertools;
 use la_arena::{Arena, ArenaMap, Idx, RawIdx};
-use notify_rust::Notification;
 use rowan::ast::AstPtr;
 use salsa::Database;
 
 use crate::{
     def::{
-        ir::{self, Arg, Expr, ExprId, Pattern, PatternId, Stmt, TypeExpr},
+        ir::{self, Arg, Expr, ExprId, Pattern, PatternId, Stmt, Type},
         lower::{self, lower_type_expr},
         scope::MyAstPtr,
     },
@@ -19,13 +18,18 @@ use crate::{
 pub type ExprPtr = MyAstPtr<ast::Expr>;
 pub type ExprSource = InFile<ExprPtr>;
 
+pub type StmtPtr = MyAstPtr<ast::Stmt>;
+pub type StmtSource = InFile<StmtPtr>;
+
+//TODO: store statements in an arena as well, finish UnknownType error
+
 pub type PatternPtr = AstPtr<ast::Pattern>;
 pub type PatternSource = InFile<PatternPtr>;
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 pub struct Param<'db> {
     pub pattern: PatternId,
-    pub type_expr: TypeExpr<'db>,
+    pub type_expr: Type<'db>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, salsa::Update)]

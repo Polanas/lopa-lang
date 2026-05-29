@@ -15,11 +15,6 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend {
-        client,
-        vfs: Arc::new(RwLock::new(Vfs::new())),
-        opened_files: Default::default(),
-        analysis: Arc::new(Analysis::default().into()),
-    });
+    let (service, socket) = LspService::new(|client| Backend::new(client));
     Server::new(stdin, stdout, socket).serve(service).await;
 }

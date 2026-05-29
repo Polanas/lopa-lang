@@ -1,7 +1,6 @@
-use std::sync::{Arc, RwLock};
-
 use crate::{
-    ide::{self, File, base::FileRange, parse},
+    def::{self, ir::Struct, scope},
+    ide::{self, File, base::FileRange, diagnostics, parse},
     parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
     ty::infer,
 };
@@ -16,6 +15,7 @@ pub enum Severity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[salsa::accumulator]
 pub struct Diagnostic {
     pub range: TextRange,
     pub kind: DiagnosticKind,
@@ -72,6 +72,13 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
 
     let ir = ide::lower_file(db, file);
+    for struct_item in ir.structs(db) {
+        diagnostics.extend(
+            def::ir::struct_fields::accumulated::<Diagnostic>(db, struct_item)
+                .into_iter()
+                .cloned(),
+        );
+    }
     for func in ir.functions(db) {
         diagnostics.extend(
             infer::type_diagnostics(db, func)
