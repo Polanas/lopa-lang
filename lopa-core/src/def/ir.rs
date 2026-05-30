@@ -62,6 +62,7 @@ impl<'db> ImplFunction<'db> {
             .into_iter()
             .flat_map(|p| p.params())
         {
+            //TODO: check for self
             let name = param.pattern().and_then(|p| {
                 Some(match p {
                     ast::Pattern::NamePattern(name_patern) => name_patern,
@@ -76,6 +77,21 @@ impl<'db> ImplFunction<'db> {
             params.push(Param { name, ty });
         }
         params
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn output(self, db: &'db dyn salsa::Database) -> Type<'db> {
+        let file = self.func(db).file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        let output = self
+            .func(db)
+            .ast_ptr(db)
+            .to_node(&root)
+            .output()
+            .and_then(|o| o.ty());
+        output
+            .map(|o| lower_type_expr_with_self(db, file, o, Some(self.owner(db))))
+            .unwrap_or_else(|| Type::Unit)
     }
 }
 
@@ -95,6 +111,14 @@ pub struct Param<'db> {
 #[salsa::tracked]
 impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
+    pub fn params_by_name(self, db: &'db dyn salsa::Database) -> UstrIndexMap<Param<'db>> {
+        self.params(db)
+            .iter()
+            .filter_map(|p| p.name.map(|n| (UstrHash(n), p.clone())))
+            .collect()
+    }
+
+    #[salsa::tracked(returns(ref))]
     pub fn params(self, db: &'db dyn salsa::Database) -> Vec<Param<'db>> {
         let mut params = vec![];
         let file = self.file(db);
@@ -106,6 +130,7 @@ impl<'db> Function<'db> {
             .into_iter()
             .flat_map(|p| p.params())
         {
+            //TODO: error is there's self token
             let name = param.pattern().and_then(|p| {
                 Some(match p {
                     ast::Pattern::NamePattern(name_patern) => name_patern,

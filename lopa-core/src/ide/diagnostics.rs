@@ -8,8 +8,6 @@ use crate::{
     parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
     ty::infer,
 };
-use itertools::Itertools;
-use notify_rust::Notification;
 use rowan::{TextRange, TextSize};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

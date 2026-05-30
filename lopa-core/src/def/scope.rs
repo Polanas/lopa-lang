@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use la_arena::{Arena, ArenaMap, Idx};
+use notify_rust::Notification;
 use rowan::{TextRange, ast::AstNode};
 use ustr::Ustr;
 
@@ -133,8 +134,7 @@ impl<'db> ExprScopesCtx<'db> {
     }
 
     fn traverse_expr(&mut self, expr: ExprId, scope: ScopeId) {
-        self.scope_by_expr
-            .insert(Idx::<Expr<'db>>::from_raw(expr), scope);
+        self.scope_by_expr.insert(expr.into(), scope);
 
         match self.body.expr(expr) {
             ir::Expr::BlockExpr { stmts } => {

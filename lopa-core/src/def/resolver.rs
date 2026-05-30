@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use indexmap::map::Entry;
 use itertools::Itertools;
+use notify_rust::Notification;
 use ustr::Ustr;
 
 use crate::{
@@ -211,6 +212,7 @@ pub fn resolve_name_for_expr<'db>(
 ) -> Option<ResolveResult<'db>> {
     let scopes = scope::expr_scopes(db, func);
     let expr_scope = scopes.scope_for_expr(expr)?;
+
     if let Some(entry) = scopes.resolve_name_in_scope(expr_scope, &name) {
         return Some(ResolveResult::Local(Local {
             parent: func,
@@ -222,6 +224,7 @@ pub fn resolve_name_for_expr<'db>(
     if let Some(result) = module_scope.resolve_value(name) {
         match result {
             ir::ModuleDef::Function(function) => return Some(ResolveResult::Function(*function)),
+
             ir::ModuleDef::Struct(strct) => todo!(),
         }
     }
