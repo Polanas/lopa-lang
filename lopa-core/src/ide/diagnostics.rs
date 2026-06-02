@@ -86,6 +86,7 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File, files: Files) -> Vec<Di
         diagnostics.extend(
             infer::type_diagnostics(db, *func)
                 .into_iter()
+                .filter_map(|(err, r)| r.map(|r| (err, r)))
                 .map(|(err, range)| Diagnostic {
                     range,
                     kind: DiagnosticKind::TypeError(infer::TypeErrorKind { message: err }),

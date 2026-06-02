@@ -8,7 +8,7 @@ use ustr::Ustr;
 use crate::{
     def::{
         body,
-        ir::{self, Expr, ExprId, ModuleDef, PatternId, Type},
+        ir::{self, Expr, ExprId, ModuleDef, PatternId, StmtId, Type},
         lower,
     },
     ide::{self},
@@ -100,15 +100,12 @@ pub fn module_source_map<'db>(
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn expr_scopes<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-) -> Arc<ExprScopes<'db>> {
+pub fn expr_scopes<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> Arc<ExprScopes> {
     Arc::new(ExprScopes::new(db, func))
 }
 struct ExprScopesCtx<'db> {
     scopes: Arena<ScopeData>,
-    scope_by_expr: ArenaMap<Idx<Expr<'db>>, ScopeId>,
+    scope_by_expr: ArenaMap<ExprId, ScopeId>,
     body: &'db body::Body<'db>,
 }
 
@@ -121,7 +118,7 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse(mut self) -> ExprScopes<'db> {
+    fn traverse(mut self) -> ExprScopes {
         let root = self.root_scope();
         for param in self.body.params() {
             self.add_bindings(*param, root);
@@ -185,8 +182,9 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse_expr_stmts(&mut self, stmts: &[ir::Stmt], scope: ScopeId) {
-        for stmt in stmts {
+    fn traverse_expr_stmts(&mut self, stmts: &[StmtId], scope: ScopeId) {
+        for stmt_id in stmts {
+            let stmt = self.body.stmt(*stmt_id);
             match stmt {
                 ir::Stmt::Let { pattern, expr, .. } => {
                     self.add_bindings(*pattern, scope);
@@ -224,20 +222,18 @@ impl<'db> ExprScopesCtx<'db> {
 }
 
 #[derive(Debug, PartialEq, Eq, Default, salsa::Update)]
-pub struct ExprScopes<'db> {
+pub struct ExprScopes {
     scopes: Arena<ScopeData>,
-    scope_by_expr: ArenaMap<Idx<Expr<'db>>, ScopeId>,
+    scope_by_expr: ArenaMap<ExprId, ScopeId>,
 }
 
-impl<'db> ExprScopes<'db> {
+impl ExprScopes {
     pub fn entries(&self, scope: ScopeId) -> &[ScopeEntry] {
         &self.scopes[scope].entries
     }
 
     pub fn scope_for_expr(&self, expr_id: ExprId) -> Option<ScopeId> {
-        self.scope_by_expr
-            .get(Idx::<Expr<'db>>::from_raw(expr_id))
-            .copied()
+        self.scope_by_expr.get(expr_id).copied()
     }
 
     pub fn scope_chain(&self, scope: Option<ScopeId>) -> impl Iterator<Item = ScopeId> {
@@ -250,8 +246,8 @@ impl<'db> ExprScopes<'db> {
     }
 }
 
-impl<'db> ExprScopes<'db> {
-    pub fn new(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> ExprScopes<'db> {
+impl ExprScopes {
+    pub fn new<'db>(db: &'db dyn salsa::Database, func: ir::Function<'db>) -> ExprScopes {
         ExprScopesCtx::new(ide::body(db, func)).traverse()
     }
 }

@@ -146,23 +146,7 @@ pub fn lower_type_expr_with_self<'db>(
     owner: Option<Type<'db>>,
 ) -> ir::Type<'db> {
     match ty {
-        ast::TypeExpr::PathType(path_type) => {
-            let Some(path) = path_type.value() else {
-                return ir::Type::Unknown(path_type.syntax().text().to_string().into());
-            };
-            let module_scope = scope::module_scope(db, file);
-            let Some((_, def)) = module_scope
-                .types()
-                .find(|t| t.0.0 == path.segments().last().unwrap())
-            else {
-                return ir::Type::Unknown(path_type.syntax().text().to_string().into());
-            };
-
-            match def {
-                ir::ModuleDef::Function(_) => unreachable!(),
-                ir::ModuleDef::Struct(strct) => ir::Type::Struct(*strct),
-            }
-        }
+        ast::TypeExpr::PathType(path_type) => resolve_type_path(db, file, path_type),
         ast::TypeExpr::NilableType(nilable_type) => {
             let Some(ty) = nilable_type.ty() else {
                 return ir::Type::Unknown(nilable_type.syntax().text().to_string().into());
@@ -204,6 +188,34 @@ pub fn lower_type_expr_with_self<'db>(
                 .into(),
         }),
         ast::TypeExpr::SelfType(_) => owner.unwrap_or_else(|| Type::Unknown(Ustr::from("Self"))),
+        ast::TypeExpr::DynType(dyn_type) => {
+            let Some(path) = dyn_type.path() else {
+                return ir::Type::Unknown("".into());
+            };
+            resolve_type_path(db, file, ast::PathType(path.syntax().clone()))
+        }
+    }
+}
+
+fn resolve_type_path<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    path_type: ast::PathType,
+) -> Type<'_> {
+    let Some(path) = path_type.value() else {
+        return ir::Type::Unknown(path_type.syntax().text().to_string().into());
+    };
+    let module_scope = scope::module_scope(db, file);
+    let Some((_, def)) = module_scope
+        .types()
+        .find(|t| t.0.0 == path.segments().last().unwrap())
+    else {
+        return ir::Type::Unknown(path_type.syntax().text().to_string().into());
+    };
+
+    match def {
+        ir::ModuleDef::Function(_) => unreachable!(),
+        ir::ModuleDef::Struct(strct) => ir::Type::Struct(*strct),
     }
 }
 

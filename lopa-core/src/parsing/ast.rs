@@ -496,6 +496,10 @@ structs! {
     PATH_TYPE = PathType {
         value: Path,
     },
+    DYN_TYPE = DynType {
+        dyn_keyword: T![dyn],
+        path: Path,
+    },
     SELF_TYPE = SelfType {
         value: Path,
     },
@@ -773,6 +777,7 @@ enums! {
         NamePattern,
     },
     TypeExpr {
+        DynType,
         PathType,
         NilableType,
         LitType,

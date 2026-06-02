@@ -102,6 +102,7 @@ macro_rules! T {
     [fn] => { super::lexer::Syntax::FN_KW};
     [mod] => { super::lexer::Syntax::MOD_KW};
     [let] => { super::lexer::Syntax::LET_KW};
+    [dyn] => { super::lexer::Syntax::DYN_KW};
     [nil] => { super::lexer::Syntax::NIL_KW};
     [true] => { super::lexer::Syntax::TRUE_KW};
     [lua] => { super::lexer::Syntax::LUA_KW};
@@ -275,9 +276,11 @@ def! {
     #[token("->")]
     ARROW = ["->"] @SYMBOL_LAST,
 
-
     #[token("let")]
     LET_KW = ["let"]  @KEYWORD_FIRST,
+
+    #[token("dyn")]
+    DYN_KW = ["dyn"],
 
     #[token("true")]
     TRUE_KW = ["true"],
@@ -399,6 +402,7 @@ def! {
     FN_TYPE,
     UNIT_TYPE,
     SELF_TYPE,
+    DYN_TYPE,
 
     SELF_EXPR,
     RECORD_EXPR,

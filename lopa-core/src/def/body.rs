@@ -7,7 +7,7 @@ use salsa::Database;
 
 use crate::{
     def::{
-        ir::{self, Arg, Expr, ExprId, Pattern, PatternId, Stmt, Type},
+        ir::{self, Arg, Expr, ExprId, Pattern, PatternId, Stmt, StmtId, Type},
         lower::{self, lower_type_expr},
         scope::MyAstPtr,
     },
@@ -15,7 +15,7 @@ use crate::{
     parsing::ast::{self},
 };
 
-pub type ExprPtr = MyAstPtr<ast::Expr>;
+pub type ExprPtr = AstPtr<ast::Expr>;
 pub type ExprSource = InFile<ExprPtr>;
 
 pub type StmtPtr = MyAstPtr<ast::Stmt>;
@@ -34,8 +34,9 @@ pub struct Param<'db> {
 
 #[derive(PartialEq, Eq, Debug, Clone, salsa::Update)]
 pub struct Body<'db> {
-    exprs: Arena<Expr<'db>>,
+    exprs: Arena<Expr>,
     patterns: Arena<Pattern>,
+    stmts: Arena<Stmt<'db>>,
     params: Vec<PatternId>,
     body_expr: ExprId,
 }
@@ -45,8 +46,12 @@ impl<'db> Body<'db> {
         &self.patterns[index]
     }
 
-    pub fn expr(&'_ self, index: ExprId) -> &'_ Expr<'_> {
-        &self.exprs[Idx::<Expr<'db>>::from_raw(index)]
+    pub fn expr(&self, index: ExprId) -> &Expr {
+        &self.exprs[index]
+    }
+
+    pub fn stmt(&self, index: StmtId) -> &Stmt<'_> {
+        &self.stmts[Idx::from_raw(index)]
     }
 
     pub fn body_expr(&self) -> ExprId {
@@ -64,8 +69,9 @@ impl<'db> Default for Body<'db> {
             exprs: Default::default(),
             patterns: Default::default(),
             params: Default::default(),
+            stmts: Default::default(),
             //HACK: implementing Defualt without optional ExprId
-            body_expr: ExprId::from(0),
+            body_expr: ExprId::from_raw(RawIdx::from(0)),
         }
     }
 }
@@ -78,13 +84,21 @@ struct BodyLowerCtx<'db> {
 }
 
 impl<'db> BodyLowerCtx<'db> {
-    fn alloc_expr(&mut self, expr: Expr<'db>, ptr: AstPtr<ast::Expr>) -> ExprId {
-        let ptr = InFile::new(self.file, MyAstPtr(ptr));
+    fn alloc_expr(&mut self, expr: Expr, ptr: AstPtr<ast::Expr>) -> ExprId {
+        let ptr = InFile::new(self.file, ptr);
         let id = self.body.exprs.alloc(expr);
-        self.source_map
-            .expr_source_to_id
-            .insert(ptr.clone(), id.into_raw());
+        self.source_map.expr_source_to_id.insert(ptr.clone(), id);
         self.source_map.expr_id_to_source.insert(id, ptr.clone());
+        id
+    }
+
+    fn alloc_stmt(&mut self, stmt: Stmt<'db>, ptr: AstPtr<ast::Stmt>) -> StmtId {
+        let ptr = InFile::new(self.file, MyAstPtr(ptr));
+        let id = self.body.stmts.alloc(stmt);
+        self.source_map
+            .stmt_source_to_id
+            .insert(ptr.clone(), id.into_raw());
+        self.source_map.stmt_id_to_source.insert(id, ptr.clone());
         id.into_raw()
     }
 
@@ -95,8 +109,8 @@ impl<'db> BodyLowerCtx<'db> {
     fn alloc_pattern(&mut self, pattern: Pattern, ptr: AstPtr<ast::Pattern>) -> PatternId {
         let ptr = InFile::new(self.file, ptr);
         let id = self.body.patterns.alloc(pattern);
-        self.source_map.pattern_source_to_id.insert(ptr.clone(), id);
-        self.source_map.pattern_id_to_source.insert(id, ptr.clone());
+        self.source_map.pat_source_to_id.insert(ptr.clone(), id);
+        self.source_map.pat_id_to_source.insert(id, ptr.clone());
         id
     }
 
@@ -223,7 +237,7 @@ impl<'db> BodyLowerCtx<'db> {
         }
     }
 
-    fn lower_block(&mut self, block: &ast::BlockExpr) -> Expr<'db> {
+    fn lower_block(&mut self, block: &ast::BlockExpr) -> Expr {
         Expr::BlockExpr {
             stmts: block
                 .stmts()
@@ -254,7 +268,7 @@ impl<'db> BodyLowerCtx<'db> {
 
     fn lower_expr_opt(&mut self, expr: Option<ast::Expr>) -> ExprId {
         let Some(expr) = expr else {
-            return self.body.exprs.alloc(Expr::Missing).into_raw();
+            return self.body.exprs.alloc(Expr::Missing);
         };
         self.lower_expr(expr)
     }
@@ -280,7 +294,8 @@ impl<'db> BodyLowerCtx<'db> {
         }
     }
 
-    fn lower_stmt(&mut self, stmt: ast::Stmt) -> Option<ir::Stmt<'db>> {
+    fn lower_stmt(&mut self, stmt: ast::Stmt) -> Option<StmtId> {
+        let ptr = AstPtr::new(&stmt);
         Some(match stmt {
             ast::Stmt::LetStmt(let_stmt) => {
                 let (Some(pattern), Some(expr)) = (let_stmt.pattern(), let_stmt.expr()) else {
@@ -288,20 +303,26 @@ impl<'db> BodyLowerCtx<'db> {
                 };
                 let pattern = self.lower_pattern(pattern);
                 let expr = self.lower_expr(expr);
-                Stmt::Let {
-                    pattern,
-                    expr,
-                    ty: let_stmt
-                        .ty()
-                        .map(|ty| lower::lower_type_expr(self.db, self.file.clone(), ty)),
-                }
+                self.alloc_stmt(
+                    Stmt::Let {
+                        pattern,
+                        expr,
+                        ty: let_stmt
+                            .ty()
+                            .map(|ty| lower::lower_type_expr(self.db, self.file, ty)),
+                    },
+                    ptr,
+                )
             }
             ast::Stmt::ExprStmt(expr_stmt) => {
-                let expr = expr_stmt.expr()?;
-                Stmt::Expr {
-                    expr: self.lower_expr(expr),
-                    semi: expr_stmt.semi_token().map(|_| ()),
-                }
+                let expr = self.lower_expr(expr_stmt.expr()?);
+                self.alloc_stmt(
+                    Stmt::Expr {
+                        expr,
+                        semi: expr_stmt.semi_token().map(|_| ()),
+                    },
+                    ptr,
+                )
             }
         })
     }
@@ -310,30 +331,39 @@ impl<'db> BodyLowerCtx<'db> {
 #[derive(Default, PartialEq, Eq, Clone, salsa::Update)]
 pub struct BodySourceMap<'db> {
     expr_source_to_id: HashMap<ExprSource, ExprId>,
-    expr_id_to_source: ArenaMap<Idx<Expr<'db>>, ExprSource>,
-    pattern_source_to_id: HashMap<PatternSource, PatternId>,
-    pattern_id_to_source: ArenaMap<PatternId, PatternSource>,
+    expr_id_to_source: ArenaMap<ExprId, ExprSource>,
+    pat_source_to_id: HashMap<PatternSource, PatternId>,
+    pat_id_to_source: ArenaMap<PatternId, PatternSource>,
+    stmt_source_to_id: HashMap<StmtSource, StmtId>,
+    stmt_id_to_source: ArenaMap<Idx<Stmt<'db>>, StmtSource>,
 }
 
 impl<'db> BodySourceMap<'db> {
     pub fn expr_for_node(&self, node: InFile<&ast::Expr>) -> Option<ExprId> {
-        let src = node.map(AstPtr::new).map(MyAstPtr);
+        let src = node.map(AstPtr::new);
         self.expr_source_to_id.get(&src).cloned()
     }
 
     pub fn node_for_expr(&self, expr_id: ExprId) -> Option<ExprSource> {
-        self.expr_id_to_source
-            .get(Idx::<Expr<'db>>::from_raw(expr_id))
-            .cloned()
+        self.expr_id_to_source.get(expr_id).cloned()
+    }
+
+    pub fn stmt_for_node(&self, node: InFile<&ast::Stmt>) -> Option<StmtId> {
+        let src = node.map(AstPtr::new).map(MyAstPtr);
+        self.stmt_source_to_id.get(&src).cloned()
+    }
+
+    pub fn node_for_stmt(&self, stmt_id: StmtId) -> Option<StmtSource> {
+        self.stmt_id_to_source.get(Idx::from_raw(stmt_id)).cloned()
     }
 
     pub fn pattern_for_node(&self, node: InFile<&ast::Pattern>) -> Option<PatternId> {
         let src = node.map(AstPtr::new);
-        self.pattern_source_to_id.get(&src).cloned()
+        self.pat_source_to_id.get(&src).cloned()
     }
 
     pub fn node_for_pattern(&self, pat_id: PatternId) -> Option<PatternSource> {
-        self.pattern_id_to_source.get(pat_id).cloned()
+        self.pat_id_to_source.get(pat_id).cloned()
     }
 }
 

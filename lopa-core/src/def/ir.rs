@@ -286,6 +286,7 @@ pub enum Type<'db> {
     Never,
     Lit(LitKind),
     Struct(Struct<'db>),
+    Dyn(Struct<'db>),
     Function(Function<'db>),
     Nilable(Box<Type<'db>>),
     BareFn(BareFn<'db>),
@@ -366,16 +367,16 @@ impl<'db> Type<'db> {
     }
 }
 
-pub type ExprId = RawIdx;
+pub type ExprId = Idx<Expr>;
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
-pub enum Expr<'db> {
+pub enum Expr {
     Missing,
     Unit,
     Path(Vec<Ustr>),
     Lit(LitKind),
     BlockExpr {
-        stmts: Vec<Stmt<'db>>,
+        stmts: Vec<StmtId>,
     },
     If {
         if_cond: ExprId,
@@ -448,6 +449,9 @@ impl Arg {
         }
     }
 }
+
+
+pub type StmtId = RawIdx;
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
 pub enum Stmt<'db> {

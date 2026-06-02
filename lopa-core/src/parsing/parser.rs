@@ -30,7 +30,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T![|],
     T![self],
 ]);
-const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("], T![Self]]);
+const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("], T![Self], T![dyn]]);
 const ITEM_TYPE_FIRST: TokenSet = TokenSet::new(&[T![struct], T![enum]]).union(TYPE_FIRST);
 const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
@@ -615,6 +615,10 @@ impl<'a> Parser<'a> {
                 }
                 T![Self] => self.with(SELF_TYPE, |this| {
                     this.expect(T![Self]);
+                }),
+                T![dyn] => self.with(DYN_TYPE, |this| {
+                    this.expect(T![dyn]);
+                    this.path();
                 }),
                 T!["("] => {
                     self.expect(T!["("]);
@@ -1237,6 +1241,7 @@ mod test {
         insta::assert_snapshot!(parse("int", |p| p.type_expr()));
         insta::assert_snapshot!(parse("NotInt", |p| p.type_expr()));
         insta::assert_snapshot!(parse("fn(a : int, string) -> Result", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("(dyn Debug)?", |p| p.type_expr()));
     }
 
     #[test]

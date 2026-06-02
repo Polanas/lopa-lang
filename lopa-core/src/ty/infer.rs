@@ -16,7 +16,7 @@ use crate::{
     common::LitKind,
     def::{
         self, body,
-        ir::{self, Expr, ExprId, PatternId, Stmt, Type},
+        ir::{self, Expr, ExprId, PatternId, Stmt, StmtId, Type},
         resolver::{self, ResolveResult},
         scope::{self, ScopeId},
     },
@@ -31,7 +31,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub struct InferenceResult<'db> {
     pattern_ty_map: ArenaMap<PatternId, Type<'db>>,
-    pub expr_ty_map: ArenaMap<Idx<Expr<'db>>, Type<'db>>,
+    pub expr_ty_map: ArenaMap<ExprId, Type<'db>>,
     pub diagnostics: Vec<TypeDiagnostic<'db>>,
 }
 
@@ -94,17 +94,17 @@ pub enum TypeDiagnostic<'db> {
     },
 }
 
-struct InferCtx {
-    db: &'static dyn salsa::Database,
-    body: &'static def::body::Body<'static>,
+struct InferCtx<'db> {
+    db: &'db dyn salsa::Database,
+    body: &'db def::body::Body<'static>,
     func: ir::Function<'static>,
-    scopes: &'static scope::ExprScopes<'static>,
+    scopes: &'db scope::ExprScopes,
     diagnostics: Ptr<Vec<TypeDiagnostic<'static>>>,
     pattern_ty_map: Ptr<ArenaMap<PatternId, Type<'static>>>,
-    expr_ty_map: Ptr<ArenaMap<Idx<Expr<'static>>, Type<'static>>>,
+    expr_ty_map: Ptr<ArenaMap<Idx<Expr>, Type<'static>>>,
 }
 
-impl InferCtx {
+impl<'db> InferCtx<'db> {
     fn results(self) -> InferenceResult<'static> {
         InferenceResult {
             pattern_ty_map: Ptr::try_unwrap(self.pattern_ty_map).unwrap(),
@@ -128,15 +128,19 @@ impl InferCtx {
         Some(())
     }
 
-    fn insert_pattern_ty(&self, pattern_id: PatternId, ty: Type<'static>) {
-        self.pattern_ty_map.clone().insert(pattern_id, ty);
+    fn insert_pattern_ty(&self, pattern_id: PatternId, ty: Type<'db>) {
+        self.pattern_ty_map
+            .clone()
+            .insert(pattern_id, unsafe { transmute(ty) });
     }
 
-    fn insert_expr_ty(&self, expr_id: ExprId, ty: Type<'static>) {
-        self.expr_ty_map.clone().insert(expr_id.into(), ty);
+    fn insert_expr_ty(&self, expr_id: ExprId, ty: Type<'db>) {
+        self.expr_ty_map
+            .clone()
+            .insert(expr_id.into(), unsafe { transmute(ty) });
     }
 
-    fn pattern_ty(&self, pattern_id: PatternId) -> Option<&Type<'static>> {
+    fn pattern_ty(&self, pattern_id: PatternId) -> Option<&Type<'db>> {
         self.pattern_ty_map.get(pattern_id.into())
     }
 
@@ -146,7 +150,7 @@ impl InferCtx {
         expr_id: ExprId,
         expected: Option<&Type<'static>>,
     ) -> Option<&Type<'static>> {
-        if let Some(ty) = self.expr_ty_map.get(expr_id.into()) {
+        if let Some(ty) = self.expr_ty_map.get(expr_id) {
             return Some(ty);
         };
         match self.body.expr(expr_id) {
@@ -337,7 +341,7 @@ impl InferCtx {
             ir::Expr::Record { path, fields } => {}
             ir::Expr::SelfVar {} => {}
         };
-        self.expr_ty_map.get(expr_id.into())
+        self.expr_ty_map.get(expr_id)
     }
 
     fn binary_op_result(
@@ -382,10 +386,11 @@ impl InferCtx {
         })
     }
 
-    fn block_expr(&self, stmts: &'static [Stmt<'static>]) -> Type<'static> {
+    fn block_expr(&self, stmts: &[StmtId]) -> Type<'static> {
         let mut ty = Type::Unit;
-        for (position, stmt) in stmts.iter().with_position() {
-            let output = self.infer_stmt(stmt);
+        for (position, stmt_id) in stmts.iter().with_position() {
+            let output = self.infer_stmt(*stmt_id);
+            let stmt = self.body.stmt(*stmt_id);
 
             if matches!(position, Position::Only | Position::Last)
                 && matches!(stmt, Stmt::Expr { semi: None, .. })
@@ -396,7 +401,8 @@ impl InferCtx {
         ty
     }
 
-    fn infer_stmt(&self, stmt: &'static Stmt) -> Option<Type<'static>> {
+    fn infer_stmt(&self, stmt_id: StmtId) -> Option<Type<'static>> {
+        let stmt = self.body.stmt(stmt_id);
         match stmt {
             Stmt::Let {
                 pattern: pattern_id,
@@ -433,7 +439,7 @@ impl InferCtx {
                 Some(if semi.is_some() {
                     Type::Unit
                 } else {
-                    self.expr_ty_map.get((*expr_id).into())?.clone()
+                    self.expr_ty_map.get(*expr_id)?.clone()
                 })
             }
         }
@@ -464,8 +470,10 @@ impl InferCtx {
         }
     }
 
-    fn add_error(&self, diagnostic: TypeDiagnostic<'static>) {
-        self.diagnostics.clone().push(diagnostic);
+    fn add_error(&self, diagnostic: TypeDiagnostic<'db>) {
+        self.diagnostics
+            .clone()
+            .push(unsafe { transmute(diagnostic) });
     }
 }
 
@@ -536,6 +544,7 @@ fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
         }
         Type::Struct(_) => Ustr::from("todo: struct"),
         Type::Never => "!".into(),
+        Type::Dyn(path) => Ustr::from("todo: path"),
     }
 }
 
@@ -548,7 +557,7 @@ fn expr_node<'db>(
     let parse = ide::parse(db, func.file(db));
     source_map
         .node_for_expr(expr)
-        .map(|n| n.value.0.syntax_node_ptr().to_node(&parse.syntax_node(db)))
+        .map(|n| n.value.syntax_node_ptr().to_node(&parse.syntax_node(db)))
 }
 
 fn expr_range<'db>(
@@ -585,7 +594,7 @@ fn expr_text<'db>(
 pub fn type_diagnostics<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
-) -> Vec<(String, TextRange)> {
+) -> Vec<(String, Option<TextRange>)> {
     let body = ide::body(db, func);
     let result = infer_function(db, func);
     result
@@ -607,32 +616,35 @@ pub fn type_diagnostics<'db>(
                     let expr = if let Expr::BlockExpr { stmts } = expr {
                         stmts
                             .last()
-                            .and_then(|e| match e {
-                                Stmt::Let { .. } => None,
-                                Stmt::Expr { expr, .. } => Some(*expr),
+                            .and_then(|stmt| {
+                                let e = body.stmt(*stmt);
+                                match e {
+                                    Stmt::Let { .. } => None,
+                                    Stmt::Expr { expr, .. } => Some(*expr),
+                                }
                             })
                             .unwrap_or(*expr_id)
                     } else {
                         *expr_id
                     };
-                    expr_range(db, func, expr).unwrap_or_default()
+                    expr_range(db, func, expr)
                 },
             ),
             TypeDiagnostic::UnknownValue { expr } => (
                 format!(
-                    "cannot find value `{}` in this scope",
-                    expr_text(db, func, *expr).unwrap_or_default()
+                    "cannot find value `{:?}` in this scope",
+                    expr_text(db, func, *expr)
                 ),
-                expr_range(db, func, *expr).unwrap_or_default(),
+                expr_range(db, func, *expr),
             ),
             TypeDiagnostic::UnsupportedBinaryOp { left, right, op } => (
                 format!(
-                    "`{}` operation not supported for `{}` and `{}`",
+                    "`{}` operation not supported for `{:?}` and `{:?}`",
                     op,
-                    expr_text(db, func, *left).unwrap_or_default(),
-                    expr_text(db, func, *right).unwrap_or_default(),
+                    expr_text(db, func, *left),
+                    expr_text(db, func, *right),
                 ),
-                binary_op_range(db, func, *left).unwrap_or_default(),
+                binary_op_range(db, func, *left),
             ),
             // TypeDiagnostic::UnknownType { ty } => (format),
             TypeDiagnostic::Expected {
@@ -650,20 +662,23 @@ pub fn type_diagnostics<'db>(
                     let expr = if let Expr::BlockExpr { stmts } = expr {
                         stmts
                             .last()
-                            .and_then(|e| match e {
-                                Stmt::Let { .. } => None,
-                                Stmt::Expr { expr, .. } => Some(*expr),
+                            .and_then(|stmt| {
+                                let e = body.stmt(*stmt);
+                                match e {
+                                    Stmt::Let { .. } => None,
+                                    Stmt::Expr { expr, .. } => Some(*expr),
+                                }
                             })
                             .unwrap_or(*expr_id)
                     } else {
                         *expr_id
                     };
-                    expr_range(db, func, expr).unwrap_or_default()
+                    expr_range(db, func, expr)
                 },
             ),
             TypeDiagnostic::UnkownParamName { label, expr } => (
                 format!("cannot find parameter with the name `{}`", label),
-                expr_range(db, func, *expr).unwrap_or_default(),
+                expr_range(db, func, *expr),
             ),
             TypeDiagnostic::TooManyArguments {
                 expr,
@@ -674,11 +689,11 @@ pub fn type_diagnostics<'db>(
                     "too many arguments provided: expected {}, provided {}",
                     expected, provided
                 ),
-                expr_range(db, func, *expr).unwrap_or_default(),
+                expr_range(db, func, *expr),
             ),
             TypeDiagnostic::SameParamTwice { expr, name } => (
                 format!("parameter `{}` is provided multiple times", name),
-                expr_range(db, func, *expr).unwrap_or_default(),
+                expr_range(db, func, *expr),
             ),
             TypeDiagnostic::TooFewArguments {
                 expr,
@@ -689,7 +704,7 @@ pub fn type_diagnostics<'db>(
                     "too few arguments provided: expected {}, provided {}",
                     expected, provided
                 ),
-                expr_range(db, func, *expr).unwrap_or_default(),
+                expr_range(db, func, *expr),
             ),
         })
         .collect_vec()
@@ -700,15 +715,12 @@ pub fn infer_function<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
 ) -> InferenceResult<'db> {
-    let db: &'static dyn salsa::Database = unsafe { transmute(db) };
-    let func: ir::Function<'static> = unsafe { transmute(func) };
-
-    let body = ide::body(db, func);
-    let scopes = scope::expr_scopes(db, func);
-    let mut ctx = InferCtx {
+    let body = ide::body(db, func).as_ref();
+    let scopes = scope::expr_scopes(db, func).as_ref();
+    let ctx = InferCtx {
         db,
-        body,
-        func,
+        body: unsafe { transmute(body) },
+        func: unsafe { transmute(func) },
         diagnostics: Ptr::new(Default::default()),
         pattern_ty_map: Ptr::new(Default::default()),
         expr_ty_map: Ptr::new(Default::default()),

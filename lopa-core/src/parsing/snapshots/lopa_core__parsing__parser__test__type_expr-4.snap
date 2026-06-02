@@ -1,0 +1,14 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"(dyn Debug)?\", |p| p.type_expr())"
+---
+NILABLE_TYPE: 0..12 
+  PAREN_TYPE: 0..11 
+    L_PAREN: 0..1 "("
+    DYN_TYPE: 1..10 
+      DYN_KW: 1..4 "dyn"
+      WHITESPACE: 4..5 
+      PATH: 5..10 
+        IDENT: 5..10 "Debug"
+    R_PAREN: 10..11 ")"
+  MARK: 11..12 "?"
