@@ -36,7 +36,9 @@ const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
 const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
+const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*]]);
 
+const USE_RECOVERY: TokenSet = TokenSet::new(&[T![;]]).union(ITEM_FIRST);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
 const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"], T![;]]).union(ITEM_FIRST);
@@ -79,6 +81,7 @@ pub enum ErrorKind {
     ExpectedAttribute,
     ExpectedPattern,
     ExpectedItem,
+    ExpectedUseDeclaration,
     Other(String),
 }
 
@@ -100,6 +103,7 @@ impl std::fmt::Display for ErrorKind {
             Self::ExpectedStructElement => "expected struct element",
             Self::ExpectedEnumElement => "expected enum element",
             Self::ExpectedImplElement => "expected impl element",
+            Self::ExpectedUseDeclaration => "expected use declaration",
             Self::Other(text) => text,
         }
         .fmt(f)
@@ -350,6 +354,7 @@ impl<'a> Parser<'a> {
                 T![struct] => self.struct_item(),
                 T![impl] => self.impl_item(),
                 T![enum] => self.enum_item(),
+                T![use] => self.use_item(),
                 _ => {
                     self.advance_with_error(ErrorKind::ExpectedItem);
                 }
@@ -357,6 +362,68 @@ impl<'a> Parser<'a> {
         } else {
             self.advance_with_error(ErrorKind::ExpectedItem);
         }
+    }
+
+    fn use_item(&mut self) {
+        self.with(USE_ITEM, |this| {
+            this.expect(T![use]);
+            this.use_tree();
+            this.expect(T![;]);
+        });
+    }
+
+    fn use_tree(&mut self) {
+        match self.peek() {
+            T!["{"] => {
+                self.use_tree_list();
+            }
+            T![*] => {
+                self.with(USE_GLOBAL, |this| {
+                    this.expect(T![*]);
+                });
+            }
+            IDENT => {
+                if self.nth(1) == T![:] {
+                    self.with(USE_PATH, |this| {
+                        this.name();
+                        this.expect(T![:]);
+                        this.expect(T![:]);
+                        this.use_tree();
+                    });
+                } else {
+                    self.with(USE_NAME, |this| {
+                        this.name();
+                    })
+                }
+            }
+            _ => {
+                if self.at_any(USE_RECOVERY) {
+                    return;
+                }
+                self.advance_with_error(ErrorKind::ExpectedUseDeclaration);
+            }
+        };
+    }
+
+    fn use_tree_list(&mut self) {
+        self.with(USE_TREE_LIST, |this| {
+            this.expect(T!["{"]);
+            while !this.at(T!["}"]) && !this.eof() {
+                if this.at_any(USE_FIRST) {
+                    this.use_tree();
+                } else {
+                    if this.at_any(USE_RECOVERY) {
+                        break;
+                    } else {
+                        this.advance_with_error(ErrorKind::ExpectedUseDeclaration);
+                    }
+                }
+                if !this.at(T!["}"]) {
+                    this.expect(T![,]);
+                }
+            }
+            this.expect(T!["}"]);
+        });
     }
 
     fn enum_item(&mut self) {
@@ -1320,6 +1387,12 @@ mod test {
         }",
             |p| p.enum_item()
         ));
+    }
+
+    #[test]
+    fn use_item() {
+        insta::assert_snapshot!(parse("use foo::bar::baz;", |p| p.use_item()));
+        insta::assert_snapshot!(parse("use foo::{bar,baz,*};", |p| p.use_item()));
     }
 
     #[test]

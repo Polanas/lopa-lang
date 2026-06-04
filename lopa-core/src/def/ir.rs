@@ -293,6 +293,13 @@ pub enum Type<'db> {
 }
 
 impl<'db> Type<'db> {
+    pub fn is_unknown(&self) -> bool {
+        match self {
+            Self::Unknown(_) => true,
+            Self::Nilable(nilable) if matches!(**nilable, Self::Unknown(_)) => true,
+            _ => false,
+        }
+    }
     pub fn is_nilable(&self) -> bool {
         matches!(
             self,
@@ -449,7 +456,6 @@ impl Arg {
         }
     }
 }
-
 
 pub type StmtId = RawIdx;
 

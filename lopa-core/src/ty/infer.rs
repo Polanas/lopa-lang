@@ -1,14 +1,8 @@
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet, linked_list},
-    mem::transmute,
-    ops::{Deref, Not},
-};
+use std::{borrow::Cow, mem::transmute};
 
 use itertools::{Itertools, Position};
-use la_arena::{ArenaMap, Idx, RawIdx};
-use notify_rust::Notification;
-use rowan::TextRange;
+use la_arena::{ArenaMap, Idx};
+use rowan::{TextRange, ast::AstNode};
 use ustr::Ustr;
 
 use crate::{
@@ -17,14 +11,11 @@ use crate::{
     def::{
         self, body,
         ir::{self, Expr, ExprId, PatternId, Stmt, StmtId, Type},
-        resolver::{self, ResolveResult},
-        scope::{self, ScopeId},
+        resolver::{self},
+        scope::{self},
     },
-    ide::{self, diagnostics, source_map},
-    parsing::{
-        ast::{self, BinaryOpKind, SyntaxNode, SyntaxNodePtr},
-        lexer,
-    },
+    ide::{self},
+    parsing::ast::{self, BinaryOpKind, SyntaxNode},
     ptr::Ptr,
 };
 
@@ -41,7 +32,7 @@ impl<'db> InferenceResult<'db> {
     }
 
     pub fn ty_for_expr(&'_ self, expr: ExprId) -> &'_ Type<'_> {
-        &self.expr_ty_map[expr.into()]
+        &self.expr_ty_map[expr]
     }
 }
 
@@ -85,10 +76,9 @@ pub enum TypeDiagnostic<'db> {
         provided: usize,
         expected: usize,
     },
-    // UnknownType {
-    //     ty: Type<'db>,
-    //     expr: ExprId
-    // },
+    UnknownType {
+        stmt: StmtId,
+    },
     UnknownValue {
         expr: ExprId,
     },
@@ -98,7 +88,7 @@ struct InferCtx<'db> {
     db: &'db dyn salsa::Database,
     body: &'db def::body::Body<'static>,
     func: ir::Function<'static>,
-    scopes: &'db scope::ExprScopes,
+    _scopes: &'db scope::ExprScopes,
     diagnostics: Ptr<Vec<TypeDiagnostic<'static>>>,
     pattern_ty_map: Ptr<ArenaMap<PatternId, Type<'static>>>,
     expr_ty_map: Ptr<ArenaMap<Idx<Expr>, Type<'static>>>,
@@ -129,26 +119,26 @@ impl<'db> InferCtx<'db> {
     }
 
     fn insert_pattern_ty(&self, pattern_id: PatternId, ty: Type<'db>) {
-        self.pattern_ty_map
-            .clone()
-            .insert(pattern_id, unsafe { transmute(ty) });
+        self.pattern_ty_map.clone().insert(pattern_id, unsafe {
+            transmute::<def::ir::Type<'db>, Type<'static>>(ty)
+        });
     }
 
     fn insert_expr_ty(&self, expr_id: ExprId, ty: Type<'db>) {
-        self.expr_ty_map
-            .clone()
-            .insert(expr_id.into(), unsafe { transmute(ty) });
+        self.expr_ty_map.clone().insert(expr_id, unsafe {
+            transmute::<Type<'db>, Type<'static>>(ty)
+        });
     }
 
     fn pattern_ty(&self, pattern_id: PatternId) -> Option<&Type<'db>> {
-        self.pattern_ty_map.get(pattern_id.into())
+        self.pattern_ty_map.get(pattern_id)
     }
 
     //TODO: add expected type
     fn infer_expr(
         &self,
         expr_id: ExprId,
-        expected: Option<&Type<'static>>,
+        _expected: Option<&Type<'static>>,
     ) -> Option<&Type<'static>> {
         if let Some(ty) = self.expr_ty_map.get(expr_id) {
             return Some(ty);
@@ -411,12 +401,12 @@ impl<'db> InferCtx<'db> {
             } => {
                 self.infer_expr(*expr_id, None);
 
-                let infer_ty = self.expr_ty_map.get((*expr_id).into())?;
+                let infer_ty = self.expr_ty_map.get(*expr_id)?;
                 if let Some(ty) = ty.clone() {
-                    // if matches!(ty, Type::Unknown(_)) {
-                    //     self.add_error(TypeDiagnostic::UnknownType { ty });
-                    //     return None;
-                    // }
+                    if ty.is_unknown() {
+                        self.add_error(TypeDiagnostic::UnknownType { stmt: stmt_id });
+                        return None;
+                    }
                     if !self.can_assign_type(&ty, infer_ty) {
                         self.add_error(TypeDiagnostic::TypeMismatch {
                             expected: ty.clone(),
@@ -473,7 +463,7 @@ impl<'db> InferCtx<'db> {
     fn add_error(&self, diagnostic: TypeDiagnostic<'db>) {
         self.diagnostics
             .clone()
-            .push(unsafe { transmute(diagnostic) });
+            .push(unsafe { transmute::<TypeDiagnostic<'_>, TypeDiagnostic<'static>>(diagnostic) });
     }
 }
 
@@ -548,6 +538,18 @@ fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
     }
 }
 
+fn stmt_node<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    stmt: StmtId,
+) -> Option<SyntaxNode> {
+    let source_map = ide::source_map(db, func);
+    let parse = ide::parse(db, func.file(db));
+    source_map
+        .node_for_stmt(stmt)
+        .map(|n| n.value.0.syntax_node_ptr().to_node(&parse.syntax_node(db)))
+}
+
 fn expr_node<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
@@ -568,6 +570,18 @@ fn expr_range<'db>(
     expr_node(db, func, expr).map(|node| node.text_range())
 }
 
+fn stmt_type_range<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    stmt: StmtId,
+) -> Option<TextRange> {
+    let stmt = ast::Stmt::cast(stmt_node(db, func, stmt)?)?;
+    let ast::Stmt::LetStmt(let_stmt) = stmt else {
+        return None;
+    };
+    let_stmt.ty().map(|ty| ty.syntax().text_range())
+}
+
 fn binary_op_range<'db>(
     db: &'db dyn salsa::Database,
     func: ir::Function<'db>,
@@ -585,6 +599,17 @@ fn expr_text<'db>(
     expr: ExprId,
 ) -> Option<Ustr> {
     let range = expr_range(db, func, expr)?;
+    let contents = func.file(db).contents(db).read().unwrap();
+    let contents = contents.as_str();
+    Some(Ustr::from(&contents[range]))
+}
+
+fn stmt_type_text<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    stmt: StmtId,
+) -> Option<Ustr> {
+    let range = stmt_type_range(db, func, stmt)?;
     let contents = func.file(db).contents(db).read().unwrap();
     let contents = contents.as_str();
     Some(Ustr::from(&contents[range]))
@@ -632,17 +657,17 @@ pub fn type_diagnostics<'db>(
             ),
             TypeDiagnostic::UnknownValue { expr } => (
                 format!(
-                    "cannot find value `{:?}` in this scope",
-                    expr_text(db, func, *expr)
+                    "cannot find value `{}` in this scope",
+                    expr_text(db, func, *expr).unwrap_or_default()
                 ),
                 expr_range(db, func, *expr),
             ),
             TypeDiagnostic::UnsupportedBinaryOp { left, right, op } => (
                 format!(
-                    "`{}` operation not supported for `{:?}` and `{:?}`",
+                    "`{}` operation not supported for `{}` and `{}`",
                     op,
-                    expr_text(db, func, *left),
-                    expr_text(db, func, *right),
+                    expr_text(db, func, *left).unwrap_or_default(),
+                    expr_text(db, func, *right).unwrap_or_default(),
                 ),
                 binary_op_range(db, func, *left),
             ),
@@ -706,6 +731,13 @@ pub fn type_diagnostics<'db>(
                 ),
                 expr_range(db, func, *expr),
             ),
+            TypeDiagnostic::UnknownType { stmt } => (
+                format!(
+                    "unknown type: `{}`",
+                    stmt_type_text(db, func, *stmt).unwrap_or_default()
+                ),
+                stmt_type_range(db, func, *stmt),
+            ),
         })
         .collect_vec()
 }
@@ -719,12 +751,12 @@ pub fn infer_function<'db>(
     let scopes = scope::expr_scopes(db, func).as_ref();
     let ctx = InferCtx {
         db,
-        body: unsafe { transmute(body) },
-        func: unsafe { transmute(func) },
+        body: unsafe { transmute::<&body::Body<'db>, &body::Body<'static>>(body) },
+        func: unsafe { transmute::<ir::Function<'db>, ir::Function<'static>>(func) },
         diagnostics: Ptr::new(Default::default()),
         pattern_ty_map: Ptr::new(Default::default()),
         expr_ty_map: Ptr::new(Default::default()),
-        scopes,
+        _scopes: scopes,
     };
     ctx.infer_function();
     ctx.results()

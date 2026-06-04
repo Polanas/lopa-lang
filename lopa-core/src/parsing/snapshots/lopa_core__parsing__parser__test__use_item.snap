@@ -1,0 +1,21 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"use foo::bar::baz;\", |p| p.use_item())"
+---
+USE_ITEM: 0..18 
+  USE_KW: 0..3 "use"
+  WHITESPACE: 3..4 
+  USE_PATH: 4..17 
+    NAME: 4..7 
+      IDENT: 4..7 "foo"
+    COLON: 7..8 ":"
+    COLON: 8..9 ":"
+    USE_PATH: 9..17 
+      NAME: 9..12 
+        IDENT: 9..12 "bar"
+      COLON: 12..13 ":"
+      COLON: 13..14 ":"
+      USE_NAME: 14..17 
+        NAME: 14..17 
+          IDENT: 14..17 "baz"
+  SEMI: 17..18 ";"

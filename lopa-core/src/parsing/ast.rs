@@ -389,6 +389,25 @@ structs! {
     IMPL_STRUCT_TYPE = ImplTraitType {
         ty: TypeExpr,
     },
+    USE_ITEM = UseItem {
+        use_keyword: T![use],
+        use_tree: UseTree,
+    },
+    USE_PATH = UsePath {
+        name: Name,
+        use_tree: UseTree,
+    },
+    USE_NAME = UseName {
+        name: Name,
+    },
+    USE_GLOBAL = UseGlobal {
+        star_keyword: T![*],
+    },
+    USE_TREE_LIST = UseTreeList {
+        left_brace_token: T!["{"],
+        elements: [UseTree],
+        right_brace_token: T!["}"],
+    },
     ENUM_ITEM = EnumItem {
         enum_token: T![enum],
         name: Name,
@@ -765,6 +784,12 @@ enums! {
         TryExpr,
         IfExpr,
     },
+    UseTree {
+        UsePath,
+        UseName,
+        UseGlobal,
+        UseTreeList,
+    },
     StructElem {
         Field,
         FnItem,
@@ -786,7 +811,6 @@ enums! {
         FnType,
         SelfType,
     },
-
     LuaStmt {
         LuaReturnStmt,
         LuaBreakStmt,
@@ -811,7 +835,7 @@ mod test {
         parsing::{
             ast::{
                 self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr,
-                ParenExpr, StructItem, SyntaxNode, SyntaxToken,
+                ParenExpr, StructItem, SyntaxNode, SyntaxToken, UseItem, UseTree,
             },
             parser::Lang,
         },
@@ -871,6 +895,19 @@ mod test {
         impl_item.impl_ty().unwrap().syntax().should_eq("Y");
         let func = impl_item.functions().next().unwrap();
         func.syntax().should_eq("fn test() {}");
+    }
+
+    #[test]
+    fn use_item() {
+        let use_item = parse::<UseItem>("use foo::{bar, *};");
+        let UseTree::UsePath(path) = use_item.use_tree().unwrap() else {
+            panic!();
+        };
+        path.name().unwrap().syntax().should_eq("foo");
+        let UseTree::UseTreeList(list) = path.use_tree().unwrap() else {
+            panic!();
+        };
+        list.syntax().should_eq("{bar, *}");
     }
 
     #[test]

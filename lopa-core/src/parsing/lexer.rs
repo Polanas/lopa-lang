@@ -374,6 +374,7 @@ def! {
     IMPL_ITEM,
     MOD_ITEM,
     ENUM_ITEM,
+    USE_ITEM,
 
     PATH,
     NAME,
@@ -389,6 +390,10 @@ def! {
     CLOSURE_PARAM_LIST,
     CLOSURE_PARAM,
     RECORD_FIELD,
+    USE_TREE_LIST,
+    USE_GLOBAL,
+    USE_PATH,
+    USE_NAME,
 
     LET_STMT,
     EXPR_STMT,
