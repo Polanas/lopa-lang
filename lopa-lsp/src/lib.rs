@@ -156,7 +156,9 @@ impl LanguageServer for Backend {
         self.spawn_update_diagnostics(params.text_document.uri);
     }
 
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {}
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.opened_files.remove(&params.text_document.uri);
+    }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for file_event in &params.changes {
