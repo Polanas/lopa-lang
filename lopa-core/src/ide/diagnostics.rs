@@ -2,10 +2,13 @@ use crate::{
     def::{
         self,
         ir::{Struct, Type},
-        scope,
+        lower, scope,
     },
-    ide::{self, File, Files, base::FileRange, diagnostics, impls, parse},
-    parsing::parser::{ErrorKind as SyntaxErrorKind, ParseError},
+    ide::{self, File, base::FileRange, diagnostics, impls, parse},
+    parsing::{
+        self,
+        parser::{ParseError, SyntaxErrorKind},
+    },
     ty::infer,
 };
 use rowan::{TextRange, TextSize};
@@ -20,61 +23,64 @@ pub enum Severity {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[salsa::accumulator]
 pub struct Diagnostic {
+    pub message: String,
     pub range: TextRange,
     pub kind: DiagnosticKind,
     pub notes: Vec<(FileRange, String)>,
 }
 
 impl Diagnostic {
-    pub fn new(range: TextRange, kind: DiagnosticKind) -> Self {
+    pub fn new(range: TextRange, kind: DiagnosticKind, message: String) -> Self {
         Self {
             range,
             kind,
+            message,
             notes: Default::default(),
         }
     }
 
     pub fn severity(&self) -> Severity {
         match &self.kind {
-            DiagnosticKind::SyntaxError(_) => Severity::Error,
-            DiagnosticKind::TypeError(_) => Severity::Error,
-        }
-    }
-
-    pub fn message(self) -> String {
-        match self.kind {
-            DiagnosticKind::SyntaxError(kind) => kind.to_string(),
-            DiagnosticKind::TypeError(err) => err.message,
+            DiagnosticKind::SyntaxError => Severity::Error,
+            DiagnosticKind::TypeError => Severity::Error,
+            DiagnosticKind::ModuleError => Severity::Error,
         }
     }
 
     pub fn code(&self) -> &'static str {
         match &self.kind {
-            DiagnosticKind::SyntaxError(_) => "syntax_error",
-            DiagnosticKind::TypeError(_) => "type_error",
+            DiagnosticKind::SyntaxError => "syntax_error",
+            DiagnosticKind::TypeError => "type_error",
+            DiagnosticKind::ModuleError => "module_error",
         }
-    }
-}
-
-impl From<ParseError> for Diagnostic {
-    fn from(value: ParseError) -> Self {
-        Self::new(value.range, DiagnosticKind::SyntaxError(value.kind))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DiagnosticKind {
-    SyntaxError(SyntaxErrorKind),
-    TypeError(infer::TypeErrorKind),
+    SyntaxError,
+    TypeError,
+    ModuleError,
 }
 
-pub fn diagnostics(db: &dyn salsa::Database, file: File, files: Files) -> Vec<Diagnostic> {
+pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
 
     let parse = parse(db, file);
-    diagnostics.extend(parse.errors(db).clone().into_iter().map(Diagnostic::from));
+    diagnostics.extend(
+        parse
+            .errors(db)
+            .clone()
+            .into_iter()
+            .map(|e| Diagnostic::new(e.range, DiagnosticKind::SyntaxError, e.kind.to_string())),
+    );
 
-    let ir = ide::lower_structs_fns(db, file);
+    let ir = lower::module_items(db, file);
+    diagnostics.extend(
+        lower::module_items::accumulated::<Diagnostic>(db, file)
+            .into_iter()
+            .cloned(),
+    );
     for struct_item in ir.structs(db) {
         diagnostics.extend(
             def::ir::struct_fields::accumulated::<Diagnostic>(db, *struct_item)
@@ -86,12 +92,8 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File, files: Files) -> Vec<Di
         diagnostics.extend(
             infer::type_diagnostics(db, *func)
                 .into_iter()
-                .filter_map(|(err, r)| r.map(|r| (err, r)))
-                .map(|(err, range)| Diagnostic {
-                    range,
-                    kind: DiagnosticKind::TypeError(infer::TypeErrorKind { message: err }),
-                    notes: vec![],
-                }),
+                .filter_map(|(message, r)| r.map(|range| (message, range)))
+                .map(|(message, range)| Diagnostic::new(range, DiagnosticKind::TypeError, message)),
         );
     }
 

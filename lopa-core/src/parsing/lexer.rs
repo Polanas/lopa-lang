@@ -104,6 +104,7 @@ macro_rules! T {
     [let] => { super::lexer::Syntax::LET_KW};
     [dyn] => { super::lexer::Syntax::DYN_KW};
     [nil] => { super::lexer::Syntax::NIL_KW};
+    [root] => { super::lexer::Syntax::ROOT_KW};
     [true] => { super::lexer::Syntax::TRUE_KW};
     [lua] => { super::lexer::Syntax::LUA_KW};
     [use] => { super::lexer::Syntax::USE_KW};
@@ -354,6 +355,9 @@ def! {
     #[token("mod")]
     MOD_KW = ["mod"],
 
+    #[token("root")]
+    ROOT_KW = ["root"],
+
     #[token("lua")]
     LUA_KW = ["lua"],
 
@@ -393,6 +397,8 @@ def! {
     USE_TREE_LIST,
     USE_GLOBAL,
     USE_PATH,
+    USE_ROOT,
+    USE_SELF,
     USE_NAME,
 
     LET_STMT,

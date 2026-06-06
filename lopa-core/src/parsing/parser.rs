@@ -36,7 +36,7 @@ const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
 const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
-const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*]]);
+const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root]]);
 
 const USE_RECOVERY: TokenSet = TokenSet::new(&[T![;]]).union(ITEM_FIRST);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
@@ -65,7 +65,7 @@ enum Event {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ErrorKind {
+pub enum SyntaxErrorKind {
     ExpectedToken(Syntax),
     ExpectedExpression,
     ExpectedOperator,
@@ -85,7 +85,7 @@ pub enum ErrorKind {
     Other(String),
 }
 
-impl std::fmt::Display for ErrorKind {
+impl std::fmt::Display for SyntaxErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ExpectedToken(tok) => return write!(f, "expected {}", tok),
@@ -113,11 +113,11 @@ impl std::fmt::Display for ErrorKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParseError {
     pub range: TextRange,
-    pub kind: ErrorKind,
+    pub kind: SyntaxErrorKind,
 }
 
 impl ParseError {
-    pub fn new(range: TextRange, kin: ErrorKind) -> Self {
+    pub fn new(range: TextRange, kin: SyntaxErrorKind) -> Self {
         Self { range, kind: kin }
     }
 }
@@ -252,7 +252,7 @@ impl<'a> Parser<'a> {
         self.events.push(Event::Close);
     }
 
-    fn error(&mut self, kind: ErrorKind) {
+    fn error(&mut self, kind: SyntaxErrorKind) {
         let range = self
             .tokens
             .get(self.pos)
@@ -265,7 +265,7 @@ impl<'a> Parser<'a> {
         if self.eat(token) {
             return;
         }
-        self.error(ErrorKind::ExpectedToken(token));
+        self.error(SyntaxErrorKind::ExpectedToken(token));
     }
 
     fn eat(&mut self, token: Syntax) -> bool {
@@ -324,7 +324,7 @@ impl<'a> Parser<'a> {
             })
     }
 
-    fn advance_with_error(&mut self, kind: ErrorKind) {
+    fn advance_with_error(&mut self, kind: SyntaxErrorKind) {
         self.advance(ERROR);
         self.error(kind);
     }
@@ -356,11 +356,11 @@ impl<'a> Parser<'a> {
                 T![enum] => self.enum_item(),
                 T![use] => self.use_item(),
                 _ => {
-                    self.advance_with_error(ErrorKind::ExpectedItem);
+                    self.advance_with_error(SyntaxErrorKind::ExpectedItem);
                 }
             };
         } else {
-            self.advance_with_error(ErrorKind::ExpectedItem);
+            self.advance_with_error(SyntaxErrorKind::ExpectedItem);
         }
     }
 
@@ -382,6 +382,16 @@ impl<'a> Parser<'a> {
                     this.expect(T![*]);
                 });
             }
+            T![self] => {
+                self.with(USE_SELF, |this| {
+                    this.expect(T![self]);
+                });
+            }
+            T![root] => {
+                self.with(USE_ROOT, |this| {
+                    this.expect(T![root]);
+                })
+            }
             IDENT => {
                 if self.nth(1) == T![:] {
                     self.with(USE_PATH, |this| {
@@ -400,7 +410,7 @@ impl<'a> Parser<'a> {
                 if self.at_any(USE_RECOVERY) {
                     return;
                 }
-                self.advance_with_error(ErrorKind::ExpectedUseDeclaration);
+                self.advance_with_error(SyntaxErrorKind::ExpectedUseDeclaration);
             }
         };
     }
@@ -415,7 +425,7 @@ impl<'a> Parser<'a> {
                     if this.at_any(USE_RECOVERY) {
                         break;
                     } else {
-                        this.advance_with_error(ErrorKind::ExpectedUseDeclaration);
+                        this.advance_with_error(SyntaxErrorKind::ExpectedUseDeclaration);
                     }
                 }
                 if !this.at(T!["}"]) {
@@ -447,7 +457,7 @@ impl<'a> Parser<'a> {
                 if self.at_any(ELEMENT_RECOVERY) {
                     break;
                 }
-                self.advance_with_error(ErrorKind::ExpectedEnumElement);
+                self.advance_with_error(SyntaxErrorKind::ExpectedEnumElement);
             }
         }
         self.expect(T!["}"]);
@@ -496,7 +506,7 @@ impl<'a> Parser<'a> {
                     if this.at_any(ITEM_FIRST) {
                         break;
                     } else {
-                        this.advance_with_error(ErrorKind::ExpectedItem);
+                        this.advance_with_error(SyntaxErrorKind::ExpectedItem);
                     }
                 }
             }
@@ -525,7 +535,7 @@ impl<'a> Parser<'a> {
                 if self.at_any(ELEMENT_RECOVERY) {
                     break;
                 }
-                self.advance_with_error(ErrorKind::ExpectedStructElement);
+                self.advance_with_error(SyntaxErrorKind::ExpectedStructElement);
             }
         }
         self.expect(T!["}"]);
@@ -554,7 +564,7 @@ impl<'a> Parser<'a> {
                     if this.at_any(ARG_LIST_RECOVERY) {
                         break;
                     }
-                    this.advance_with_error(ErrorKind::ExpectedParent);
+                    this.advance_with_error(SyntaxErrorKind::ExpectedParent);
                 }
             }
         })
@@ -595,7 +605,7 @@ impl<'a> Parser<'a> {
                     this.expect(T![;]);
                 }
                 _ => {
-                    this.error(ErrorKind::ExpectedToken(T!["{"]));
+                    this.error(SyntaxErrorKind::ExpectedToken(T!["{"]));
                 }
             }
         })
@@ -612,7 +622,7 @@ impl<'a> Parser<'a> {
                     if this.at_any(PARAM_LIST_RECOVERY) {
                         break;
                     }
-                    this.advance_with_error(ErrorKind::ExpectedParameter);
+                    this.advance_with_error(SyntaxErrorKind::ExpectedParameter);
                 }
             }
             this.expect(T!(")"));
@@ -643,7 +653,7 @@ impl<'a> Parser<'a> {
                 });
             }
             _ => {
-                self.error(ErrorKind::ExpectedPattern);
+                self.error(SyntaxErrorKind::ExpectedPattern);
                 return;
             }
         }
@@ -668,7 +678,7 @@ impl<'a> Parser<'a> {
                 _ => this.type_expr(),
             });
         } else {
-            self.advance_with_error(ErrorKind::ExpectedType);
+            self.advance_with_error(SyntaxErrorKind::ExpectedType);
         }
     }
 
@@ -724,7 +734,7 @@ impl<'a> Parser<'a> {
                 }
             }
         } else {
-            self.advance_with_error(ErrorKind::ExpectedType);
+            self.advance_with_error(SyntaxErrorKind::ExpectedType);
         }
     }
 
@@ -761,7 +771,7 @@ impl<'a> Parser<'a> {
                     if this.at_any(FN_TYPE_PARAM_LIST_RECOVERY) {
                         break;
                     }
-                    this.advance_with_error(ErrorKind::ExpectedParameter);
+                    this.advance_with_error(SyntaxErrorKind::ExpectedParameter);
                 }
             }
             this.expect(T!(")"));
@@ -833,7 +843,7 @@ impl<'a> Parser<'a> {
             if self.at_any(EXPR_FIRST) {
                 self.with_at(BINARY_EXPR, checkpoint, |this| this.expr_bp(right_bp));
             } else {
-                self.advance_with_error(ErrorKind::ExpectedExpression);
+                self.advance_with_error(SyntaxErrorKind::ExpectedExpression);
             }
         }
     }
@@ -889,7 +899,7 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
-                self.advance_with_error(ErrorKind::ExpectedExpression);
+                self.advance_with_error(SyntaxErrorKind::ExpectedExpression);
                 return None;
             }
         }
@@ -930,7 +940,7 @@ impl<'a> Parser<'a> {
                 if self.at_any(RECORD_LIST_RECOVERY) {
                     break;
                 }
-                self.advance_with_error(ErrorKind::ExpectedField);
+                self.advance_with_error(SyntaxErrorKind::ExpectedField);
             }
         }
         self.expect(T!["}"]);
@@ -967,7 +977,7 @@ impl<'a> Parser<'a> {
                     if this.at_any(CLOSURE_PARAM_LIST_RECOVERY) {
                         break;
                     }
-                    this.advance_with_error(ErrorKind::ExpectedParameter);
+                    this.advance_with_error(SyntaxErrorKind::ExpectedParameter);
                 }
             }
             this.expect(T![|]);
@@ -1018,7 +1028,7 @@ impl<'a> Parser<'a> {
                 if self.at_any(ARG_LIST_RECOVERY) {
                     break;
                 } else {
-                    self.advance_with_error(ErrorKind::ExpectedArgument);
+                    self.advance_with_error(SyntaxErrorKind::ExpectedArgument);
                 }
             }
         }
@@ -1065,7 +1075,7 @@ impl<'a> Parser<'a> {
                                 break;
                             }
 
-                            this.advance_with_error(ErrorKind::ExpectedStatement);
+                            this.advance_with_error(SyntaxErrorKind::ExpectedStatement);
                         }
                     }
                 }
@@ -1129,7 +1139,7 @@ impl<'a> Parser<'a> {
                     if this.at_any(COMPILER_ATTRIB_RECOVERY) {
                         break;
                     }
-                    this.advance_with_error(ErrorKind::ExpectedAttribute);
+                    this.advance_with_error(SyntaxErrorKind::ExpectedAttribute);
                 }
             }
             this.expect(T![")"]);
@@ -1392,7 +1402,7 @@ mod test {
     #[test]
     fn use_item() {
         insta::assert_snapshot!(parse("use foo::bar::baz;", |p| p.use_item()));
-        insta::assert_snapshot!(parse("use foo::{bar,baz,*};", |p| p.use_item()));
+        insta::assert_snapshot!(parse("use foo::{bar,baz,*,self};", |p| p.use_item()));
     }
 
     #[test]

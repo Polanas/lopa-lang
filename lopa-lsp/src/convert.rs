@@ -37,7 +37,7 @@ pub fn to_diagnostics(
             }),
             code: Some(NumberOrString::String(diagnostic.code().into())),
             code_description: None,
-            message: diagnostic.message(),
+            message: diagnostic.message,
             source: None,
             related_information: None,
             tags: None,

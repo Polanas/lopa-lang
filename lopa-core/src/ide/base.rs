@@ -1,9 +1,11 @@
+use std::path::PathBuf;
+
 use rowan::{TextRange, TextSize};
 
 use crate::ide::File;
 
-#[derive(Clone, Hash, PartialEq, Eq)]
-pub struct VfsPath(pub String);
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct VfsPath(pub PathBuf);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct FilePos {

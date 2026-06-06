@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
 use la_arena::{Arena, ArenaMap, Idx};
-use notify_rust::Notification;
-use rowan::{TextRange, ast::AstNode};
 use ustr::Ustr;
 
 use crate::{
     def::{
         body,
-        ir::{self, Expr, ExprId, ModuleDef, PatternId, StmtId, Type},
+        ir::{self, ExprId, PatternId, StmtId},
         lower,
     },
     ide::{self},
@@ -34,54 +32,65 @@ impl<'db> ModuleSourceMap<'db> {
 
 #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
 pub struct ModuleScope<'db> {
-    values: UstrIndexMap<ir::ModuleDef<'db>>,
-    types: UstrIndexMap<ir::ModuleDef<'db>>,
+    values: UstrIndexMap<ir::ModuleValueDef<'db>>,
+    types: UstrIndexMap<ir::ModuleTypeDef<'db>>,
 }
 
 impl<'db> ModuleScope<'db> {
-    pub fn resolve_value(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
+    pub fn resolve_value(&self, name: &Ustr) -> Option<&ir::ModuleValueDef<'db>> {
         self.values.get(name)
     }
 
-    pub fn resolve_type(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
+    pub fn resolve_type(&self, name: &Ustr) -> Option<&ir::ModuleTypeDef<'db>> {
         self.types.get(name)
     }
 
-    pub fn values(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ModuleDef)> {
+    pub fn values(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleValueDef)> {
         self.values.iter()
     }
 
-    pub fn types(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ModuleDef)> {
+    pub fn types(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleTypeDef)> {
         self.types.iter()
     }
 }
 
+//TODO: report collisions
 #[salsa::tracked(returns(ref))]
 pub fn module_scope_with_source_map<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
 ) -> (Arc<ModuleScope<'db>>, Arc<ModuleSourceMap<'db>>) {
-    let ir_file = lower::lower_structs_fns(db, file);
+    let items = lower::module_items(db, file);
     let mut source_map = ModuleSourceMap::default();
     let mut scope = ModuleScope::default();
 
-    for func in ir_file.functions(db) {
+    for func in items.functions(db) {
         source_map
             .functions
             .insert(MyAstPtr(func.ast_ptr(db).clone()), *func);
         scope
             .values
-            .insert(func.name(db).into(), ir::ModuleDef::Function(*func));
+            .insert(func.name(db).into(), ir::ModuleValueDef::Function(*func));
     }
 
-    for strct in ir_file.structs(db) {
+    for strct in items.structs(db) {
         source_map
             .structs
             .insert(MyAstPtr(strct.ast_ptr(db).clone()), *strct);
         scope
             .types
-            .insert(strct.name(db).into(), ir::ModuleDef::Struct(*strct));
+            .insert(strct.name(db).into(), ir::ModuleTypeDef::Struct(*strct));
     }
+
+    for file in items.children(db) {
+        let module_name = ide::module_name(db, *file);
+        scope
+            .types
+            .insert(module_name.into(), ir::ModuleTypeDef::Module(*file));
+    }
+
+    //TODO: throw and catch errors
+    for imports in items.use_imports(db) {}
 
     (scope.into(), source_map.into())
 }

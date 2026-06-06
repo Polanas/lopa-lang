@@ -4,3 +4,5 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 pub mod token_set;
+
+pub use parser::SyntaxErrorKind;

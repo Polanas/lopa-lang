@@ -1,10 +1,13 @@
 use std::{
     collections::HashMap,
+    path::PathBuf,
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 
 use bimap::BiMap;
-use lopa_core::ide::{File, FileContent, TextRange, base::VfsPath};
+use lopa_core::ide::{File, FileContent, SourceRoot, TextRange, base::VfsPath};
+use salsa::Setter;
 use tower_lsp_server::ls_types::Uri;
 
 use crate::uri_ext::UrlExt as _;
@@ -13,6 +16,7 @@ use crate::uri_ext::UrlExt as _;
 pub struct Vfs {
     contents: HashMap<File, Arc<RwLock<FileContent>>>,
     files: BiMap<File, VfsPath>,
+    source_root: Option<SourceRoot>,
 }
 
 impl Vfs {
@@ -20,6 +24,7 @@ impl Vfs {
         Self {
             contents: HashMap::new(),
             files: BiMap::new(),
+            source_root: None,
         }
     }
 
@@ -43,13 +48,24 @@ impl Vfs {
         self.contents[&file].clone()
     }
 
+    pub fn set_source_root(&mut self, source_root: SourceRoot) {
+        self.source_root = Some(source_root);
+    }
+
     pub fn insert_file(
         &mut self,
         path: VfsPath,
         content: String,
-        db: &dyn salsa::Database,
+        db: &mut dyn salsa::Database,
     ) -> File {
-        let file = File::new(db, Arc::new(FileContent::new(content).into()));
+        let file = File::new(
+            db,
+            Arc::new(FileContent::new(content).into()),
+            path.clone(),
+            self.source_root
+                //TODO: figure this out
+                .unwrap_or_else(|| SourceRoot::new(db, Some(vec![]), path.0.clone())),
+        );
         self.files.insert(file, path);
         self.contents.insert(file, file.contents(db).clone());
         file
@@ -89,6 +105,10 @@ impl Vfs {
         self.contents.remove(&file);
         self.files.remove_by_left(&file);
         Some(())
+    }
+
+    pub fn source_root(&self) -> Option<SourceRoot> {
+        self.source_root
     }
 }
 

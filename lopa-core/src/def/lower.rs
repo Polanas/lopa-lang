@@ -1,6 +1,9 @@
+use std::path::{Path, PathBuf};
+
 use itertools::Itertools;
-use la_arena::{Arena, Idx};
+use notify_rust::Notification;
 use rowan::ast::AstNode;
+use salsa::Accumulator;
 use ustr::Ustr;
 
 use crate::{
@@ -8,24 +11,23 @@ use crate::{
         ir::{self, BareFn, Function, Type},
         scope,
     },
-    ide::{self},
+    ide::{
+        self,
+        diagnostics::{self, Diagnostic},
+    },
     parsing::ast,
 };
 
-#[salsa::tracked]
-pub struct MoudleIr<'db> {
-    #[returns(ref)]
-    pub structs_fns_ir: StructsFnsIr<'db>,
-    #[returns(ref)]
-    pub impl_blocks_ir: ImplBlocksIr<'db>,
-}
-
 #[salsa::tracked(debug)]
-pub struct StructsFnsIr<'db> {
+pub struct ModuleItemData<'db> {
     #[returns(ref)]
     pub functions: Vec<ir::Function<'db>>,
     #[returns(ref)]
     pub structs: Vec<ir::Struct<'db>>,
+    #[returns(ref)]
+    pub use_imports: Vec<ir::UseItem<'db>>,
+    #[returns(ref)]
+    pub children: Vec<ide::File>,
 }
 
 #[salsa::tracked(debug)]
@@ -46,8 +48,16 @@ struct LowerCtx<'db> {
     db: &'db dyn salsa::Database,
     functions: Vec<ir::Function<'db>>,
     structs: Vec<ir::Struct<'db>>,
+    use_items: Vec<ir::UseItem<'db>>,
     impl_blocks: Vec<ImplBlock<'db>>,
+    children: Vec<ide::File>,
     file: ide::File,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ModuleErrorKind {
+    UnresolvedModule,
+    UndersolvedImport,
 }
 
 impl<'db> LowerCtx<'db> {
@@ -56,6 +66,8 @@ impl<'db> LowerCtx<'db> {
             functions: Default::default(),
             structs: Default::default(),
             impl_blocks: Default::default(),
+            use_items: Default::default(),
+            children: Default::default(),
             file,
             db,
         }
@@ -73,12 +85,18 @@ impl<'db> LowerCtx<'db> {
         ImplBlocksIr::new(self.db, self.impl_blocks)
     }
 
-    pub fn lower_structs_fns(mut self, file: ast::File) -> StructsFnsIr<'db> {
+    pub fn lower_items(mut self, file: ast::File) -> ModuleItemData<'db> {
         for item in file.items() {
-            self.type_item(item);
+            self.item(item);
         }
 
-        StructsFnsIr::new(self.db, self.functions, self.structs)
+        ModuleItemData::new(
+            self.db,
+            self.functions,
+            self.structs,
+            self.use_items,
+            self.children,
+        )
     }
 
     fn impl_item(&mut self, item: ast::ImplItem) -> Option<ImplBlock<'db>> {
@@ -97,7 +115,7 @@ impl<'db> LowerCtx<'db> {
         Some(ImplBlock::new(self.db, implementee, impl_ty, methods))
     }
 
-    fn type_item(&mut self, item: ast::Item) {
+    fn item(&mut self, item: ast::Item) {
         match item {
             ast::Item::FnItem(fn_item) => {
                 if let Some(item) = self.fn_item(fn_item) {
@@ -109,8 +127,69 @@ impl<'db> LowerCtx<'db> {
                     self.structs.push(item);
                 }
             }
+            ast::Item::UseItem(use_item) => {
+                self.use_items.push(self.use_item(use_item));
+            }
+            ast::Item::ModItem(mod_item) if mod_item.semi().is_some() => {
+                if let Some(module) = self.resolve_module(mod_item.clone(), self.file) {
+                    if module == self.file {
+                        Diagnostic::new(
+                            mod_item.syntax().text_range(),
+                            diagnostics::DiagnosticKind::ModuleError,
+                            format!(
+                                "cyclic definition: `{}`",
+                                mod_item
+                                    .name()
+                                    .and_then(|n| n.text())
+                                    .unwrap_or_else(|| "?".into())
+                            ),
+                        )
+                        .accumulate(self.db);
+                    } else {
+                        self.children.push(module);
+                    }
+                } else {
+                    Diagnostic::new(
+                        mod_item.syntax().text_range(),
+                        diagnostics::DiagnosticKind::ModuleError,
+                        format!(
+                            "unresolved module `{}`",
+                            mod_item
+                                .name()
+                                .and_then(|n| n.text())
+                                .unwrap_or_else(|| "?".into())
+                        ),
+                    )
+                    .accumulate(self.db);
+                }
+            }
             _ => {}
         };
+    }
+
+    fn resolve_module(&self, mod_item: ast::ModItem, parent: ide::File) -> Option<ide::File> {
+        let root = parent.source_root(self.db);
+        let files = root.files(self.db)?;
+        let name = mod_item.name().and_then(|n| n.text())?;
+
+        let mod_path = if ide::is_root_file(self.db, parent) {
+            Path::new(parent.path(self.db).0.as_path())
+                .parent()?
+                .join(format!("{name}.lopa"))
+        } else {
+            Path::new(parent.path(self.db).0.as_path())
+                .parent()?
+                .join(ide::module_name(self.db, parent))
+                .join(format!("{name}.lopa"))
+        };
+        files
+            .iter()
+            .find(|f| f.path(self.db).0.as_path() == mod_path.as_path())
+            .cloned()
+    }
+
+    fn use_item(&self, use_item: ast::UseItem) -> ir::UseItem<'db> {
+        ir::UseItem::new(self.db, ast::AstPtr::new(&use_item))
     }
 
     fn struct_item(&self, struct_item: ast::StructItem) -> Option<ir::Struct<'db>> {
@@ -197,7 +276,8 @@ pub fn lower_type_expr_with_self<'db>(
     }
 }
 
-fn resolve_type_path<'db>(
+//TODO: rewrite this
+pub fn resolve_type_path<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
     path_type: ast::PathType,
@@ -212,27 +292,28 @@ fn resolve_type_path<'db>(
     else {
         return ir::Type::Unknown(path_type.syntax().text().to_string().into());
     };
+    todo!()
 
-    match def {
-        ir::ModuleDef::Function(_) => unreachable!(),
-        ir::ModuleDef::Struct(strct) => ir::Type::Struct(*strct),
-    }
+    // match def {
+    //     ir::ModuleValueDef::Function(_) => unreachable!(),
+    //     ir::ModuleValueDef::Struct(strct) => ir::Type::Struct(*strct),
+    // }
 }
 
 #[salsa::tracked]
-pub fn lower_structs_fns<'db>(db: &'db dyn salsa::Database, file: ide::File) -> StructsFnsIr<'db> {
+pub fn module_items<'db>(db: &'db dyn salsa::Database, file: ide::File) -> ModuleItemData<'db> {
     let parse = ide::parse(db, file);
     let ctx = LowerCtx::new(db, file);
-    ctx.lower_structs_fns(parse.file(db))
+    ctx.lower_items(parse.file(db))
 }
 
 #[salsa::tracked]
-pub fn lower_impl_blocks<'db>(db: &'db dyn salsa::Database, file: ide::File) -> ImplBlocksIr<'db> {
+pub fn impl_blocks<'db>(db: &'db dyn salsa::Database, file: ide::File) -> ImplBlocksIr<'db> {
     let parse = ide::parse(db, file);
     let ctx = LowerCtx::new(db, file);
     ctx.lower_impls(parse.file(db))
 }
-#[salsa::tracked(returns(ref))]
-pub fn lower_module<'db>(db: &'db dyn salsa::Database, file: ide::File) -> MoudleIr<'db> {
-    MoudleIr::new(db, lower_structs_fns(db, file), lower_impl_blocks(db, file))
-}
+// #[salsa::tracked(returns(ref))]
+// pub fn lower_module<'db>(db: &'db dyn salsa::Database, file: ide::File) -> MoudleIr<'db> {
+//     MoudleIr::new(db, lower_structs_fns(db, file), lower_impl_blocks(db, file))
+// }

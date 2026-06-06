@@ -8,13 +8,15 @@ use salsa::{Accumulator, Database, Setter};
 use ustr::Ustr;
 
 use crate::def::ir::{Function, ImplFunction, Struct, Type};
-use crate::def::lower::{self, lower_impl_blocks, lower_structs_fns};
+use crate::def::lower::{self, impl_blocks};
 use crate::def::{self, ir};
+use crate::ide::base::VfsPath;
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
 use crate::parsing::parser::{self};
 use std::fmt::Display;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 pub struct FileContent {
@@ -117,6 +119,52 @@ impl FileContent {
 pub struct File {
     #[returns(ref)]
     pub contents: Arc<RwLock<FileContent>>,
+    #[returns(ref)]
+    pub path: VfsPath,
+    pub source_root: SourceRoot,
+}
+
+#[salsa::tracked]
+pub fn is_root_file(db: &dyn salsa::Database, file: File) -> bool {
+    module_name(db, file) == "main"
+        && file
+            .path(db)
+            .0
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p == file.source_root(db).path(db).as_path())
+            .unwrap_or(false)
+}
+
+#[salsa::tracked]
+pub fn module_name(db: &dyn salsa::Database, file: File) -> Ustr {
+    file.path(db)
+        .0
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
+        .into()
+}
+
+#[salsa::input]
+#[derive(Debug)]
+pub struct SourceRoot {
+    pub files: Option<Vec<File>>,
+    pub path: PathBuf,
+}
+
+impl SourceRoot {
+    pub fn clear(&self, db: &mut dyn salsa::Database) {
+        self.set_files(db).to(Some(vec![]));
+    }
+    pub fn push_file(&self, db: &mut dyn salsa::Database, file: File) {
+        let Some(mut files) = self.set_files(db).to(None) else {
+            return;
+        };
+        files.push(file);
+        self.set_files(db).to(Some(files));
+    }
 }
 
 #[salsa::tracked]
@@ -169,37 +217,31 @@ pub fn source_map<'db>(
     body_with_source_map(db, func).1.clone()
 }
 
-#[salsa::input]
-pub struct Files {
-    #[returns(ref)]
-    value: Option<Vec<File>>,
-}
-
 #[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Default)]
 pub struct ImplFunctions<'db> {
     pub fns: Vec<ImplFunction<'db>>,
     pub from_impls: Vec<Type<'db>>,
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn impl_fns_list<'db>(
-    db: &'db dyn salsa::Database,
-    ty: Type<'db>,
-    files: Files,
-) -> Option<Vec<ImplFunction<'db>>> {
-    let impl_fns = impls(db, files).functions.get(&ty)?;
-
-    let mut result = impl_fns.fns.clone();
-    for fns in impl_fns
-        .from_impls
-        .iter()
-        .filter(|t| **t != ty)
-        .filter_map(|t| impl_fns_list(db, t.clone(), files).clone())
-    {
-        result.extend(fns);
-    }
-    Some(result)
-}
+// #[salsa::tracked(returns(ref))]
+// pub fn impl_fns_list<'db>(
+//     db: &'db dyn salsa::Database,
+//     ty: Type<'db>,
+//     files: Files,
+// ) -> Option<Vec<ImplFunction<'db>>> {
+//     let impl_fns = impls(db, files).functions.get(&ty)?;
+//
+//     let mut result = impl_fns.fns.clone();
+//     for fns in impl_fns
+//         .from_impls
+//         .iter()
+//         .filter(|t| **t != ty)
+//         .filter_map(|t| impl_fns_list(db, t.clone(), files).clone())
+//     {
+//         result.extend(fns);
+//     }
+//     Some(result)
+// }
 
 type ImplMap<'db> = indexmap::IndexMap<ir::Type<'db>, ImplFunctions<'db>>;
 
@@ -209,29 +251,29 @@ pub struct ImplItems<'db> {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn impls(db: &dyn salsa::Database, files: Files) -> ImplItems<'_> {
+pub fn impls(db: &dyn salsa::Database, package: SourceRoot) -> ImplItems<'_> {
     let mut functions: ImplMap = Default::default();
-    for &file in files.value(db).as_ref().unwrap().iter() {
-        let lower = lower_impl_blocks(db, file);
-
-        for block in lower.impl_blocks(db) {
-            let implementee = block.implementee(db);
-            if let Some(impl_ty) = block.impl_ty(db)
-                && impl_ty != block.implementee(db)
-            {
-                let fns = functions.entry(impl_ty.clone()).or_default();
-                for func in block.methods(db) {
-                    fns.fns.push(*func);
-                }
-                fns.from_impls.push(implementee);
-            } else {
-                let fns = functions.entry(implementee).or_default();
-                for func in block.methods(db) {
-                    fns.fns.push(*func);
-                }
-            }
-        }
-    }
+    // for &file in files.value(db).as_ref().unwrap().iter() {
+    //     let lower = impl_blocks(db, file);
+    //
+    //     for block in lower.impl_blocks(db) {
+    //         let implementee = block.implementee(db);
+    //         if let Some(impl_ty) = block.impl_ty(db)
+    //             && impl_ty != block.implementee(db)
+    //         {
+    //             let fns = functions.entry(impl_ty.clone()).or_default();
+    //             for func in block.methods(db) {
+    //                 fns.fns.push(*func);
+    //             }
+    //             fns.from_impls.push(implementee);
+    //         } else {
+    //             let fns = functions.entry(implementee).or_default();
+    //             for func in block.methods(db) {
+    //                 fns.fns.push(*func);
+    //             }
+    //         }
+    //     }
+    // }
 
     ImplItems { functions }
 }
@@ -247,25 +289,17 @@ impl salsa::Database for RootDatabase {}
 
 pub struct Analysis {
     pub db: RootDatabase,
-    pub files: Files,
 }
 
 impl Analysis {
     pub fn new() -> Self {
         let db = RootDatabase::default();
-        let files = Files::new(&db, Some(vec![]));
-        Self { db, files }
+        Self { db }
     }
 
     pub fn diagnostics(&self, file: File) -> Vec<Diagnostic> {
         //TODO: use Cancelled::catch
-        diagnostics::diagnostics(&self.db, file, self.files)
-    }
-
-    pub fn insert_file(&mut self, file: File) {
-        let mut files = self.files.set_value(&mut self.db).to(None).unwrap();
-        files.push(file);
-        self.files.set_value(&mut self.db).to(Some(files));
+        diagnostics::diagnostics(&self.db, file)
     }
 
     pub fn apply_change(&mut self, file: File) {

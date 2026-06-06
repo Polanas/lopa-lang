@@ -4,10 +4,14 @@ pub mod handler;
 pub mod uri_ext;
 pub mod vfs;
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use dashmap::DashMap;
-use lopa_core::ide::{Analysis, File};
+use lopa_core::ide::base::VfsPath;
+use lopa_core::ide::{Analysis, File, SourceRoot};
+use notify_rust::Notification;
+use salsa::Setter as _;
 use tokio::task;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
@@ -112,7 +116,10 @@ impl LanguageServer for Backend {
                 // ),
                 // definition_provider: Some(OneOf::Left(true)),
                 // references_provider: Some(OneOf::Left(true)),
-                // rename_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
                 position_encoding: Some(PositionEncodingKind::UTF8),
                 ..ServerCapabilities::default()
             },
@@ -130,13 +137,26 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let mut vfs = self.vfs.write().unwrap();
         let uri = params.text_document.uri;
-        let file = vfs.insert_file(
-            uri.to_vfs_path().unwrap(),
-            params.text_document.text,
-            &self.analysis.lock().unwrap().db,
-        );
-        self.analysis.lock().unwrap().insert_file(file);
+        let vfs_path = uri.to_vfs_path().unwrap();
+
         self.opened_files.insert(uri.clone(), FileData {});
+        if let Some(root) = Self::find_package_root(Path::new(vfs_path.0.as_path())) {
+            if vfs.source_root().is_none() {
+                let source_root = SourceRoot::new(
+                    &self.analysis.lock().unwrap().db,
+                    Some(vec![]),
+                    root.clone(),
+                );
+                vfs.set_source_root(source_root);
+            }
+            vfs.insert_file(
+                vfs_path,
+                params.text_document.text,
+                &mut self.analysis.lock().unwrap().db,
+            );
+            self.scan_files(root.as_path(), &mut vfs);
+        }
+
         self.spawn_update_diagnostics(uri);
     }
 
@@ -158,6 +178,15 @@ impl LanguageServer for Backend {
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.opened_files.remove(&params.text_document.uri);
+        let vfs = self.vfs.write().unwrap();
+        if let Some(path) = params.text_document.uri.to_vfs_path()
+            && let Some(source_root) = vfs.source_root()
+        {
+            let mut analysis = self.analysis.lock().unwrap();
+            let mut files = source_root.set_files(&mut analysis.db).to(None).unwrap();
+            files.retain_mut(|f| f.path(&analysis.db).0.as_path() != path.0.as_path());
+            source_root.set_files(&mut analysis.db).to(Some(files));
+        }
     }
 
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
@@ -175,12 +204,10 @@ impl LanguageServer for Backend {
             ) {
                 match std::fs::read_to_string(path) {
                     Ok(content) => {
-                        let file = self
-                            .vfs
+                        self.vfs
                             .write()
                             .unwrap()
                             .set_path_content(file_event.uri.to_vfs_path().unwrap(), content);
-                        self.analysis.lock().unwrap().insert_file(file);
                     }
                     Err(e) => {
                         panic!("{e}");
@@ -204,6 +231,56 @@ impl LanguageServer for Backend {
 }
 
 impl Backend {
+    fn scan_files(&self, root: &Path, vfs: &mut vfs::Vfs) {
+        vfs.source_root()
+            .unwrap()
+            .clear(&mut self.analysis.lock().unwrap().db);
+        for entry in walkdir::WalkDir::new(root.join("src"))
+            .into_iter()
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .filter(|e| e.path().extension().map(|e| e == "lopa").unwrap_or(false))
+        {
+            let vfs_path = VfsPath(entry.path().to_path_buf());
+            let uri = Uri::from_vfs_path(&vfs_path);
+            if self.opened_files.contains_key(&uri) {
+                let file = vfs.file_by_path(&vfs_path).unwrap();
+                vfs.source_root()
+                    .unwrap()
+                    .push_file(&mut self.analysis.lock().unwrap().db, file);
+                continue;
+            }
+            let Ok(contents) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            let file = if let Some(file) = vfs.file_by_path(&vfs_path) {
+                vfs.change_file_content(file, &contents, None);
+                file
+            } else {
+                vfs.insert_file(vfs_path, contents, &mut self.analysis.lock().unwrap().db)
+            };
+            vfs.source_root()
+                .unwrap()
+                .push_file(&mut self.analysis.lock().unwrap().db, file);
+        }
+    }
+    fn find_package_root(path: &Path) -> Option<PathBuf> {
+        let mut current = path.to_path_buf();
+        while let Some(root) = current.parent() {
+            if !&root.join("lopa.toml").is_file() {
+                _ = current.pop();
+                continue;
+            }
+
+            if !current.ends_with("src") {
+                _ = current.pop();
+                continue;
+            }
+
+            return Some(root.to_path_buf());
+        }
+        None
+    }
     fn spawn_update_diagnostics(&self, uri: Uri) {
         let (analysis, vfs) = (self.analysis.clone(), self.vfs.clone());
         let uri_clone = uri.clone();

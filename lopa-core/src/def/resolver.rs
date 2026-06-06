@@ -223,9 +223,9 @@ pub fn resolve_name_for_expr<'db>(
 
     if let Some(result) = module_scope.resolve_value(name) {
         match result {
-            ir::ModuleDef::Function(function) => return Some(ResolveResult::Function(*function)),
-
-            ir::ModuleDef::Struct(strct) => todo!(),
+            ir::ModuleValueDef::Function(function) => {
+                return Some(ResolveResult::Function(*function));
+            }
         }
     }
     None

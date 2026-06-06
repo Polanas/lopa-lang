@@ -376,6 +376,7 @@ structs! {
     },
     MOD_ITEM = ModItem {
         mod_token: T![mod],
+        name: Name,
         semi: T![;],
         items: [FnItem],
     },
@@ -392,6 +393,12 @@ structs! {
     USE_ITEM = UseItem {
         use_keyword: T![use],
         use_tree: UseTree,
+    },
+    USE_SELF = UseSelf {
+        self_token: T![self],
+    },
+    USE_ROOT = UseRoot {
+        self_token: T![root],
     },
     USE_PATH = UsePath {
         name: Name,
@@ -761,6 +768,7 @@ enums! {
         ModItem,
         ImplItem,
         StructItem,
+        UseItem,
     },
     Stmt {
         LetStmt,
@@ -785,6 +793,8 @@ enums! {
         IfExpr,
     },
     UseTree {
+        UseRoot,
+        UseSelf,
         UsePath,
         UseName,
         UseGlobal,

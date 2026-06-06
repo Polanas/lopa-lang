@@ -36,11 +36,6 @@ impl<'db> InferenceResult<'db> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TypeErrorKind {
-    pub message: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub enum TypeDiagnostic<'db> {
     TypeMismatch {

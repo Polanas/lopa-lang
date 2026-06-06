@@ -11,7 +11,7 @@ impl UrlExt for Uri {
         if self.scheme().as_str() == "file"
             && let Some(path) = self.to_file_path()
         {
-            Some(VfsPath(path.to_string_lossy().to_string()))
+            Some(VfsPath(path.to_path_buf()))
         } else {
             None
         }

@@ -13,11 +13,10 @@ use crate::{
         scope,
     },
     ide::{
-        self, Files,
+        self,
         diagnostics::{Diagnostic, DiagnosticKind},
     },
     parsing::ast::{self, BinaryOpKind, UnaryOpKind},
-    ty::infer::TypeErrorKind,
     ustr_hash::{UstrHash, UstrIndexMap},
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -27,9 +26,14 @@ pub struct Local<'db> {
 }
 
 #[derive(salsa::Supertype, Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
-pub enum ModuleDef<'db> {
+pub enum ModuleValueDef<'db> {
     Function(Function<'db>),
+}
+
+#[derive(salsa::Supertype, Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
+pub enum ModuleTypeDef<'db> {
     Struct(Struct<'db>),
+    Module(ide::File),
 }
 
 #[salsa::tracked(debug)]
@@ -171,6 +175,11 @@ impl<'db> Function<'db> {
 }
 
 #[salsa::tracked(debug)]
+pub struct UseItem<'db> {
+    pub ast_ptr: ast::AstPtr<ast::UseItem>,
+}
+
+#[salsa::tracked(debug)]
 pub struct Struct<'db> {
     pub name: Ustr,
     pub ast_ptr: ast::AstPtr<ast::StructItem>,
@@ -255,13 +264,11 @@ pub fn struct_fields<'db>(
             };
 
             if let Type::Unknown(name) = &ir_ty {
-                Diagnostic {
-                    range: ast_ty.syntax().text_range(),
-                    kind: DiagnosticKind::TypeError(TypeErrorKind {
-                        message: format!("cannot find value `{}` in this scope", &name),
-                    }),
-                    notes: vec![],
-                }
+                Diagnostic::new(
+                    ast_ty.syntax().text_range(),
+                    DiagnosticKind::TypeError,
+                    format!("cannot find value `{}` in this scope", &name),
+                )
                 .accumulate(db);
             }
 
