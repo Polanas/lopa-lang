@@ -1,0 +1,25 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"(20 as float) as int\", |p| p.expr())"
+---
+AS_EXPR: 0..20 
+  PAREN_EXPR: 0..13 
+    L_PAREN: 0..1 "("
+    AS_EXPR: 1..12 
+      LIT_EXPR: 1..3 
+        INT: 1..3 "20"
+      WHITESPACE: 3..4 
+      AS_KW: 4..6 "as"
+      WHITESPACE: 6..7 
+      LIT_TYPE: 7..12 
+        PATH_TYPE: 7..12 
+          PATH: 7..12 
+            IDENT: 7..12 "float"
+    R_PAREN: 12..13 ")"
+  WHITESPACE: 13..14 
+  AS_KW: 14..16 "as"
+  WHITESPACE: 16..17 
+  LIT_TYPE: 17..20 
+    PATH_TYPE: 17..20 
+      PATH: 17..20 
+        IDENT: 17..20 "int"

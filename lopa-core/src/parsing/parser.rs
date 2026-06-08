@@ -387,11 +387,9 @@ impl<'a> Parser<'a> {
                     this.expect(T![self]);
                 });
             }
-            T![root] => {
-                self.with(USE_ROOT, |this| {
-                    this.expect(T![root]);
-                })
-            }
+            T![root] => self.with(USE_ROOT, |this| {
+                this.expect(T![root]);
+            }),
             IDENT => {
                 if self.nth(1) == T![:] {
                     self.with(USE_PATH, |this| {
@@ -928,6 +926,12 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
+
+        if self.ate(T![as]) {
+            self.with_at(AS_EXPR, checkpoint, |this| {
+                this.type_expr();
+            });
+        }
         Some(())
     }
 
@@ -1383,6 +1387,7 @@ mod test {
         insta::assert_snapshot!(parse("pos[1][2].test().test.len()[0]", |p| p.expr()));
         insta::assert_snapshot!(parse("math::Vec2 { x: 1, y: 2, }", |p| p.expr()));
         insta::assert_snapshot!(parse("Vec2 {}", |p| p.expr()));
+        insta::assert_snapshot!(parse("(20 as float) as int", |p| p.expr()));
     }
 
     #[test]

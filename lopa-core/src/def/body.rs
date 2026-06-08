@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Index};
+use std::{collections::HashMap, mem::transmute, ops::Index};
 
 use itertools::Itertools;
 use la_arena::{Arena, ArenaMap, Idx, RawIdx};
@@ -20,8 +20,6 @@ pub type ExprSource = InFile<ExprPtr>;
 
 pub type StmtPtr = MyAstPtr<ast::Stmt>;
 pub type StmtSource = InFile<StmtPtr>;
-
-//TODO: store statements in an arena as well, finish UnknownType error
 
 pub type PatternPtr = AstPtr<ast::Pattern>;
 pub type PatternSource = InFile<PatternPtr>;
@@ -209,17 +207,17 @@ impl<'db> BodyLowerCtx<'db> {
                 self.missing_expr(ptr)
             }
             ast::Expr::FieldExpr(field_expr) => {
-                let expr = self.lower_expr_opt(field_expr.expr());
                 let Some(name) = field_expr.name().and_then(|n| n.text()) else {
                     return self.missing_expr(ptr);
                 };
+                let expr = self.lower_expr_opt(field_expr.expr());
                 self.alloc_expr(Expr::Field { name, expr }, ptr)
             }
             ast::Expr::MethodExpr(method_expr) => {
-                let expr = self.lower_expr_opt(method_expr.expr());
                 let Some(name) = method_expr.name().and_then(|n| n.text()) else {
                     return self.missing_expr(ptr);
                 };
+                let expr = self.lower_expr_opt(method_expr.expr());
                 let args = self.lower_args(method_expr.args());
                 self.alloc_expr(Expr::Method { name, expr, args }, ptr)
             }
@@ -234,6 +232,20 @@ impl<'db> BodyLowerCtx<'db> {
                 self.alloc_expr(Expr::Record { path, fields }, ptr)
             }
             ast::Expr::SelfExpr(_) => self.alloc_expr(Expr::SelfVar, ptr),
+            ast::Expr::AsExpr(as_expr) => {
+                let Some(ty) = as_expr.type_expr() else {
+                    return self.missing_expr(ptr);
+                };
+                let expr = self.lower_expr_opt(as_expr.expr());
+                let ty = lower::lower_type_expr(self.db, self.file, ty);
+                self.alloc_expr(
+                    Expr::As {
+                        expr,
+                        ty: unsafe { transmute::<Type<'_>, Type<'static>>(ty) },
+                    },
+                    ptr,
+                )
+            }
         }
     }
 

@@ -110,6 +110,7 @@ macro_rules! T {
     [use] => { super::lexer::Syntax::USE_KW};
     [false] => { super::lexer::Syntax::FALSE_KW};
     [and] => { super::lexer::Syntax::AND_KW};
+    [as] => { super::lexer::Syntax::AS_KW};
     [or] => { super::lexer::Syntax::OR_KW};
     [not] => { super::lexer::Syntax::NOT_KW};
     [return] => { super::lexer::Syntax::RETURN_KW};
@@ -295,6 +296,9 @@ def! {
     #[token("or")]
     OR_KW = ["or"],
 
+    #[token("as")]
+    AS_KW = ["as"],
+
     #[token("not")]
     NOT_KW = ["not"],
 
@@ -397,8 +401,8 @@ def! {
     USE_TREE_LIST,
     USE_GLOBAL,
     USE_PATH,
-    USE_ROOT,
     USE_SELF,
+    USE_ROOT,
     USE_NAME,
 
     LET_STMT,
@@ -415,6 +419,7 @@ def! {
     SELF_TYPE,
     DYN_TYPE,
 
+    AS_EXPR,
     SELF_EXPR,
     RECORD_EXPR,
     UNIT_EXPR,

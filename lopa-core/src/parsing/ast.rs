@@ -552,6 +552,11 @@ structs! {
             })
         }
     },
+    AS_EXPR = AsExpr {
+        expr: Expr,
+        as_token: T![as],
+        type_expr: TypeExpr,
+    },
     UNIT_EXPR = UnitExpr {
     },
     PATH_EXPR = PathExpr {
@@ -775,6 +780,7 @@ enums! {
         ExprStmt,
     },
     Expr {
+        AsExpr,
         SelfExpr,
         FieldExpr,
         MethodExpr,
@@ -930,6 +936,23 @@ mod test {
         f.syntax().should_eq("y: Y");
         f.name().unwrap().syntax().should_eq("y");
         f.ty().unwrap().syntax().should_eq("Y");
+    }
+
+    #[test]
+    fn as_expr() {
+        let expr = parse::<Expr>("fn main(){10.0 as int;}");
+        let Expr::BlockExpr(block_expr) = expr else {
+            panic!();
+        };
+        let ast::Stmt::ExprStmt(expr_stmt) = block_expr.stmts().next().unwrap() else {
+            panic!();
+        };
+        let ast::Expr::AsExpr(as_expr) = expr_stmt.expr().unwrap() else {
+            panic!();
+        };
+
+        as_expr.expr().unwrap().syntax().should_eq("10.0");
+        as_expr.type_expr().unwrap().syntax().should_eq("int");
     }
 
     #[test]

@@ -389,6 +389,10 @@ pub enum Expr {
     Unit,
     Path(Vec<Ustr>),
     Lit(LitKind),
+    As {
+        expr: ExprId,
+        ty: Type<'static>,
+    },
     BlockExpr {
         stmts: Vec<StmtId>,
     },
