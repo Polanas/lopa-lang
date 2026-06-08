@@ -109,6 +109,7 @@ macro_rules! T {
     [lua] => { super::lexer::Syntax::LUA_KW};
     [use] => { super::lexer::Syntax::USE_KW};
     [false] => { super::lexer::Syntax::FALSE_KW};
+    [super] => { super::lexer::Syntax::SUPER_KW};
     [and] => { super::lexer::Syntax::AND_KW};
     [as] => { super::lexer::Syntax::AS_KW};
     [or] => { super::lexer::Syntax::OR_KW};
@@ -290,6 +291,9 @@ def! {
     #[token("false")]
     FALSE_KW = ["false"],
 
+    #[token("super")]
+    SUPER_KW = ["super"],
+
     #[token("and")]
     AND_KW = ["and"],
 
@@ -400,6 +404,7 @@ def! {
     RECORD_FIELD,
     USE_TREE_LIST,
     USE_GLOBAL,
+    USE_SUPER,
     USE_PATH,
     USE_SELF,
     USE_ROOT,

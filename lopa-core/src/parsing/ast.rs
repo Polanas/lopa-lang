@@ -394,11 +394,14 @@ structs! {
         use_keyword: T![use],
         use_tree: UseTree,
     },
+    USE_SUPER = UseSuper {
+        super_token: T![super],
+    },
     USE_SELF = UseSelf {
         self_token: T![self],
     },
     USE_ROOT = UseRoot {
-        self_token: T![root],
+        root_token: T![root],
     },
     USE_PATH = UsePath {
         name: Name,

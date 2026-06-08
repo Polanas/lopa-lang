@@ -210,6 +210,19 @@ impl<'db> LowerCtx<'db> {
         ))
     }
 }
+
+mod t {
+    mod V {
+        pub struct S;
+        impl S {
+            pub const A: i32 = 1;
+        }
+    }
+    mod s {
+        use super::V;
+        use V::S;
+    }
+}
 pub fn lower_type_expr<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,

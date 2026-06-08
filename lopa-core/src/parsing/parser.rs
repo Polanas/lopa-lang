@@ -36,7 +36,7 @@ const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
 const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
-const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root]]);
+const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root], T![super]]);
 
 const USE_RECOVERY: TokenSet = TokenSet::new(&[T![;]]).union(ITEM_FIRST);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
@@ -374,21 +374,18 @@ impl<'a> Parser<'a> {
 
     fn use_tree(&mut self) {
         match self.peek() {
-            T!["{"] => {
-                self.use_tree_list();
-            }
-            T![*] => {
-                self.with(USE_GLOBAL, |this| {
-                    this.expect(T![*]);
-                });
-            }
-            T![self] => {
-                self.with(USE_SELF, |this| {
-                    this.expect(T![self]);
-                });
-            }
+            T!["{"] => self.use_tree_list(),
+            T![*] => self.with(USE_GLOBAL, |this| {
+                this.expect(T![*]);
+            }),
+            T![self] => self.with(USE_SELF, |this| {
+                this.expect(T![self]);
+            }),
             T![root] => self.with(USE_ROOT, |this| {
                 this.expect(T![root]);
+            }),
+            T![super] => self.with(USE_SUPER, |this| {
+                this.expect(T![super]);
             }),
             IDENT => {
                 if self.nth(1) == T![:] {
