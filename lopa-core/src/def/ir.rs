@@ -77,7 +77,7 @@ impl<'db> ImplFunction<'db> {
             let ty = param
                 .ty()
                 .map(|ty| lower_type_expr_with_self(db, file, ty, Some(self.owner(db))))
-                .unwrap_or_else(|| Type::Unknown(Ustr::from("")));
+                .unwrap_or_else(|| Type::Unknown);
             params.push(Param { name, ty });
         }
         params
@@ -145,7 +145,7 @@ impl<'db> Function<'db> {
             let ty = param
                 .ty()
                 .map(|ty| lower_type_expr(db, file, ty))
-                .unwrap_or_else(|| Type::Unknown(Ustr::from("")));
+                .unwrap_or_else(|| Type::Unknown);
             params.push(Param { name, ty });
         }
         params
@@ -256,21 +256,14 @@ pub fn struct_fields<'db>(
             };
 
             let ptr = ast::AstPtr::new(&field);
-            let Some((ast_ty, ir_ty)) = field
-                .ty()
-                .map(|ty| (ty.clone(), lower_type_expr(db, file, ty)))
-            else {
+            let Some((ast_ty, ir_ty)) = field.ty().map(|ty| {
+                (
+                    ty.clone(),
+                    lower_type_expr_with_self(db, file, ty, Some(Type::Struct(struct_item))),
+                )
+            }) else {
                 continue;
             };
-
-            if let Type::Unknown(name) = &ir_ty {
-                Diagnostic::new(
-                    ast_ty.syntax().text_range(),
-                    DiagnosticKind::TypeError,
-                    format!("cannot find value `{}` in this scope", &name),
-                )
-                .accumulate(db);
-            }
 
             fields.push(Field::new(db, name, ir_ty, ptr));
         }
@@ -287,7 +280,7 @@ pub struct BareFn<'db> {
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
 pub enum Type<'db> {
-    Unknown(Ustr),
+    Unknown,
     Any,
     Unit,
     Never,
@@ -302,8 +295,8 @@ pub enum Type<'db> {
 impl<'db> Type<'db> {
     pub fn is_unknown(&self) -> bool {
         match self {
-            Self::Unknown(_) => true,
-            Self::Nilable(nilable) if matches!(**nilable, Self::Unknown(_)) => true,
+            Self::Unknown => true,
+            Self::Nilable(nilable) if matches!(**nilable, Self::Unknown) => true,
             _ => false,
         }
     }
@@ -383,11 +376,14 @@ impl<'db> Type<'db> {
 
 pub type ExprId = Idx<Expr>;
 
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub struct Path(pub Vec<Ustr>);
+
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
 pub enum Expr {
     Missing,
     Unit,
-    Path(Vec<Ustr>),
+    Path(Path),
     Lit(LitKind),
     As {
         expr: ExprId,
@@ -437,7 +433,17 @@ pub enum Expr {
         path: Vec<Ustr>,
         fields: Vec<RecordField>,
     },
+    Closure {
+        params: Vec<ClosureParam>,
+        output: Type<'static>,
+    },
     SelfVar,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
+pub struct ClosureParam {
+    pattern: PatternId,
+    ty: Option<Type<'static>>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]

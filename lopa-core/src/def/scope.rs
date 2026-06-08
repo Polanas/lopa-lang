@@ -1,15 +1,24 @@
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use la_arena::{Arena, ArenaMap, Idx};
+use notify_rust::Notification;
+use rowan::ast::AstNode;
+use salsa::Accumulator;
 use ustr::Ustr;
 
 use crate::{
     def::{
         body,
         ir::{self, ExprId, PatternId, StmtId},
-        lower,
+        lower, resolver,
     },
-    ide::{self},
+    ide::{
+        self,
+        diagnostics::{Diagnostic, DiagnosticKind},
+    },
     parsing::ast::{self, AstPtr},
     ustr_hash::{UstrHash, UstrIndexMap},
 };
@@ -34,6 +43,7 @@ impl<'db> ModuleSourceMap<'db> {
 pub struct ModuleScope<'db> {
     values: UstrIndexMap<ir::ModuleValueDef<'db>>,
     types: UstrIndexMap<ir::ModuleTypeDef<'db>>,
+    scope_names: UstrIndexMap<ir::Path>,
 }
 
 impl<'db> ModuleScope<'db> {
@@ -43,6 +53,10 @@ impl<'db> ModuleScope<'db> {
 
     pub fn resolve_type(&self, name: &Ustr) -> Option<&ir::ModuleTypeDef<'db>> {
         self.types.get(name)
+    }
+
+    pub fn resolve_name(&self, name: &Ustr) -> Option<&ir::Path> {
+        self.scope_names.get(name)
     }
 
     pub fn values(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleValueDef)> {
@@ -63,6 +77,7 @@ pub fn module_scope_with_source_map<'db>(
     let items = lower::module_items(db, file);
     let mut source_map = ModuleSourceMap::default();
     let mut scope = ModuleScope::default();
+    let parse = ide::parse(db, file);
 
     for func in items.functions(db) {
         source_map
@@ -71,6 +86,9 @@ pub fn module_scope_with_source_map<'db>(
         scope
             .values
             .insert(func.name(db).into(), ir::ModuleValueDef::Function(*func));
+        scope
+            .scope_names
+            .insert(func.name(db).into(), ir::Path(vec![func.name(db)]));
     }
 
     for strct in items.structs(db) {
@@ -80,6 +98,9 @@ pub fn module_scope_with_source_map<'db>(
         scope
             .types
             .insert(strct.name(db).into(), ir::ModuleTypeDef::Struct(*strct));
+        scope
+            .scope_names
+            .insert(strct.name(db).into(), ir::Path(vec![strct.name(db)]));
     }
 
     for file in items.children(db) {
@@ -87,13 +108,210 @@ pub fn module_scope_with_source_map<'db>(
         scope
             .types
             .insert(module_name.into(), ir::ModuleTypeDef::Module(*file));
+        scope
+            .scope_names
+            .insert(module_name.into(), ir::Path(vec![module_name]));
     }
 
-    //TODO: throw and catch errors
-    for imports in items.use_imports(db) {}
+    for import in items.use_imports(db) {
+        let Some(use_tree) = import
+            .ast_ptr(db)
+            .to_node(&parse.syntax_node(db))
+            .use_tree()
+        else {
+            continue;
+        };
+        traverse_use_tree(
+            db,
+            file,
+            &use_tree,
+            &ir::Path(vec![]),
+            &mut scope.scope_names,
+        );
+    }
 
     (scope.into(), source_map.into())
 }
+
+#[salsa::tracked]
+pub fn resolve_imports(db: &dyn salsa::Database, file: ide::File) {
+    let items = lower::module_items(db, file);
+    let parse = ide::parse(db, file);
+    for import in items.use_imports(db) {
+        let Some(use_tree) = import
+            .ast_ptr(db)
+            .to_node(&parse.syntax_node(db))
+            .use_tree()
+        else {
+            continue;
+        };
+        resolve_use_tree(db, file, &use_tree, ir::Path(vec![]));
+    }
+}
+
+fn resolve_use_tree(
+    db: &dyn salsa::Database,
+    file: ide::File,
+    tree: &ast::UseTree,
+    path: ir::Path,
+) -> Option<()> {
+    match tree {
+        ast::UseTree::UseName(use_name) => {
+            let mut path = path.clone();
+            let name = use_name.name()?.text()?;
+            path.0.push(name);
+
+            if resolver::resolve_path(db, file, path).is_none() {
+                Diagnostic::new(
+                    use_name.syntax().text_range(),
+                    DiagnosticKind::ModuleError,
+                    format!("unresolved import `{}`", &name),
+                )
+                .accumulate(db);
+            }
+        }
+        ast::UseTree::UseSelfName(use_self_name) => {
+            let mut path = path.clone();
+            let name = Ustr::from("self");
+            path.0.push(name);
+
+            if resolver::resolve_path(db, file, path).is_none() {
+                Diagnostic::new(
+                    use_self_name.syntax().text_range(),
+                    DiagnosticKind::ModuleError,
+                    format!("unresolved import `{}`", &name),
+                )
+                .accumulate(db);
+            }
+        }
+        ast::UseTree::UsePath(use_path) => {
+            let mut path = path.clone();
+            let name = use_path.name()?.text()?;
+            path.0.push(name);
+            if resolver::resolve_path(db, file, path.clone()).is_none() {
+                Diagnostic::new(
+                    use_path.name()?.syntax().text_range(),
+                    DiagnosticKind::ModuleError,
+                    format!("unresolved import `{}`", &name),
+                )
+                .accumulate(db);
+            }
+            resolve_use_tree(db, file, &use_path.use_tree()?, path)?;
+        }
+        ast::UseTree::UseRootPath(use_root_path) => {
+            let mut path = path.clone();
+            let name = "root".into();
+            path.0.push(name);
+            if resolver::resolve_path(db, file, path.clone()).is_none() {
+                Diagnostic::new(
+                    use_root_path.root_token()?.text_range(),
+                    DiagnosticKind::ModuleError,
+                    format!("unresolved import `{}`", &name),
+                )
+                .accumulate(db);
+            }
+            resolve_use_tree(db, file, &use_root_path.use_tree()?, path)?;
+        }
+        ast::UseTree::UseTreeList(use_tree_list) => {
+            for elem in use_tree_list.elements() {
+                resolve_use_tree(db, file, &elem, path.clone());
+            }
+            return None;
+        }
+        ast::UseTree::UseSuperPath(use_super_path) => {
+            let mut path = path.clone();
+            let name = "root".into();
+            path.0.push(name);
+            if resolver::resolve_path(db, file, path.clone()).is_none() {
+                Diagnostic::new(
+                    use_super_path.super_token()?.text_range(),
+                    DiagnosticKind::ModuleError,
+                    format!("unresolved import `{}`", &name),
+                )
+                .accumulate(db);
+            }
+            resolve_use_tree(db, file, &use_super_path.use_tree()?, path)?;
+        }
+        ast::UseTree::UseGlobal(use_global) => todo!(),
+    };
+    Some(())
+}
+
+fn traverse_use_tree(
+    db: &dyn salsa::Database,
+    file: ide::File,
+    tree: &ast::UseTree,
+    path: &ir::Path,
+    names: &mut UstrIndexMap<ir::Path>,
+) -> Option<()> {
+    match tree {
+        ast::UseTree::UseName(use_name) => {
+            let mut path = path.clone();
+            let name = use_name.name()?.text()?;
+            path.0.push(name);
+            names.insert(name.into(), path);
+        }
+        ast::UseTree::UseSelfName(_) => {
+            let path = path.clone();
+            let name = *path.0.last().unwrap();
+            names.insert(name.into(), path);
+        }
+        ast::UseTree::UsePath(use_path) => {
+            let mut path = path.clone();
+            path.0.push(use_path.name()?.text()?);
+            traverse_use_tree(db, file, &use_path.use_tree()?, &path, names)?;
+        }
+        ast::UseTree::UseTreeList(use_tree_list) => {
+            for elem in use_tree_list.elements() {
+                traverse_use_tree(db, file, &elem, &path, names);
+            }
+            return None;
+        }
+        ast::UseTree::UseRootPath(use_root_path) => {
+            let mut path = path.clone();
+            path.0.push(Ustr::from("root"));
+            traverse_use_tree(db, file, &use_root_path.use_tree()?, &path, names)?;
+        }
+        ast::UseTree::UseSuperPath(use_super_path) => {
+            let mut path = ir::Path(vec![]);
+            let mut current = file;
+            while let Some(parent) = lower::module_parent(db, current) {
+                path.0.insert(0, ide::module_name(db, parent));
+                current = parent;
+            }
+            traverse_use_tree(db, file, &use_super_path.use_tree()?, &path, names)?;
+        }
+        ast::UseTree::UseGlobal(use_global) => todo!(),
+    };
+    Some(())
+}
+
+// #[derive(Clone, Debug)]
+// struct UseItem {
+//     kind: UseItemKind,
+//     children: HashMap<Ustr, Self>,
+// }
+//
+// impl UseItem {
+//     fn new(kind: UseItemKind) -> Self {
+//         Self {
+//             kind,
+//             children: Default::default(),
+//         }
+//     }
+//
+//     fn add_child(&mut self, item: Self) {
+//         self.children.insert(
+//             match &item.kind {
+//                 UseItemKind::Name(ustr) => *ustr,
+//                 UseItemKind::Root => "root".into(),
+//                 UseItemKind::Itself => "self".into(),
+//                 UseItemKind::Global => "*".into(),
+//             },
+//             item,
+//         );
+//     }
+// }
 
 #[salsa::tracked(returns(ref))]
 pub fn module_scope<'db>(db: &'db dyn salsa::Database, file: ide::File) -> Arc<ModuleScope<'db>> {
@@ -140,7 +358,7 @@ impl<'db> ExprScopesCtx<'db> {
     }
 
     fn traverse_expr(&mut self, expr: ExprId, scope: ScopeId) {
-        self.scope_by_expr.insert(expr.into(), scope);
+        self.scope_by_expr.insert(expr, scope);
 
         match self.body.expr(expr) {
             ir::Expr::BlockExpr { stmts } => {
@@ -188,6 +406,10 @@ impl<'db> ExprScopesCtx<'db> {
             | ir::Expr::Missing
             | ir::Expr::Unit
             | ir::Expr::SelfVar => {}
+            ir::Expr::As { expr, .. } => {
+                self.traverse_expr(*expr, scope);
+            }
+            ir::Expr::Closure { params, output } => {}
         }
     }
 

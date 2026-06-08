@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use indexmap::map::Entry;
 use itertools::Itertools;
@@ -8,9 +8,11 @@ use ustr::Ustr;
 use crate::{
     def::{
         ir::{self, ExprId, Local},
+        lower,
         scope::{self, ScopeId},
     },
-    ide,
+    ide::{self, diagnostics::Diagnostic},
+    parsing::ast,
     ustr_hash::UstrIndexMap,
 };
 //
@@ -90,6 +92,13 @@ pub enum ResolveResult<'db> {
     Local(ir::Local<'db>),
     Function(ir::Function<'db>),
     Struct(ir::Struct<'db>),
+}
+
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::Update)]
+pub enum ResolveItemResult<'db> {
+    Function(ir::Function<'db>),
+    Struct(ir::Struct<'db>),
+    Module(ide::File),
 }
 //
 // impl<'db> Resolver<'db> {
@@ -203,6 +212,95 @@ pub enum ResolveResult<'db> {
 //         });
 //     }
 // }
+//
+#[salsa::tracked]
+pub fn resolve_item_name<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    name: Ustr,
+) -> Option<ResolveItemResult<'db>> {
+    let module_scope = scope::module_scope(db, file);
+
+    Some(if let Some(value) = module_scope.resolve_value(&name) {
+        match value {
+            ir::ModuleValueDef::Function(function) => ResolveItemResult::Function(*function),
+        }
+    } else if let Some(ty) = module_scope.resolve_type(&name) {
+        match ty {
+            ir::ModuleTypeDef::Struct(strct) => ResolveItemResult::Struct(*strct),
+            ir::ModuleTypeDef::Module(file) => ResolveItemResult::Module(*file),
+        }
+    } else {
+        // Notification::new()
+        //     .body(&format!("{:?}", ide::is_root_file(db, file)))
+        //     .show()
+        //     .unwrap();
+        return None;
+        // resolve_path(db, file, path)?
+    })
+}
+
+#[salsa::tracked]
+pub fn resolve_path<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    path: ir::Path,
+) -> Option<ResolveItemResult<'db>> {
+    fn resolve_path_inner<'db>(
+        db: &'db dyn salsa::Database,
+        file: ide::File,
+        path: ir::Path,
+    ) -> Option<ResolveItemResult<'db>> {
+        let first = *path.0.first()?;
+        let mut current_item = match first.as_str() {
+            "root" => ResolveItemResult::Module(ide::root_module(db, file.source_root(db))?),
+            _ => resolve_item_name(db, file, *path.0.first()?)?,
+        };
+        for (id, segment) in path.0.iter().skip(1).enumerate() {
+            match current_item {
+                ResolveItemResult::Function(function) => {
+                    if id == path.0.len() - 1 {
+                        return Some(ResolveItemResult::Function(function));
+                    }
+                    return None;
+                }
+                ResolveItemResult::Struct(strct) => {
+                    if id == path.0.len() - 1 {
+                        return Some(ResolveItemResult::Struct(strct));
+                    }
+                    return None;
+                }
+                ResolveItemResult::Module(file) => {
+                    if id == path.0.len() - 1 {
+                        return Some(ResolveItemResult::Module(file));
+                    }
+                    if segment == "self" {
+                        continue;
+                    }
+                    let mut module_path = ide::module_path(db, file);
+                    module_path.0.push(*segment);
+                    current_item = resolve_path(db, file, ir::Path(vec![*segment]))?;
+                }
+            }
+        }
+        Some(current_item)
+    }
+
+    let module_scope = scope::module_scope(db, file);
+    let first = path.0.first()?;
+    if let Some(outer) = module_scope.resolve_name(first) {
+        let mut outer = outer.clone();
+        outer.0.remove(outer.0.len() - 1);
+        outer.0.append(&mut path.0.clone());
+        if outer == path {
+            resolve_path_inner(db, file, path)
+        } else {
+            resolve_path(db, file, outer)
+        }
+    } else {
+        resolve_path_inner(db, file, path)
+    }
+}
 
 pub fn resolve_name_for_expr<'db>(
     db: &'db dyn salsa::Database,
@@ -254,3 +352,4 @@ pub fn resolve_name_for_expr<'db>(
 //
 //     None
 // }
+//

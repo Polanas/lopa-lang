@@ -30,7 +30,15 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T![|],
     T![self],
 ]);
-const TYPE_FIRST: TokenSet = TokenSet::new(&[IDENT, T![fn], T!["("], T![Self], T![dyn]]);
+const TYPE_FIRST: TokenSet = TokenSet::new(&[
+    IDENT,
+    T![fn],
+    T!["("],
+    T![Self],
+    T![dyn],
+    T![root],
+    T![super],
+]);
 const ITEM_TYPE_FIRST: TokenSet = TokenSet::new(&[T![struct], T![enum]]).union(TYPE_FIRST);
 const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
@@ -38,7 +46,7 @@ const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root], T![super]]);
 
-const USE_RECOVERY: TokenSet = TokenSet::new(&[T![;]]).union(ITEM_FIRST);
+const USE_RECOVERY: TokenSet = TokenSet::new(&[]).union(ITEM_FIRST);
 const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
 const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
 const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"], T![;]]).union(ITEM_FIRST);
@@ -378,14 +386,21 @@ impl<'a> Parser<'a> {
             T![*] => self.with(USE_GLOBAL, |this| {
                 this.expect(T![*]);
             }),
-            T![self] => self.with(USE_SELF, |this| {
+            T![self] => self.with(USE_SELF_NAME, |this| {
                 this.expect(T![self]);
             }),
-            T![root] => self.with(USE_ROOT, |this| {
+            T![root] => self.with(USE_ROOT_PATH, |this| {
                 this.expect(T![root]);
+                this.expect(T![:]);
+                this.expect(T![:]);
+                this.use_tree();
             }),
-            T![super] => self.with(USE_SUPER, |this| {
+
+            T![super] => self.with(USE_SUPER_PATH, |this| {
                 this.expect(T![super]);
+                this.expect(T![:]);
+                this.expect(T![:]);
+                this.use_tree();
             }),
             IDENT => {
                 if self.nth(1) == T![:] {
@@ -734,13 +749,25 @@ impl<'a> Parser<'a> {
     }
 
     fn path(&mut self) {
-        if self.at(IDENT) {
+        if self.at_any(TokenSet::new(&[IDENT, ROOT_KW, SUPER_KW])) {
             self.with(PATH, |this| {
-                this.expect(IDENT);
+                if this.at(T![root]) {
+                    this.expect(T![root]);
+                } else if this.at(T![super]) {
+                    this.expect(T![super]);
+                } else {
+                    this.expect(IDENT);
+                }
+                let mut at_super = this.at(T![super]);
                 while this.at_path_sep(0) && !this.at(EOF) {
                     this.expect(T![:]);
                     this.expect(T![:]);
-                    this.expect(IDENT);
+                    if this.at(T![super]) && at_super {
+                        this.expect(T![super]);
+                    } else {
+                        at_super = false;
+                        this.expect(IDENT);
+                    }
                 }
             });
         }
@@ -1291,7 +1318,7 @@ mod test {
     #[test]
     fn path() {
         insta::assert_snapshot!(parse("a::b::c", |p| p.path()));
-        insta::assert_snapshot!(parse("simple_path", |p| p.path()));
+        insta::assert_snapshot!(parse("root::hello", |p| p.path()));
     }
 
     #[test]
@@ -1405,6 +1432,8 @@ mod test {
     fn use_item() {
         insta::assert_snapshot!(parse("use foo::bar::baz;", |p| p.use_item()));
         insta::assert_snapshot!(parse("use foo::{bar,baz,*,self};", |p| p.use_item()));
+        insta::assert_snapshot!(parse("use root::test;", |p| p.use_item()));
+        insta::assert_snapshot!(parse("use super::test;", |p| p.use_item()));
     }
 
     #[test]
@@ -1421,6 +1450,7 @@ mod test {
                 ",
             |p| p.struct_item()
         ));
+        insta::assert_snapshot!(parse("struct X { a: root::a::b::c }", |p| p.struct_item()));
     }
 
     #[test]

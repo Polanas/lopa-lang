@@ -394,14 +394,16 @@ structs! {
         use_keyword: T![use],
         use_tree: UseTree,
     },
-    USE_SUPER = UseSuper {
+    USE_SUPER_PATH = UseSuperPath {
         super_token: T![super],
+        use_tree: UseTree,
     },
-    USE_SELF = UseSelf {
-        self_token: T![self],
-    },
-    USE_ROOT = UseRoot {
+    USE_ROOT_PATH = UseRootPath {
         root_token: T![root],
+        use_tree: UseTree,
+    },
+    USE_SELF_NAME = UseSelfName {
+        self_token: T![self],
     },
     USE_PATH = UsePath {
         name: Name,
@@ -723,8 +725,14 @@ structs! {
     },
     PATH = Path {
         pub fn segments(&self) -> impl Iterator<Item = Ustr> {
-            self.0.children_with_tokens().filter_map(|t| t.into_token()).filter(|t| t.kind() == Syntax::IDENT)
-                .map(|t| Ustr::from(t.text()))
+            self.0.
+                children_with_tokens()
+                .filter_map(|t| t.into_token())
+                .filter_map(|t| match t.kind() {
+                    Syntax::ROOT_KW => Some(Ustr::from("root")),
+                    Syntax::IDENT => Some(Ustr::from(t.text())),
+                    _ => None,
+                })
         }
     },
     COMPILER_ATTRIB_LIST = CompilerAttribList {
@@ -785,6 +793,7 @@ enums! {
     Expr {
         AsExpr,
         SelfExpr,
+        ClosureExpr,
         FieldExpr,
         MethodExpr,
         RecordExpr,
@@ -802,8 +811,9 @@ enums! {
         IfExpr,
     },
     UseTree {
-        UseRoot,
-        UseSelf,
+        UseRootPath,
+        UseSuperPath,
+        UseSelfName,
         UsePath,
         UseName,
         UseGlobal,
@@ -849,15 +859,12 @@ enums! {
 mod test {
     use rowan::ast::AstNode;
 
-    use crate::{
-        def::ir::StructElem,
-        parsing::{
-            ast::{
-                self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr,
-                ParenExpr, StructItem, SyntaxNode, SyntaxToken, UseItem, UseTree,
-            },
-            parser::Lang,
+    use crate::parsing::{
+        ast::{
+            self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr, ParenExpr,
+            StructItem, SyntaxNode, SyntaxToken, UseItem, UseTree,
         },
+        parser::Lang,
     };
 
     trait AstTest {
@@ -927,6 +934,12 @@ mod test {
             panic!();
         };
         list.syntax().should_eq("{bar, *}");
+
+        let use_item = parse::<UseItem>("use super::{a,b};");
+        let UseTree::UseSuperPath(super_path) = use_item.use_tree().unwrap() else {
+            panic!();
+        };
+        super_path.syntax().should_eq("super::{a,b}");
     }
 
     #[test]

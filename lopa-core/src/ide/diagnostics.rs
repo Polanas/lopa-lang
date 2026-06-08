@@ -1,8 +1,8 @@
 use crate::{
     def::{
         self,
-        ir::{Struct, Type},
-        lower, scope,
+        ir::{self, Struct, Type},
+        lower, resolver, scope,
     },
     ide::{self, File, base::FileRange, diagnostics, impls, parse},
     parsing::{
@@ -11,7 +11,9 @@ use crate::{
     },
     ty::infer,
 };
+use notify_rust::Notification;
 use rowan::{TextRange, TextSize};
+use ustr::Ustr;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Severity {
@@ -75,12 +77,17 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
             .map(|e| Diagnostic::new(e.range, DiagnosticKind::SyntaxError, e.kind.to_string())),
     );
 
-    let ir = lower::module_items(db, file);
     diagnostics.extend(
-        lower::module_items::accumulated::<Diagnostic>(db, file)
+        scope::resolve_imports::accumulated::<Diagnostic>(db, file)
             .into_iter()
             .cloned(),
     );
+    // diagnostics.extend(
+    //     lower::module_items::accumulated::<Diagnostic>(db, file)
+    //         .into_iter()
+    //         .cloned(),
+    // );
+    let ir = lower::module_items(db, file);
     for struct_item in ir.structs(db) {
         diagnostics.extend(
             def::ir::struct_fields::accumulated::<Diagnostic>(db, *struct_item)

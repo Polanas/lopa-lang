@@ -144,7 +144,8 @@ impl<'db> InferCtx<'db> {
                 self.insert_expr_ty(expr_id, Type::Unit);
             }
             ir::Expr::Path(ustr) => {
-                let result = resolver::resolve_name_for_expr(self.db, expr_id, self.func, &ustr[0]);
+                let result =
+                    resolver::resolve_name_for_expr(self.db, expr_id, self.func, &ustr.0[0]);
                 let Some(result) = result else {
                     self.add_error(TypeDiagnostic::UnknownValue { expr: expr_id });
                     return None;
@@ -320,11 +321,13 @@ impl<'db> InferCtx<'db> {
                 self.insert_expr_ty(expr_id, func.output(self.db).clone());
             }
             ir::Expr::Return { expr } => {}
-            ir::Expr::Index { base, index } => {}
-            ir::Expr::Field { name, expr } => {}
-            ir::Expr::Method { name, expr, args } => {}
-            ir::Expr::Record { path, fields } => {}
-            ir::Expr::SelfVar {} => {}
+            Expr::As { expr, ty } => {}
+            Expr::Index { base, index } => {}
+            Expr::Field { name, expr } => {}
+            Expr::Method { name, expr, args } => {}
+            Expr::Record { path, fields } => {}
+            Expr::Closure { params, output } => {}
+            Expr::SelfVar => {}
         };
         self.expr_ty_map.get(expr_id)
     }
@@ -464,7 +467,7 @@ impl<'db> InferCtx<'db> {
 
 fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
     match ty {
-        Type::Unknown(value) => Ustr::from(&format!("unknown type `{}`", value)),
+        Type::Unknown => "{unknown}".into(),
         Type::Unit => "()".into(),
         Type::Any => "any".into(),
         Type::Nilable(nilable) => Ustr::from(&format!("{}?", type_to_string(db, nilable))),

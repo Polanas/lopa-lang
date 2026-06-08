@@ -23,7 +23,7 @@ USE_ITEM: 0..26
       USE_GLOBAL: 18..19 
         STAR: 18..19 "*"
       COMMA: 19..20 ","
-      USE_SELF: 20..24 
+      USE_SELF_NAME: 20..24 
         SELF_KW: 20..24 "self"
       R_BRACE: 24..25 "}"
   SEMI: 25..26 ";"

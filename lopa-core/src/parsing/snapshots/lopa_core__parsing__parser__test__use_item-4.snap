@@ -1,0 +1,15 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"use super::test;\", |p| p.use_item())"
+---
+USE_ITEM: 0..16 
+  USE_KW: 0..3 "use"
+  WHITESPACE: 3..4 
+  USE_SUPER_PATH: 4..15 
+    SUPER_KW: 4..9 "super"
+    COLON: 9..10 ":"
+    COLON: 10..11 ":"
+    USE_NAME: 11..15 
+      NAME: 11..15 
+        IDENT: 11..15 "test"
+  SEMI: 15..16 ";"

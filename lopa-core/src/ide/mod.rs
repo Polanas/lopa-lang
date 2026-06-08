@@ -126,7 +126,7 @@ pub struct File {
 
 #[salsa::tracked]
 pub fn is_root_file(db: &dyn salsa::Database, file: File) -> bool {
-    module_name(db, file) == "main"
+    module_name(db, file) == "root"
         && file
             .path(db)
             .0
@@ -137,14 +137,31 @@ pub fn is_root_file(db: &dyn salsa::Database, file: File) -> bool {
 }
 
 #[salsa::tracked]
+pub fn module_path(db: &dyn salsa::Database, file: File) -> ir::Path {
+    let mut path = ir::Path(vec![module_name(db, file)]);
+    let mut current = file;
+    while let Some(parent) = lower::module_parent(db, current) {
+        path.0.insert(0, module_name(db, parent));
+        current = parent;
+    }
+    path
+}
+
+#[salsa::tracked]
 pub fn module_name(db: &dyn salsa::Database, file: File) -> Ustr {
-    file.path(db)
+    let name = file
+        .path(db)
         .0
         .file_stem()
         .unwrap()
         .to_string_lossy()
         .to_string()
-        .into()
+        .into();
+    if name == "main" {
+        Ustr::from("root")
+    } else {
+        name
+    }
 }
 
 #[salsa::input]
@@ -154,10 +171,19 @@ pub struct SourceRoot {
     pub path: PathBuf,
 }
 
+#[salsa::tracked]
+pub fn root_module(db: &dyn salsa::Database, root: SourceRoot) -> Option<File> {
+    root.files(db)?
+        .iter()
+        .find(|file| is_root_file(db, **file))
+        .cloned()
+}
+
 impl SourceRoot {
     pub fn clear(&self, db: &mut dyn salsa::Database) {
         self.set_files(db).to(Some(vec![]));
     }
+
     pub fn push_file(&self, db: &mut dyn salsa::Database, file: File) {
         let Some(mut files) = self.set_files(db).to(None) else {
             return;

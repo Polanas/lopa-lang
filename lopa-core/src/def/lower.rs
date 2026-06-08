@@ -3,19 +3,20 @@ use std::path::{Path, PathBuf};
 use itertools::Itertools;
 use notify_rust::Notification;
 use rowan::ast::AstNode;
-use salsa::Accumulator;
+use salsa::{Accumulator, Database};
 use ustr::Ustr;
 
 use crate::{
     def::{
         ir::{self, BareFn, Function, Type},
-        scope,
+        resolver, scope,
     },
     ide::{
         self,
-        diagnostics::{self, Diagnostic},
+        diagnostics::{self, Diagnostic, DiagnosticKind},
     },
     parsing::ast,
+    ustr_hash::UstrIndexMap,
 };
 
 #[salsa::tracked(debug)]
@@ -211,18 +212,6 @@ impl<'db> LowerCtx<'db> {
     }
 }
 
-mod t {
-    mod V {
-        pub struct S;
-        impl S {
-            pub const A: i32 = 1;
-        }
-    }
-    mod s {
-        use super::V;
-        use V::S;
-    }
-}
 pub fn lower_type_expr<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
@@ -237,17 +226,32 @@ pub fn lower_type_expr_with_self<'db>(
     ty: ast::TypeExpr,
     owner: Option<Type<'db>>,
 ) -> ir::Type<'db> {
+    let range = ty.syntax().text_range();
     match ty {
         ast::TypeExpr::PathType(path_type) => resolve_type_path(db, file, path_type),
         ast::TypeExpr::NilableType(nilable_type) => {
             let Some(ty) = nilable_type.ty() else {
-                return ir::Type::Unknown(nilable_type.syntax().text().to_string().into());
+                let text = nilable_type.syntax().text().to_string();
+                Diagnostic::new(
+                    range,
+                    DiagnosticKind::TypeError,
+                    format!("cannot find type `{}` in this scope", &text),
+                )
+                .accumulate(db);
+                return Type::Unknown;
             };
-            ir::Type::Nilable(Box::new(lower_type_expr(db, file, ty)))
+            ir::Type::Nilable(Box::new(lower_type_expr_with_self(db, file, ty, owner)))
         }
         ast::TypeExpr::LitType(lit_type) => {
             let Some(kind) = lit_type.kind() else {
-                return ir::Type::Unknown(lit_type.syntax().text().to_string().into());
+                let text = lit_type.syntax().text().to_string();
+                Diagnostic::new(
+                    range,
+                    DiagnosticKind::TypeError,
+                    format!("cannot find type `{}` in this scope", &text),
+                )
+                .accumulate(db);
+                return Type::Unknown;
             };
 
             ir::Type::Lit(kind)
@@ -262,7 +266,7 @@ pub fn lower_type_expr_with_self<'db>(
                         .filter_map(|param| {
                             param
                                 .ty()
-                                .map(|ty| lower_type_expr(db, file, ty))
+                                .map(|ty| lower_type_expr_with_self(db, file, ty, owner.clone()))
                                 .map(|ty| (ty, param.name()))
                         })
                         .map(|(ty, n)| ir::Param {
@@ -275,42 +279,109 @@ pub fn lower_type_expr_with_self<'db>(
             output: fn_type
                 .output()
                 .and_then(|o| o.ty())
-                .map(|ty| lower_type_expr(db, file, ty))
+                .map(|ty| lower_type_expr_with_self(db, file, ty, owner))
                 .unwrap_or_else(|| Type::Unit)
                 .into(),
         }),
-        ast::TypeExpr::SelfType(_) => owner.unwrap_or_else(|| Type::Unknown(Ustr::from("Self"))),
+        ast::TypeExpr::SelfType(_) => {
+            if let Some(owner) = owner {
+                owner
+            } else {
+                Diagnostic::new(
+                    ty.syntax().text_range(),
+                    DiagnosticKind::TypeError,
+                    "cannot find type `Self` in this scope".to_string(),
+                )
+                .accumulate(db);
+                Type::Unknown
+            }
+        }
         ast::TypeExpr::DynType(dyn_type) => {
             let Some(path) = dyn_type.path() else {
-                return ir::Type::Unknown("".into());
+                return Type::Unknown;
             };
             resolve_type_path(db, file, ast::PathType(path.syntax().clone()))
         }
     }
 }
 
-//TODO: rewrite this
 pub fn resolve_type_path<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
     path_type: ast::PathType,
 ) -> Type<'_> {
     let Some(path) = path_type.value() else {
-        return ir::Type::Unknown(path_type.syntax().text().to_string().into());
+        let path_text = path_type.syntax().text().to_string();
+        Diagnostic::new(
+            path_type.syntax().text_range(),
+            DiagnosticKind::TypeError,
+            format!("cannot find type `{}` in this scope", &path_text),
+        )
+        .accumulate(db);
+        return Type::Unknown;
     };
-    let module_scope = scope::module_scope(db, file);
-    let Some((_, def)) = module_scope
-        .types()
-        .find(|t| t.0.0 == path.segments().last().unwrap())
-    else {
-        return ir::Type::Unknown(path_type.syntax().text().to_string().into());
+    let path = ir::Path(path.segments().collect_vec());
+    let Some(item) = resolver::resolve_path(db, file, path) else {
+        let path_text = path_type.syntax().text().to_string();
+        Diagnostic::new(
+            path_type.syntax().text_range(),
+            DiagnosticKind::TypeError,
+            format!("cannot find type `{}` in this scope", &path_text),
+        )
+        .accumulate(db);
+        return Type::Unknown;
     };
-    todo!()
 
-    // match def {
-    //     ir::ModuleValueDef::Function(_) => unreachable!(),
-    //     ir::ModuleValueDef::Struct(strct) => ir::Type::Struct(*strct),
-    // }
+    match item {
+        resolver::ResolveItemResult::Struct(strct) => Type::Struct(strct),
+        resolver::ResolveItemResult::Function(function) => {
+            Diagnostic::new(
+                path_type.syntax().text_range(),
+                DiagnosticKind::TypeError,
+                format!("expected type, got function `{}`", function.name(db)),
+            )
+            .accumulate(db);
+            return Type::Unknown;
+        }
+        resolver::ResolveItemResult::Module(file) => {
+            Diagnostic::new(
+                path_type.syntax().text_range(),
+                DiagnosticKind::TypeError,
+                format!("expected type, got module `{}`", ide::module_name(db, file)),
+            )
+            .accumulate(db);
+            return Type::Unknown;
+        }
+    }
+}
+
+#[salsa::tracked]
+pub fn module_parent(db: &dyn salsa::Database, file: ide::File) -> Option<ide::File> {
+    module_parents(db, file.source_root(db))
+        .get(&file)
+        .cloned()?
+}
+
+#[salsa::tracked]
+fn module_parents(
+    db: &dyn salsa::Database,
+    source_root: ide::SourceRoot,
+) -> indexmap::IndexMap<ide::File, Option<ide::File>> {
+    fn module_parents_inner(
+        db: &dyn salsa::Database,
+        parent: ide::File,
+        parents: &mut indexmap::IndexMap<ide::File, Option<ide::File>>,
+    ) {
+        for child in module_items(db, parent).children(db) {
+            module_parents_inner(db, *child, parents);
+            parents.insert(*child, Some(parent));
+        }
+    }
+    let mut parents: indexmap::IndexMap<ide::File, Option<ide::File>> = Default::default();
+    let root = ide::root_module(db, source_root).unwrap();
+    parents.insert(root, None);
+    module_parents_inner(db, root, &mut parents);
+    parents
 }
 
 #[salsa::tracked]

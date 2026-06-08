@@ -119,6 +119,7 @@ impl<'db> BodyLowerCtx<'db> {
                 let expr = path_expr
                     .path()
                     .map(|n| n.segments().collect_vec())
+                    .map(ir::Path)
                     .map(Expr::Path)
                     .unwrap_or_else(|| Expr::Missing);
                 self.alloc_expr(expr, ptr)
@@ -245,6 +246,10 @@ impl<'db> BodyLowerCtx<'db> {
                     },
                     ptr,
                 )
+            }
+            ast::Expr::ClosureExpr(closure_expr) => {
+                //TODO: closure
+                self.missing_expr(ptr)
             }
         }
     }

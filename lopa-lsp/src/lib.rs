@@ -11,7 +11,7 @@ use dashmap::DashMap;
 use lopa_core::ide::base::VfsPath;
 use lopa_core::ide::{Analysis, File, SourceRoot};
 use notify_rust::Notification;
-use salsa::Setter as _;
+use salsa::{Database, Setter as _};
 use tokio::task;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
@@ -132,7 +132,17 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
-    async fn did_save(&self, _params: DidSaveTextDocumentParams) {}
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri;
+        {
+            let mut vfs = self.vfs.write().unwrap();
+            let vfs_path = uri.to_vfs_path().unwrap();
+            if let Some(root) = Self::find_package_root(Path::new(vfs_path.0.as_path())) {
+                self.scan_files(root.as_path(), &mut vfs);
+            }
+        }
+        self.spawn_update_diagnostics(uri);
+    }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let mut vfs = self.vfs.write().unwrap();
@@ -173,7 +183,10 @@ impl LanguageServer for Backend {
             }
             self.analysis.lock().unwrap().apply_change(file);
         }
-        self.spawn_update_diagnostics(params.text_document.uri);
+        for file in self.opened_files.iter() {
+            let uri = file.key();
+            self.spawn_update_diagnostics(uri.clone());
+        }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
