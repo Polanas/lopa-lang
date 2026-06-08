@@ -44,6 +44,7 @@ pub struct ModuleScope<'db> {
     values: UstrIndexMap<ir::ModuleValueDef<'db>>,
     types: UstrIndexMap<ir::ModuleTypeDef<'db>>,
     scope_names: UstrIndexMap<ir::Path>,
+    global_imports: Vec<ir::Path>,
 }
 
 impl<'db> ModuleScope<'db> {
@@ -65,6 +66,10 @@ impl<'db> ModuleScope<'db> {
 
     pub fn types(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleTypeDef)> {
         self.types.iter()
+    }
+
+    pub fn global_imports(&self) -> &[ir::Path] {
+        &self.global_imports
     }
 }
 
@@ -127,6 +132,7 @@ pub fn module_scope_with_source_map<'db>(
             &use_tree,
             &ir::Path(vec![]),
             &mut scope.scope_names,
+            &mut scope.global_imports,
         );
     }
 
@@ -232,7 +238,7 @@ fn resolve_use_tree(
             }
             resolve_use_tree(db, file, &use_super_path.use_tree()?, path)?;
         }
-        ast::UseTree::UseGlobal(use_global) => todo!(),
+        ast::UseTree::UseGlobal(_) => {}
     };
     Some(())
 }
@@ -243,6 +249,7 @@ fn traverse_use_tree(
     tree: &ast::UseTree,
     path: &ir::Path,
     names: &mut UstrIndexMap<ir::Path>,
+    globals: &mut Vec<ir::Path>,
 ) -> Option<()> {
     match tree {
         ast::UseTree::UseName(use_name) => {
@@ -259,18 +266,18 @@ fn traverse_use_tree(
         ast::UseTree::UsePath(use_path) => {
             let mut path = path.clone();
             path.0.push(use_path.name()?.text()?);
-            traverse_use_tree(db, file, &use_path.use_tree()?, &path, names)?;
+            traverse_use_tree(db, file, &use_path.use_tree()?, &path, names, globals)?;
         }
         ast::UseTree::UseTreeList(use_tree_list) => {
             for elem in use_tree_list.elements() {
-                traverse_use_tree(db, file, &elem, &path, names);
+                traverse_use_tree(db, file, &elem, &path, names, globals);
             }
             return None;
         }
         ast::UseTree::UseRootPath(use_root_path) => {
             let mut path = path.clone();
             path.0.push(Ustr::from("root"));
-            traverse_use_tree(db, file, &use_root_path.use_tree()?, &path, names)?;
+            traverse_use_tree(db, file, &use_root_path.use_tree()?, &path, names, globals)?;
         }
         ast::UseTree::UseSuperPath(use_super_path) => {
             let mut path = ir::Path(vec![]);
@@ -279,9 +286,11 @@ fn traverse_use_tree(
                 path.0.insert(0, ide::module_name(db, parent));
                 current = parent;
             }
-            traverse_use_tree(db, file, &use_super_path.use_tree()?, &path, names)?;
+            traverse_use_tree(db, file, &use_super_path.use_tree()?, &path, names, globals)?;
         }
-        ast::UseTree::UseGlobal(use_global) => todo!(),
+        ast::UseTree::UseGlobal(_) => {
+            globals.push(path.clone());
+        }
     };
     Some(())
 }

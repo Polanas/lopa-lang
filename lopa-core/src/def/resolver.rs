@@ -231,12 +231,7 @@ pub fn resolve_item_name<'db>(
             ir::ModuleTypeDef::Module(file) => ResolveItemResult::Module(*file),
         }
     } else {
-        // Notification::new()
-        //     .body(&format!("{:?}", ide::is_root_file(db, file)))
-        //     .show()
-        //     .unwrap();
         return None;
-        // resolve_path(db, file, path)?
     })
 }
 
@@ -254,7 +249,18 @@ pub fn resolve_path<'db>(
         let first = *path.0.first()?;
         let mut current_item = match first.as_str() {
             "root" => ResolveItemResult::Module(ide::root_module(db, file.source_root(db))?),
-            _ => resolve_item_name(db, file, *path.0.first()?)?,
+            _ => resolve_item_name(db, file, *path.0.first()?).or_else(|| {
+                let scope = scope::module_scope(db, file);
+                for global_path in scope.global_imports() {
+                    let mut global_path = global_path.clone();
+                    global_path.0.push(*path.0.first()?);
+                    let Some(output) = resolve_path(db, file, global_path.clone()) else {
+                        continue;
+                    };
+                    return Some(output);
+                }
+                None
+            })?,
         };
         for (id, segment) in path.0.iter().skip(1).enumerate() {
             match current_item {
