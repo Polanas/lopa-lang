@@ -5,7 +5,7 @@ use ustr::Ustr;
 
 use crate::{
     common::LitKind,
-    def::lower::{lower_type_expr, lower_type_expr_with_self},
+    def::lower::{lower_item_type_expr_with_self, lower_type_expr, lower_type_expr_with_self},
     ide::{self},
     parsing::ast::{self, BinaryOpKind, UnaryOpKind},
     ustr_hash::{UstrHash, UstrIndexMap},
@@ -20,6 +20,7 @@ pub struct Local<'db> {
 pub enum ModuleDef<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
+    Enum(Enum<'db>),
     Module(ide::File),
 }
 
@@ -29,6 +30,7 @@ impl ModuleDef<'_> {
             ModuleDef::Function(_) => ModuleDefKind::Function,
             ModuleDef::Struct(_) => ModuleDefKind::Struct,
             ModuleDef::Module(_) => ModuleDefKind::Module,
+            ModuleDef::Enum(_) => ModuleDefKind::Enum,
         }
     }
 }
@@ -37,6 +39,7 @@ impl ModuleDef<'_> {
 pub enum ModuleDefKind {
     Function,
     Struct,
+    Enum,
     Module,
 }
 
@@ -190,6 +193,13 @@ pub struct UseItem<'db> {
 }
 
 #[salsa::tracked(debug)]
+pub struct Enum<'db> {
+    pub name: Ustr,
+    pub ast_ptr: ast::AstPtr<ast::EnumItem>,
+    pub file: ide::File,
+}
+
+#[salsa::tracked(debug)]
 pub struct Struct<'db> {
     pub name: Ustr,
     pub ast_ptr: ast::AstPtr<ast::StructItem>,
@@ -250,6 +260,33 @@ pub struct Field<'db> {
 //         })
 //         .unwrap_or_default()
 // }
+#[salsa::tracked(returns(ref))]
+pub fn enum_fields<'db>(db: &'db dyn salsa::Database, enum_item: Enum<'db>) -> Vec<Field<'db>> {
+    let mut fields = vec![];
+    let file = enum_item.file(db);
+    let root = ide::parse(db, file).syntax_node(db);
+    for element in enum_item.ast_ptr(db).to_node(&root).elements() {
+        if let ast::EnumElem::Field(field) = element {
+            let Some(name) = field.name().and_then(|n| n.text()) else {
+                continue;
+            };
+
+            let ptr = ast::AstPtr::new(&field);
+            let Some((ast_ty, ir_ty)) = field.ty().map(|ty| {
+                (
+                    ty.clone(),
+                    lower_item_type_expr_with_self(db, file, ty, Some(Type::Enum(enum_item))),
+                )
+            }) else {
+                continue;
+            };
+
+            fields.push(Field::new(db, name, ir_ty, ptr));
+        }
+    }
+
+    fields
+}
 
 #[salsa::tracked(returns(ref))]
 pub fn struct_fields<'db>(
@@ -269,7 +306,7 @@ pub fn struct_fields<'db>(
             let Some((ast_ty, ir_ty)) = field.ty().map(|ty| {
                 (
                     ty.clone(),
-                    lower_type_expr_with_self(db, file, ty, Some(Type::Struct(struct_item))),
+                    lower_item_type_expr_with_self(db, file, ty, Some(Type::Struct(struct_item))),
                 )
             }) else {
                 continue;
@@ -296,6 +333,7 @@ pub enum Type<'db> {
     Never,
     Lit(LitKind),
     Struct(Struct<'db>),
+    Enum(Enum<'db>),
     Dyn(Struct<'db>),
     Function(Function<'db>),
     Nilable(Box<Type<'db>>),

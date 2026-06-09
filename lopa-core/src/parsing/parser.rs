@@ -490,8 +490,7 @@ impl<'a> Parser<'a> {
         self.with(FIELD, |this| {
             this.name();
             this.expect(T![:]);
-            this.type_expr();
-            // this.item_type_expr();
+            this.item_type_expr();
             if this.ate(T![=]) {
                 this.expr();
             }
@@ -678,15 +677,11 @@ impl<'a> Parser<'a> {
 
     fn item_type_expr(&mut self) {
         if self.at_any(ITEM_TYPE_FIRST) {
-            self.with(ITEM_TYPE, |this| match this.peek() {
-                T![struct] => {
-                    this.struct_item();
-                }
-                T![enum] => {
-                    this.enum_item();
-                }
-                _ => this.type_expr(),
-            });
+            match self.peek() {
+                T![struct] => self.with(ITEM_TYPE_STRUCT, |this| this.struct_item()),
+                T![enum] => self.with(ITEM_TYPE_ENUM, |this| this.enum_item()),
+                _ => self.with(ITEM_TYPE, |this| this.type_expr()),
+            }
         } else {
             self.advance_with_error(SyntaxErrorKind::ExpectedType);
         }

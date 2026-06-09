@@ -413,6 +413,8 @@ def! {
     LET_STMT,
     EXPR_STMT,
 
+    ITEM_TYPE_ENUM,
+    ITEM_TYPE_STRUCT,
     ITEM_TYPE,
     NILABLE_TYPE,
     PAREN_TYPE,

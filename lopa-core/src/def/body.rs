@@ -2,8 +2,9 @@ use std::{collections::HashMap, mem::transmute, ops::Index};
 
 use itertools::Itertools;
 use la_arena::{Arena, ArenaMap, Idx, RawIdx};
-use rowan::ast::AstPtr;
+use rowan::ast::{AstNode as _, AstPtr};
 use salsa::Database;
+use ustr::Ustr;
 
 use crate::{
     def::{
@@ -382,6 +383,83 @@ impl<'db> BodySourceMap<'db> {
     pub fn node_for_pattern(&self, pat_id: PatternId) -> Option<PatternSource> {
         self.pat_id_to_source.get(pat_id).cloned()
     }
+}
+
+pub fn stmt_node<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    stmt: StmtId,
+) -> Option<ast::SyntaxNode> {
+    let source_map = ide::source_map(db, func);
+    let parse = ide::parse(db, func.file(db));
+    source_map
+        .node_for_stmt(stmt)
+        .map(|n| n.value.0.syntax_node_ptr().to_node(&parse.syntax_node(db)))
+}
+
+pub fn expr_node<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    expr: ExprId,
+) -> Option<ast::SyntaxNode> {
+    let source_map = ide::source_map(db, func);
+    let parse = ide::parse(db, func.file(db));
+    source_map
+        .node_for_expr(expr)
+        .map(|n| n.value.syntax_node_ptr().to_node(&parse.syntax_node(db)))
+}
+
+pub fn expr_range<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    expr: ExprId,
+) -> Option<rowan::TextRange> {
+    expr_node(db, func, expr).map(|node| node.text_range())
+}
+
+pub fn stmt_type_range<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    stmt: StmtId,
+) -> Option<rowan::TextRange> {
+    let stmt = ast::Stmt::cast(stmt_node(db, func, stmt)?)?;
+    let ast::Stmt::LetStmt(let_stmt) = stmt else {
+        return None;
+    };
+    let_stmt.ty().map(|ty| ty.syntax().text_range())
+}
+
+pub fn binary_op_range<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    expr: ExprId,
+) -> Option<rowan::TextRange> {
+    let node = expr_node(db, func, expr)?;
+    ast::BinaryExpr(node.parent()?)
+        .op_token()
+        .map(|t| t.text_range())
+}
+
+pub fn expr_text<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    expr: ExprId,
+) -> Option<Ustr> {
+    let range = expr_range(db, func, expr)?;
+    let contents = func.file(db).contents(db).read().unwrap();
+    let contents = contents.as_str();
+    Some(Ustr::from(&contents[range]))
+}
+
+pub fn stmt_type_text<'db>(
+    db: &'db dyn salsa::Database,
+    func: ir::Function<'db>,
+    stmt: StmtId,
+) -> Option<Ustr> {
+    let range = stmt_type_range(db, func, stmt)?;
+    let contents = func.file(db).contents(db).read().unwrap();
+    let contents = contents.as_str();
+    Some(Ustr::from(&contents[range]))
 }
 
 pub fn lower<'db>(

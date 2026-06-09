@@ -25,6 +25,8 @@ pub struct ModuleItemData<'db> {
     #[returns(ref)]
     pub structs: Vec<ir::Struct<'db>>,
     #[returns(ref)]
+    pub enums: Vec<ir::Enum<'db>>,
+    #[returns(ref)]
     pub use_imports: Vec<ir::UseItem<'db>>,
     #[returns(ref)]
     pub children: Vec<ir::Module<'db>>,
@@ -48,6 +50,7 @@ struct LowerCtx<'db> {
     db: &'db dyn salsa::Database,
     functions: Vec<ir::Function<'db>>,
     structs: Vec<ir::Struct<'db>>,
+    enums: Vec<ir::Enum<'db>>,
     use_items: Vec<ir::UseItem<'db>>,
     impl_blocks: Vec<ImplBlock<'db>>,
     children: Vec<ir::Module<'db>>,
@@ -68,6 +71,7 @@ impl<'db> LowerCtx<'db> {
             impl_blocks: Default::default(),
             use_items: Default::default(),
             children: Default::default(),
+            enums: Default::default(),
             file,
             db,
         }
@@ -94,6 +98,7 @@ impl<'db> LowerCtx<'db> {
             self.db,
             self.functions,
             self.structs,
+            self.enums,
             self.use_items,
             self.children,
         )
@@ -123,9 +128,10 @@ impl<'db> LowerCtx<'db> {
                 }
             }
             ast::Item::StructItem(struct_item) => {
-                if let Some(item) = self.struct_item(struct_item) {
-                    self.structs.push(item);
-                }
+                self.struct_item(struct_item);
+            }
+            ast::Item::EnumItem(enum_item) => {
+                self.enum_item(enum_item);
             }
             ast::Item::UseItem(use_item) => {
                 self.use_items.push(self.use_item(use_item));
@@ -196,13 +202,62 @@ impl<'db> LowerCtx<'db> {
         ir::UseItem::new(self.db, ast::AstPtr::new(&use_item))
     }
 
-    fn struct_item(&self, struct_item: ast::StructItem) -> Option<ir::Struct<'db>> {
-        Some(ir::Struct::new(
+    fn enum_item(&mut self, enum_item: ast::EnumItem) -> Option<()> {
+        for elem in enum_item.elements() {
+            if let ast::EnumElem::Field(field) = elem
+                && let Some(ty) = field.ty()
+            {
+                match ty {
+                    ast::ItemTypeExpr::StructItemType(struct_item_type)
+                        if let Some(struct_item) = struct_item_type.struct_item() =>
+                    {
+                        self.struct_item(struct_item);
+                    }
+                    ast::ItemTypeExpr::EnumItemType(enum_item_type)
+                        if let Some(enum_item) = enum_item_type.enum_item() =>
+                    {
+                        self.enum_item(enum_item);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.enums.push(ir::Enum::new(
+            self.db,
+            enum_item.name()?.text()?,
+            ast::AstPtr::new(&enum_item),
+            self.file,
+        ));
+        Some(())
+    }
+
+    fn struct_item(&mut self, struct_item: ast::StructItem) -> Option<()> {
+        for elem in struct_item.elements() {
+            if let ast::StructElem::Field(field) = elem
+                && let Some(ty) = field.ty()
+            {
+                match ty {
+                    ast::ItemTypeExpr::StructItemType(struct_item_type)
+                        if let Some(struct_item) = struct_item_type.struct_item() =>
+                    {
+                        self.struct_item(struct_item);
+                    }
+                    ast::ItemTypeExpr::EnumItemType(enum_item_type)
+                        if let Some(enum_item) = enum_item_type.enum_item() =>
+                    {
+                        self.enum_item(enum_item);
+                    }
+                    _ => {}
+                };
+            }
+        }
+        self.structs.push(ir::Struct::new(
             self.db,
             struct_item.name()?.text()?,
             ast::AstPtr::new(&struct_item),
             self.file,
-        ))
+        ));
+        Some(())
     }
 
     fn fn_item(&self, fn_item: ast::FnItem) -> Option<ir::Function<'db>> {
@@ -221,6 +276,64 @@ pub fn lower_type_expr<'db>(
     ty: ast::TypeExpr,
 ) -> ir::Type<'db> {
     lower_type_expr_with_self(db, file, ty, None)
+}
+
+pub fn lower_item_type_expr_with_self<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    ty: ast::ItemTypeExpr,
+    owner: Option<Type<'db>>,
+) -> ir::Type<'db> {
+    match ty {
+        ast::ItemTypeExpr::StructItemType(struct_item_type) => {
+            let Some(struct_name) = struct_item_type
+                .struct_item()
+                .and_then(|e| e.name())
+                .and_then(|e| e.text())
+            else {
+                return ir::Type::Unknown;
+            };
+            let Some(result) = resolver::resolve_path(db, file, ir::Path(vec![struct_name])) else {
+                return ir::Type::Unknown;
+            };
+            match result {
+                resolver::ResolveItemResult::Type(ty)
+                | resolver::ResolveItemResult::Both { ty, .. }
+                    if let ir::ModuleDef::Enum(enum_item) = ty =>
+                {
+                    ir::Type::Enum(enum_item)
+                }
+                _ => ir::Type::Unknown,
+            }
+        }
+        ast::ItemTypeExpr::EnumItemType(enum_item_type) => {
+            let Some(enum_name) = enum_item_type
+                .enum_item()
+                .and_then(|e| e.name())
+                .and_then(|e| e.text())
+            else {
+                return ir::Type::Unknown;
+            };
+            let Some(result) = resolver::resolve_path(db, file, ir::Path(vec![enum_name])) else {
+                return ir::Type::Unknown;
+            };
+            match result {
+                resolver::ResolveItemResult::Type(ty)
+                | resolver::ResolveItemResult::Both { ty, .. }
+                    if let ir::ModuleDef::Enum(enum_item) = ty =>
+                {
+                    ir::Type::Enum(enum_item)
+                }
+                _ => ir::Type::Unknown,
+            }
+        }
+        ast::ItemTypeExpr::ItemType(item_type) => {
+            let Some(ty) = item_type.ty() else {
+                return ir::Type::Unknown;
+            };
+            lower_type_expr_with_self(db, file, ty, owner)
+        }
+    }
 }
 
 pub fn lower_type_expr_with_self<'db>(
@@ -308,8 +421,8 @@ pub fn lower_type_expr_with_self<'db>(
     }
 }
 
-pub fn resolve_type_path<'db>(
-    db: &'db dyn salsa::Database,
+pub fn resolve_type_path(
+    db: &dyn salsa::Database,
     file: ide::File,
     path_type: ast::PathType,
 ) -> Type<'_> {
@@ -339,6 +452,7 @@ pub fn resolve_type_path<'db>(
         resolver::ResolveItemResult::Type(ty) | resolver::ResolveItemResult::Both { ty, .. } => {
             match ty {
                 ir::ModuleDef::Struct(strct) => Type::Struct(strct),
+                ir::ModuleDef::Enum(enum_item) => Type::Enum(enum_item),
                 ir::ModuleDef::Module(module) => {
                     Diagnostic::new(
                         path_type.syntax().text_range(),
@@ -349,7 +463,7 @@ pub fn resolve_type_path<'db>(
                         ),
                     )
                     .accumulate(db);
-                    return Type::Unknown;
+                    Type::Unknown
                 }
                 _ => unreachable!(),
             }
@@ -362,7 +476,7 @@ pub fn resolve_type_path<'db>(
                     format!("expected type, got function `{}`", function.name(db)),
                 )
                 .accumulate(db);
-                return Type::Unknown;
+                Type::Unknown
             }
             _ => unreachable!(),
         },
@@ -370,7 +484,7 @@ pub fn resolve_type_path<'db>(
 }
 
 #[salsa::tracked]
-pub fn module_parent<'db>(db: &'db dyn salsa::Database, file: ide::File) -> Option<ide::File> {
+pub fn module_parent(db: &dyn salsa::Database, file: ide::File) -> Option<ide::File> {
     module_parents(db, file.source_root(db))
         .get(&file)
         .cloned()?

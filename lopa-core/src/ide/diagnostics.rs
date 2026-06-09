@@ -1,19 +1,9 @@
 use crate::{
-    def::{
-        self,
-        ir::{self, Struct, Type},
-        lower, resolver, scope,
-    },
+    def::{self, lower, scope},
     ide::{self, File, base::FileRange, diagnostics, impls, parse},
-    parsing::{
-        self,
-        parser::{ParseError, SyntaxErrorKind},
-    },
     ty::infer,
 };
-use notify_rust::Notification;
 use rowan::{TextRange, TextSize};
-use ustr::Ustr;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Severity {
@@ -88,6 +78,13 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
             .cloned(),
     );
     let ir = lower::module_items(db, file);
+    for enum_item in ir.enums(db) {
+        diagnostics.extend(
+            def::ir::enum_fields::accumulated::<Diagnostic>(db, *enum_item)
+                .into_iter()
+                .cloned(),
+        );
+    }
     for struct_item in ir.structs(db) {
         diagnostics.extend(
             def::ir::struct_fields::accumulated::<Diagnostic>(db, *struct_item)

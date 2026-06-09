@@ -441,7 +441,7 @@ structs! {
     FIELD = Field {
         name: Name,
         colon_token: T![:],
-        ty: TypeExpr,
+        ty: ItemTypeExpr,
         eq_token: T![=],
         default_value: Expr,
     },
@@ -452,6 +452,15 @@ structs! {
         output: ReturnType,
         semi_token: T![;],
         body: BlockExpr,
+    },
+    ITEM_TYPE_STRUCT = StructItemType {
+        struct_item: StructItem,
+    },
+    ITEM_TYPE_ENUM = EnumItemType {
+        enum_item: EnumItem,
+    },
+    ITEM_TYPE = ItemType {
+        ty: TypeExpr,
     },
     RETURN_TYPE = ReturnType {
         arrow_token: T![->],
@@ -784,6 +793,7 @@ enums! {
         ModItem,
         ImplItem,
         StructItem,
+        EnumItem,
         UseItem,
     },
     Stmt {
@@ -824,11 +834,17 @@ enums! {
         FnItem,
     },
     EnumElem {
+        Field,
         FnItem,
     },
     //TODO: finish patterns
     Pattern {
         NamePattern,
+    },
+    ItemTypeExpr {
+        StructItemType,
+        EnumItemType,
+        ItemType,
     },
     TypeExpr {
         DynType,

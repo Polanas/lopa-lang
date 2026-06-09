@@ -172,6 +172,29 @@ pub fn module_scope_with_source_map<'db>(
             .types
             .insert(strct.name(db).into(), ir::ModuleDef::Struct(*strct));
     }
+
+    for enum_item in items.enums(db) {
+        let range = enum_item
+            .ast_ptr(db)
+            .to_node(&parse.syntax_node(db))
+            .syntax()
+            .text_range();
+        // source_map
+        //     .structs
+        //     .insert(MyAstPtr(enum_item.ast_ptr(db).clone()), *enum_item);
+        scope_names.insert_type(
+            enum_item.name(db),
+            ScopeName {
+                path: ir::Path(vec![enum_item.name(db)]),
+                range,
+                item: Some(ModuleDefKind::Struct),
+            },
+        );
+        scope
+            .types
+            .insert(enum_item.name(db).into(), ir::ModuleDef::Enum(*enum_item));
+    }
+
     for func in items.functions(db) {
         let range = func
             .ast_ptr(db)

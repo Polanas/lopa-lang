@@ -143,9 +143,9 @@ impl<'db> InferCtx<'db> {
             ir::Expr::Unit => {
                 self.insert_expr_ty(expr_id, Type::Unit);
             }
-            ir::Expr::Path(ustr) => {
+            ir::Expr::Path(path) => {
                 let result =
-                    resolver::resolve_name_for_expr(self.db, expr_id, self.func, &ustr.0[0]);
+                    resolver::resolve_path_for_expr(self.db, expr_id, self.func, path);
                 let Some(result) = result else {
                     self.add_error(TypeDiagnostic::UnknownValue { expr: expr_id });
                     return None;
@@ -530,88 +530,13 @@ fn type_to_string<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
             )
             .into()
         }
-        Type::Struct(_) => Ustr::from("todo: struct"),
+        Type::Struct(strct) => strct.name(db),
         Type::Never => "!".into(),
-        Type::Dyn(path) => Ustr::from("todo: path"),
+        Type::Dyn(strct) => format!("dyn {}", strct.name(db)).into(),
+        Type::Enum(enum_item) => enum_item.name(db),
     }
 }
 
-fn stmt_node<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-    stmt: StmtId,
-) -> Option<SyntaxNode> {
-    let source_map = ide::source_map(db, func);
-    let parse = ide::parse(db, func.file(db));
-    source_map
-        .node_for_stmt(stmt)
-        .map(|n| n.value.0.syntax_node_ptr().to_node(&parse.syntax_node(db)))
-}
-
-fn expr_node<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-    expr: ExprId,
-) -> Option<SyntaxNode> {
-    let source_map = ide::source_map(db, func);
-    let parse = ide::parse(db, func.file(db));
-    source_map
-        .node_for_expr(expr)
-        .map(|n| n.value.syntax_node_ptr().to_node(&parse.syntax_node(db)))
-}
-
-fn expr_range<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-    expr: ExprId,
-) -> Option<TextRange> {
-    expr_node(db, func, expr).map(|node| node.text_range())
-}
-
-fn stmt_type_range<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-    stmt: StmtId,
-) -> Option<TextRange> {
-    let stmt = ast::Stmt::cast(stmt_node(db, func, stmt)?)?;
-    let ast::Stmt::LetStmt(let_stmt) = stmt else {
-        return None;
-    };
-    let_stmt.ty().map(|ty| ty.syntax().text_range())
-}
-
-fn binary_op_range<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-    expr: ExprId,
-) -> Option<TextRange> {
-    let node = expr_node(db, func, expr)?;
-    ast::BinaryExpr(node.parent()?)
-        .op_token()
-        .map(|t| t.text_range())
-}
-
-fn expr_text<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-    expr: ExprId,
-) -> Option<Ustr> {
-    let range = expr_range(db, func, expr)?;
-    let contents = func.file(db).contents(db).read().unwrap();
-    let contents = contents.as_str();
-    Some(Ustr::from(&contents[range]))
-}
-
-fn stmt_type_text<'db>(
-    db: &'db dyn salsa::Database,
-    func: ir::Function<'db>,
-    stmt: StmtId,
-) -> Option<Ustr> {
-    let range = stmt_type_range(db, func, stmt)?;
-    let contents = func.file(db).contents(db).read().unwrap();
-    let contents = contents.as_str();
-    Some(Ustr::from(&contents[range]))
-}
 
 #[salsa::tracked]
 pub fn type_diagnostics<'db>(
@@ -650,24 +575,24 @@ pub fn type_diagnostics<'db>(
                     } else {
                         *expr_id
                     };
-                    expr_range(db, func, expr)
+                    body::expr_range(db, func, expr)
                 },
             ),
             TypeDiagnostic::UnknownValue { expr } => (
                 format!(
                     "cannot find value `{}` in this scope",
-                    expr_text(db, func, *expr).unwrap_or_default()
+                    body::expr_text(db, func, *expr).unwrap_or_default()
                 ),
-                expr_range(db, func, *expr),
+                body::expr_range(db, func, *expr),
             ),
             TypeDiagnostic::UnsupportedBinaryOp { left, right, op } => (
                 format!(
                     "`{}` operation not supported for `{}` and `{}`",
                     op,
-                    expr_text(db, func, *left).unwrap_or_default(),
-                    expr_text(db, func, *right).unwrap_or_default(),
+                    body::expr_text(db, func, *left).unwrap_or_default(),
+                    body::expr_text(db, func, *right).unwrap_or_default(),
                 ),
-                binary_op_range(db, func, *left),
+                body::binary_op_range(db, func, *left),
             ),
             // TypeDiagnostic::UnknownType { ty } => (format),
             TypeDiagnostic::Expected {
@@ -696,12 +621,12 @@ pub fn type_diagnostics<'db>(
                     } else {
                         *expr_id
                     };
-                    expr_range(db, func, expr)
+                    body::expr_range(db, func, expr)
                 },
             ),
             TypeDiagnostic::UnkownParamName { label, expr } => (
                 format!("cannot find parameter with the name `{}`", label),
-                expr_range(db, func, *expr),
+                body::expr_range(db, func, *expr),
             ),
             TypeDiagnostic::TooManyArguments {
                 expr,
@@ -712,11 +637,11 @@ pub fn type_diagnostics<'db>(
                     "too many arguments provided: expected {}, provided {}",
                     expected, provided
                 ),
-                expr_range(db, func, *expr),
+                body::expr_range(db, func, *expr),
             ),
             TypeDiagnostic::SameParamTwice { expr, name } => (
                 format!("parameter `{}` is provided multiple times", name),
-                expr_range(db, func, *expr),
+                body::expr_range(db, func, *expr),
             ),
             TypeDiagnostic::TooFewArguments {
                 expr,
@@ -727,14 +652,14 @@ pub fn type_diagnostics<'db>(
                     "too few arguments provided: expected {}, provided {}",
                     expected, provided
                 ),
-                expr_range(db, func, *expr),
+                body::expr_range(db, func, *expr),
             ),
             TypeDiagnostic::UnknownType { stmt } => (
                 format!(
                     "unknown type: `{}`",
-                    stmt_type_text(db, func, *stmt).unwrap_or_default()
+                    body::stmt_type_text(db, func, *stmt).unwrap_or_default()
                 ),
-                stmt_type_range(db, func, *stmt),
+                body::stmt_type_range(db, func, *stmt),
             ),
         })
         .collect_vec()
