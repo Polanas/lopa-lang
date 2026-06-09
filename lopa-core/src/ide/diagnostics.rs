@@ -1,6 +1,6 @@
 use crate::{
     def::{self, lower, scope},
-    ide::{self, File, base::FileRange, diagnostics, impls, parse},
+    ide::{self, File, base::FileRange, diagnostics, impl_map, parse},
     ty::infer,
 };
 use rowan::{TextRange, TextSize};
@@ -67,8 +67,10 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
             .map(|e| Diagnostic::new(e.range, DiagnosticKind::SyntaxError, e.kind.to_string())),
     );
 
+    diagnostics.extend(scope::resolve_imports(db, file));
     diagnostics.extend(
-        scope::resolve_imports::accumulated::<Diagnostic>(db, file)
+        //avoiding accumulators as they don't work with cycle_result (in `resolve_path`)
+        ide::impl_map::accumulated::<Diagnostic>(db, file.source_root(db))
             .into_iter()
             .cloned(),
     );
@@ -78,6 +80,8 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
             .cloned(),
     );
     let ir = lower::module_items(db, file);
+    let module_scope = scope::module_scope(db, file);
+    diagnostics.extend(module_scope.diagnostics().to_vec());
     for enum_item in ir.enums(db) {
         diagnostics.extend(
             def::ir::enum_fields::accumulated::<Diagnostic>(db, *enum_item)
@@ -94,10 +98,9 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     }
     for func in ir.functions(db) {
         diagnostics.extend(
-            infer::type_diagnostics(db, *func)
+            infer::infer_function::accumulated::<Diagnostic>(db, *func)
                 .into_iter()
-                .filter_map(|(message, r)| r.map(|range| (message, range)))
-                .map(|(message, range)| Diagnostic::new(range, DiagnosticKind::TypeError, message)),
+                .cloned(),
         );
     }
 

@@ -167,6 +167,7 @@ impl LanguageServer for Backend {
             self.scan_files(root.as_path(), &mut vfs);
         }
 
+        self.analysis.lock().unwrap().db.trigger_cancellation();
         self.spawn_update_diagnostics(uri);
     }
 

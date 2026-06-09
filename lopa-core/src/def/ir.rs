@@ -1,6 +1,7 @@
 use std::ops::Deref;
 
 use la_arena::{Idx, RawIdx};
+use notify_rust::Notification;
 use ustr::Ustr;
 
 use crate::{
@@ -47,6 +48,11 @@ pub enum ModuleDefKind {
 pub struct Module<'db> {
     pub file: ide::File,
     pub ast_ptr: ast::AstPtr<ast::ModItem>,
+}
+
+#[derive(salsa::Supertype, salsa::Update, Clone, PartialEq, Eq, Debug, Hash)]
+pub enum ImplItem<'db> {
+    Function(ImplFunction<'db>),
 }
 
 #[salsa::tracked(debug)]

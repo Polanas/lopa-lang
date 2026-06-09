@@ -7,13 +7,14 @@ use rowan::ast::AstNode as _;
 use salsa::{Accumulator, Database, Setter};
 use ustr::Ustr;
 
-use crate::def::ir::{Function, ImplFunction, Struct, Type};
+use crate::def::ir::{Function, ImplFunction, ImplItem, Struct, Type};
 use crate::def::lower::{self, impl_blocks};
 use crate::def::{self, ir};
 use crate::ide::base::VfsPath;
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
 use crate::parsing::parser::{self};
+use crate::ustr_hash::UstrIndexMap;
 use std::fmt::Display;
 use std::ops::Range;
 use std::path::PathBuf;
@@ -127,13 +128,6 @@ pub struct File {
 #[salsa::tracked]
 pub fn is_root_file(db: &dyn salsa::Database, file: File) -> bool {
     module_name(db, file) == "root"
-        && file
-            .path(db)
-            .0
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p == file.source_root(db).path(db).as_path())
-            .unwrap_or(false)
 }
 
 #[salsa::tracked]
@@ -268,40 +262,48 @@ pub struct ImplFunctions<'db> {
 //     }
 //     Some(result)
 // }
-
-type ImplMap<'db> = indexmap::IndexMap<ir::Type<'db>, ImplFunctions<'db>>;
-
-#[derive(salsa::Update, Debug, Default, PartialEq, Eq, Clone)]
-pub struct ImplItems<'db> {
-    pub functions: ImplMap<'db>,
+#[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Hash)]
+pub enum Implementee<'db> {
+    Type(ir::Type<'db>),
+    Itself,
+    Wildcard,
 }
 
-#[salsa::tracked(returns(ref))]
-pub fn impls(db: &dyn salsa::Database, package: SourceRoot) -> ImplItems<'_> {
-    let mut functions: ImplMap = Default::default();
-    // for &file in files.value(db).as_ref().unwrap().iter() {
-    //     let lower = impl_blocks(db, file);
-    //
-    //     for block in lower.impl_blocks(db) {
-    //         let implementee = block.implementee(db);
-    //         if let Some(impl_ty) = block.impl_ty(db)
-    //             && impl_ty != block.implementee(db)
-    //         {
-    //             let fns = functions.entry(impl_ty.clone()).or_default();
-    //             for func in block.methods(db) {
-    //                 fns.fns.push(*func);
-    //             }
-    //             fns.from_impls.push(implementee);
-    //         } else {
-    //             let fns = functions.entry(implementee).or_default();
-    //             for func in block.methods(db) {
-    //                 fns.fns.push(*func);
-    //             }
-    //         }
-    //     }
-    // }
+#[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Hash)]
+pub struct ImplKey<'db> {
+    //the type that items are implemented ON
+    implementor: ir::Type<'db>,
+    //the type that items are implemented FROM (acts as an interface)
+    implementee: Implementee<'db>,
+}
 
-    ImplItems { functions }
+type ImplMap<'db> = indexmap::IndexMap<ImplKey<'db>, UstrIndexMap<ImplItem<'db>>>;
+
+#[salsa::tracked(returns(ref))]
+pub fn impl_map(db: &dyn salsa::Database, root: SourceRoot) -> ImplMap<'_> {
+    let impls: ImplMap = Default::default();
+    for &file in root.files(db).unwrap().iter() {
+        let lower = impl_blocks(db, file);
+        for block in lower.impl_blocks(db) {
+            let implementee = block.implementee(db);
+            if let Some(impl_ty) = block.impl_ty(db)
+                && impl_ty != block.implementee(db)
+            {
+                //     let fns = functions.entry(impl_ty.clone()).or_default();
+                //     for func in block.methods(db) {
+                //         fns.fns.push(*func);
+                //     }
+                //     fns.from_impls.push(implementee);
+                // } else {
+                //     let fns = functions.entry(implementee).or_default();
+                //     for func in block.methods(db) {
+                //         fns.fns.push(*func);
+                //     }
+            }
+        }
+    }
+
+    impls
 }
 
 #[salsa::db]

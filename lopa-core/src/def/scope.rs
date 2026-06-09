@@ -51,6 +51,7 @@ pub struct ModuleScope<'db> {
     scope_types: UstrIndexMap<ScopeName>,
 
     global_imports: Vec<ir::Path>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
@@ -80,32 +81,47 @@ impl<'db> ScopeNames<'db> {
         scope_name: ScopeName,
         db: &dyn salsa::Database,
         names: &mut UstrIndexMap<ScopeName>,
+        diagnostics: &mut Vec<Diagnostic>,
     ) {
         if let Some(old) = names.insert(name.into(), scope_name.clone()) {
             let range = match (old.item, scope_name.item) {
                 (Some(old), Some(new)) if old == new => scope_name.range,
                 _ => scope_name.range.max(old.range),
             };
-            Diagnostic::new(
+            diagnostics.push(Diagnostic::new(
                 range,
                 DiagnosticKind::ModuleError,
                 format!("the name `{}` is defined multiple times", name),
-            )
-            .accumulate(db);
+            ));
         }
     }
 
-    fn insert_value_type(&mut self, name: Ustr, scope_name: ScopeName) {
-        self.insert_value(name, scope_name.clone());
-        self.insert_type(name, scope_name);
+    fn insert_value_type(
+        &mut self,
+        name: Ustr,
+        scope_name: ScopeName,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        self.insert_value(name, scope_name.clone(), diagnostics);
+        self.insert_type(name, scope_name, diagnostics);
     }
 
-    fn insert_value(&mut self, name: Ustr, scope_name: ScopeName) {
-        Self::insert(name, scope_name, self.db, &mut self.values);
+    fn insert_value(
+        &mut self,
+        name: Ustr,
+        scope_name: ScopeName,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        Self::insert(name, scope_name, self.db, &mut self.values, diagnostics);
     }
 
-    fn insert_type(&mut self, name: Ustr, scope_name: ScopeName) {
-        Self::insert(name, scope_name, self.db, &mut self.types);
+    fn insert_type(
+        &mut self,
+        name: Ustr,
+        scope_name: ScopeName,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        Self::insert(name, scope_name, self.db, &mut self.types, diagnostics);
     }
 }
 
@@ -137,6 +153,10 @@ impl<'db> ModuleScope<'db> {
     pub fn global_imports(&self) -> &[ir::Path] {
         &self.global_imports
     }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
 }
 
 //TODO: report collisions
@@ -167,6 +187,7 @@ pub fn module_scope_with_source_map<'db>(
                 range,
                 item: Some(ModuleDefKind::Struct),
             },
+            &mut scope.diagnostics,
         );
         scope
             .types
@@ -189,6 +210,7 @@ pub fn module_scope_with_source_map<'db>(
                 range,
                 item: Some(ModuleDefKind::Struct),
             },
+            &mut scope.diagnostics,
         );
         scope
             .types
@@ -211,6 +233,7 @@ pub fn module_scope_with_source_map<'db>(
                 range,
                 item: Some(ModuleDefKind::Function),
             },
+            &mut scope.diagnostics,
         );
         scope
             .values
@@ -231,6 +254,7 @@ pub fn module_scope_with_source_map<'db>(
                 range,
                 item: Some(ModuleDefKind::Function),
             },
+            &mut scope.diagnostics,
         );
         scope
             .types
@@ -252,6 +276,7 @@ pub fn module_scope_with_source_map<'db>(
             &ir::Path(vec![]),
             &mut scope_names,
             &mut scope.global_imports,
+            &mut scope.diagnostics,
         );
     }
 
@@ -262,9 +287,10 @@ pub fn module_scope_with_source_map<'db>(
 }
 
 #[salsa::tracked]
-pub fn resolve_imports(db: &dyn salsa::Database, file: ide::File) {
+pub fn resolve_imports(db: &dyn salsa::Database, file: ide::File) -> Vec<Diagnostic> {
     let items = lower::module_items(db, file);
     let parse = ide::parse(db, file);
+    let mut diagnostics = vec![];
     for import in items.use_imports(db) {
         let Some(use_tree) = import
             .ast_ptr(db)
@@ -273,8 +299,9 @@ pub fn resolve_imports(db: &dyn salsa::Database, file: ide::File) {
         else {
             continue;
         };
-        resolve_use_tree(db, file, &use_tree, ir::Path(vec![]));
+        resolve_use_tree(db, file, &use_tree, ir::Path(vec![]), &mut diagnostics);
     }
+    diagnostics
 }
 
 fn resolve_use_tree(
@@ -282,6 +309,7 @@ fn resolve_use_tree(
     file: ide::File,
     tree: &ast::UseTree,
     path: ir::Path,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<()> {
     match tree {
         ast::UseTree::UseName(use_name) => {
@@ -290,12 +318,11 @@ fn resolve_use_tree(
             path.0.push(name);
 
             if resolver::resolve_path(db, file, path).is_none() {
-                Diagnostic::new(
+                diagnostics.push(Diagnostic::new(
                     use_name.syntax().text_range(),
                     DiagnosticKind::ModuleError,
                     format!("unresolved import `{}`", &name),
-                )
-                .accumulate(db);
+                ));
             }
         }
         ast::UseTree::UseSelfName(use_self_name) => {
@@ -304,12 +331,11 @@ fn resolve_use_tree(
             path.0.push(name);
 
             if resolver::resolve_path(db, file, path).is_none() {
-                Diagnostic::new(
+                diagnostics.push(Diagnostic::new(
                     use_self_name.syntax().text_range(),
                     DiagnosticKind::ModuleError,
                     format!("unresolved import `{}`", &name),
-                )
-                .accumulate(db);
+                ));
             }
         }
         ast::UseTree::UsePath(use_path) => {
@@ -317,32 +343,30 @@ fn resolve_use_tree(
             let name = use_path.name()?.text()?;
             path.0.push(name);
             if resolver::resolve_path(db, file, path.clone()).is_none() {
-                Diagnostic::new(
+                diagnostics.push(Diagnostic::new(
                     use_path.name()?.syntax().text_range(),
                     DiagnosticKind::ModuleError,
                     format!("unresolved import `{}`", &name),
-                )
-                .accumulate(db);
+                ));
             }
-            resolve_use_tree(db, file, &use_path.use_tree()?, path)?;
+            resolve_use_tree(db, file, &use_path.use_tree()?, path, diagnostics)?;
         }
         ast::UseTree::UseRootPath(use_root_path) => {
             let mut path = path.clone();
             let name = "root".into();
             path.0.push(name);
             if resolver::resolve_path(db, file, path.clone()).is_none() {
-                Diagnostic::new(
+                diagnostics.push(Diagnostic::new(
                     use_root_path.root_token()?.text_range(),
                     DiagnosticKind::ModuleError,
                     format!("unresolved import `{}`", &name),
-                )
-                .accumulate(db);
+                ))
             }
-            resolve_use_tree(db, file, &use_root_path.use_tree()?, path)?;
+            resolve_use_tree(db, file, &use_root_path.use_tree()?, path, diagnostics)?;
         }
         ast::UseTree::UseTreeList(use_tree_list) => {
             for elem in use_tree_list.elements() {
-                resolve_use_tree(db, file, &elem, path.clone());
+                resolve_use_tree(db, file, &elem, path.clone(), diagnostics);
             }
             return None;
         }
@@ -351,14 +375,13 @@ fn resolve_use_tree(
             let name = "root".into();
             path.0.push(name);
             if resolver::resolve_path(db, file, path.clone()).is_none() {
-                Diagnostic::new(
+                diagnostics.push(Diagnostic::new(
                     use_super_path.super_token()?.text_range(),
                     DiagnosticKind::ModuleError,
                     format!("unresolved import `{}`", &name),
-                )
-                .accumulate(db);
+                ));
             }
-            resolve_use_tree(db, file, &use_super_path.use_tree()?, path)?;
+            resolve_use_tree(db, file, &use_super_path.use_tree()?, path, diagnostics)?;
         }
         ast::UseTree::UseGlobal(_) => {}
     };
@@ -372,6 +395,7 @@ fn traverse_use_tree(
     path: &ir::Path,
     names: &mut ScopeNames,
     globals: &mut Vec<ir::Path>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<()> {
     match tree {
         ast::UseTree::UseName(use_name) => {
@@ -385,6 +409,7 @@ fn traverse_use_tree(
                     range: use_name.syntax().text_range(),
                     item: None,
                 },
+                diagnostics,
             );
         }
         ast::UseTree::UseSelfName(self_name) => {
@@ -397,23 +422,40 @@ fn traverse_use_tree(
                     range: self_name.syntax().text_range(),
                     item: None,
                 },
+                diagnostics,
             );
         }
         ast::UseTree::UsePath(use_path) => {
             let mut path = path.clone();
             path.0.push(use_path.name()?.text()?);
-            traverse_use_tree(db, file, &use_path.use_tree()?, &path, names, globals)?;
+            traverse_use_tree(
+                db,
+                file,
+                &use_path.use_tree()?,
+                &path,
+                names,
+                globals,
+                diagnostics,
+            )?;
         }
         ast::UseTree::UseTreeList(use_tree_list) => {
             for elem in use_tree_list.elements() {
-                traverse_use_tree(db, file, &elem, &path, names, globals);
+                traverse_use_tree(db, file, &elem, &path, names, globals, diagnostics);
             }
             return None;
         }
         ast::UseTree::UseRootPath(use_root_path) => {
             let mut path = path.clone();
             path.0.push(Ustr::from("root"));
-            traverse_use_tree(db, file, &use_root_path.use_tree()?, &path, names, globals)?;
+            traverse_use_tree(
+                db,
+                file,
+                &use_root_path.use_tree()?,
+                &path,
+                names,
+                globals,
+                diagnostics,
+            )?;
         }
         ast::UseTree::UseSuperPath(use_super_path) => {
             let mut path = ir::Path(vec![]);
@@ -422,7 +464,15 @@ fn traverse_use_tree(
                 path.0.insert(0, ide::module_name(db, parent));
                 current = parent;
             }
-            traverse_use_tree(db, file, &use_super_path.use_tree()?, &path, names, globals)?;
+            traverse_use_tree(
+                db,
+                file,
+                &use_super_path.use_tree()?,
+                &path,
+                names,
+                globals,
+                diagnostics,
+            )?;
         }
         ast::UseTree::UseGlobal(_) => {
             globals.push(path.clone());

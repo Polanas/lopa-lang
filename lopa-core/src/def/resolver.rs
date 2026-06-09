@@ -1,3 +1,4 @@
+use notify_rust::Notification;
 use rowan::ast::AstNode;
 use salsa::Accumulator;
 use ustr::Ustr;
@@ -47,7 +48,16 @@ pub fn resolve_item_name<'db>(
         _ => return None,
     })
 }
-#[salsa::tracked]
+
+fn resolve_path_cycle_result<'db>(
+    _db: &'db dyn salsa::Database,
+    _id: salsa::Id,
+    _file: ide::File,
+    _path: ir::Path,
+) -> Option<ResolveItemResult<'db>> {
+    None
+}
+#[salsa::tracked(cycle_result=resolve_path_cycle_result)]
 pub fn resolve_path<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
@@ -69,9 +79,6 @@ pub fn resolve_path<'db>(
                 for global_path in scope.global_imports() {
                     let mut global_path = global_path.clone();
                     global_path.0.push(*path.0.first()?);
-                    if path == global_path {
-                        return None;
-                    }
                     let Some(output) = resolve_path(db, file, global_path.clone()) else {
                         continue;
                     };
@@ -105,7 +112,8 @@ pub fn resolve_path<'db>(
                         let mut module_path = ide::module_path(db, file);
                         module_path.0.push(*segment);
                         //TODO: public/private imports
-                        current_item = resolve_path(db, file, ir::Path(vec![*segment]))?;
+                        let mod_path = ir::Path(vec![*segment]);
+                        current_item = resolve_path(db, file, mod_path)?;
                     }
                     _ => unreachable!(),
                 },
@@ -143,7 +151,8 @@ pub fn resolve_path<'db>(
                                 let mut module_path = ide::module_path(db, file);
                                 module_path.0.push(*segment);
                                 //TODO: public/private imports
-                                current_item = resolve_path(db, file, ir::Path(vec![*segment]))?;
+                                let mod_path = ir::Path(vec![*segment]);
+                                current_item = resolve_path(db, file, mod_path)?;
                                 None
                             }
                         }

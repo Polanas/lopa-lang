@@ -305,7 +305,7 @@ impl<'db> BodyLowerCtx<'db> {
                 let pattern = name_pattern
                     .name()
                     .and_then(|n| n.text())
-                    .map(|n| Pattern::Name(n))
+                    .map(Pattern::Name)
                     .unwrap_or_else(|| Pattern::Missing);
                 self.alloc_pattern(pattern, ptr)
             }
@@ -466,14 +466,14 @@ pub fn lower<'db>(
     db: &'db dyn Database,
     function: ir::Function<'db>,
 ) -> (Body<'db>, BodySourceMap<'db>) {
-    let file_id = function.file(db);
-    let parse = ide::parse(db, file_id);
+    let file = function.file(db);
+    let parse = ide::parse(db, file);
     let ast = function.ast_ptr(db).to_node(&parse.syntax_node(db));
 
     let mut ctx = BodyLowerCtx {
         body: Default::default(),
         source_map: BodySourceMap::default(),
-        file: file_id,
+        file,
         db,
     };
     if let Some(params) = ast.params() {
