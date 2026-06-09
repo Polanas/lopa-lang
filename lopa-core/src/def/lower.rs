@@ -40,10 +40,10 @@ pub struct ImplBlocksIr<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ImplBlock<'db> {
-    pub implementee: Type<'db>,
-    pub impl_ty: Option<Type<'db>>,
+    pub owner: Type<'db>,
+    pub implementee: Option<Type<'db>>,
     #[returns(ref)]
-    pub methods: Vec<ir::ImplFunction<'db>>,
+    pub functions: Vec<ir::Function<'db>>,
 }
 
 struct LowerCtx<'db> {
@@ -105,25 +105,23 @@ impl<'db> LowerCtx<'db> {
     }
 
     fn impl_item(&mut self, item: ast::ImplItem) -> Option<ImplBlock<'db>> {
-        let implementee = item
-            .implementee()
-            .map(|i| lower_type_expr(self.db, self.file, i))?;
+        let ty = item.ty().map(|i| lower_type_expr(self.db, self.file, i))?;
         let impl_ty = item
             .impl_ty()
             .and_then(|t| t.ty())
             .map(|i| lower_type_expr(self.db, self.file, i));
+        let owner = impl_ty.as_ref().unwrap_or_else(|| &ty).clone();
         let methods = item
             .functions()
-            .filter_map(|f| self.fn_item(f))
-            .map(|f| ir::ImplFunction::new(self.db, f, implementee.clone()))
+            .filter_map(|f| self.fn_item(f, Some(owner.clone()), impl_ty.clone()))
             .collect_vec();
-        Some(ImplBlock::new(self.db, implementee, impl_ty, methods))
+        Some(ImplBlock::new(self.db, owner, impl_ty, methods))
     }
 
     fn item(&mut self, item: ast::Item) {
         match item {
             ast::Item::FnItem(fn_item) => {
-                if let Some(item) = self.fn_item(fn_item) {
+                if let Some(item) = self.fn_item(fn_item, None, None) {
                     self.functions.push(item);
                 }
             }
@@ -260,12 +258,19 @@ impl<'db> LowerCtx<'db> {
         Some(())
     }
 
-    fn fn_item(&self, fn_item: ast::FnItem) -> Option<ir::Function<'db>> {
+    fn fn_item(
+        &self,
+        fn_item: ast::FnItem,
+        owner: Option<Type<'db>>,
+        implementee: Option<Type<'db>>,
+    ) -> Option<ir::Function<'db>> {
         Some(ir::Function::new(
             self.db,
             fn_item.name()?.text()?,
             ast::AstPtr::new(&fn_item),
             self.file,
+            owner,
+            implementee,
         ))
     }
 }

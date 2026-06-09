@@ -7,13 +7,14 @@ use rowan::ast::AstNode as _;
 use salsa::{Accumulator, Database, Setter};
 use ustr::Ustr;
 
-use crate::def::ir::{Function, ImplFunction, ImplItem, Struct, Type};
+use crate::def::ir::{Function, ImplItem, Struct, Type};
 use crate::def::lower::{self, impl_blocks};
 use crate::def::{self, ir};
 use crate::ide::base::VfsPath;
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
 use crate::parsing::parser::{self};
+use crate::ty::infer;
 use crate::ustr_hash::UstrIndexMap;
 use std::fmt::Display;
 use std::ops::Range;
@@ -237,68 +238,41 @@ pub fn source_map<'db>(
     body_with_source_map(db, func).1.clone()
 }
 
-#[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Default)]
-pub struct ImplFunctions<'db> {
-    pub fns: Vec<ImplFunction<'db>>,
-    pub from_impls: Vec<Type<'db>>,
-}
-
-// #[salsa::tracked(returns(ref))]
-// pub fn impl_fns_list<'db>(
-//     db: &'db dyn salsa::Database,
-//     ty: Type<'db>,
-//     files: Files,
-// ) -> Option<Vec<ImplFunction<'db>>> {
-//     let impl_fns = impls(db, files).functions.get(&ty)?;
-//
-//     let mut result = impl_fns.fns.clone();
-//     for fns in impl_fns
-//         .from_impls
-//         .iter()
-//         .filter(|t| **t != ty)
-//         .filter_map(|t| impl_fns_list(db, t.clone(), files).clone())
-//     {
-//         result.extend(fns);
-//     }
-//     Some(result)
-// }
 #[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Implementee<'db> {
     Type(ir::Type<'db>),
     Itself,
-    Wildcard,
 }
 
 #[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Hash)]
 pub struct ImplKey<'db> {
     //the type that items are implemented ON
-    implementor: ir::Type<'db>,
+    pub implementor: ir::Type<'db>,
     //the type that items are implemented FROM (acts as an interface)
-    implementee: Implementee<'db>,
+    pub implementee: Implementee<'db>,
 }
 
 type ImplMap<'db> = indexmap::IndexMap<ImplKey<'db>, UstrIndexMap<ImplItem<'db>>>;
 
 #[salsa::tracked(returns(ref))]
 pub fn impl_map(db: &dyn salsa::Database, root: SourceRoot) -> ImplMap<'_> {
-    let impls: ImplMap = Default::default();
+    let mut impls: ImplMap = Default::default();
     for &file in root.files(db).unwrap().iter() {
         let lower = impl_blocks(db, file);
         for block in lower.impl_blocks(db) {
-            let implementee = block.implementee(db);
-            if let Some(impl_ty) = block.impl_ty(db)
-                && impl_ty != block.implementee(db)
-            {
-                //     let fns = functions.entry(impl_ty.clone()).or_default();
-                //     for func in block.methods(db) {
-                //         fns.fns.push(*func);
-                //     }
-                //     fns.from_impls.push(implementee);
-                // } else {
-                //     let fns = functions.entry(implementee).or_default();
-                //     for func in block.methods(db) {
-                //         fns.fns.push(*func);
-                //     }
+            let implementor = block.owner(db);
+            let implementee = block
+                .implementee(db)
+                .map(Implementee::Type)
+                .unwrap_or_else(|| Implementee::Itself);
+            let items = impls
+                .entry(ImplKey {
+                    implementor,
+                    implementee,
+                })
+                .or_default();
+            for func in block.functions(db) {
+                items.insert(func.name(db).into(), ImplItem::Function(*func));
             }
         }
     }
@@ -326,8 +300,7 @@ impl Analysis {
     }
 
     pub fn diagnostics(&self, file: File) -> Vec<Diagnostic> {
-        //TODO: use Cancelled::catch
-        diagnostics::diagnostics(&self.db, file)
+        diagnostics::file_diagnostics(&self.db, file)
     }
 
     pub fn apply_change(&mut self, file: File) {

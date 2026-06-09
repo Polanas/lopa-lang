@@ -1,5 +1,9 @@
 use crate::{
-    def::{self, lower, scope},
+    def::{
+        self,
+        lower::{self, impl_blocks},
+        scope,
+    },
     ide::{self, File, base::FileRange, diagnostics, impl_map, parse},
     ty::infer,
 };
@@ -55,7 +59,8 @@ pub enum DiagnosticKind {
     ModuleError,
 }
 
-pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
+#[salsa::tracked]
+pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
 
     let parse = parse(db, file);
@@ -81,6 +86,7 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     );
     let ir = lower::module_items(db, file);
     let module_scope = scope::module_scope(db, file);
+    //avoiding accumulators as they don't work with cycle_result (in `resolve_path`)
     diagnostics.extend(module_scope.diagnostics().to_vec());
     for enum_item in ir.enums(db) {
         diagnostics.extend(
@@ -102,6 +108,15 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
                 .into_iter()
                 .cloned(),
         );
+    }
+    for impl_block in lower::impl_blocks(db, file).impl_blocks(db).iter() {
+        for func in impl_block.functions(db) {
+            diagnostics.extend(
+                infer::infer_function::accumulated::<Diagnostic>(db, *func)
+                    .into_iter()
+                    .cloned(),
+            );
+        }
     }
 
     diagnostics

@@ -382,12 +382,12 @@ structs! {
     },
     IMPL_ITEM = ImplItem {
         impl_token: T![impl],
-        implementee: TypeExpr,
-        impl_ty: ImplTraitType,
+        ty: TypeExpr,
+        impl_ty: ImplStructType,
         for_token: T![for],
         functions: [FnItem],
     },
-    IMPL_STRUCT_TYPE = ImplTraitType {
+    IMPL_STRUCT_TYPE = ImplStructType {
         ty: TypeExpr,
     },
     USE_ITEM = UseItem {
@@ -928,12 +928,12 @@ mod test {
     #[test]
     fn impl_item() {
         let impl_item = parse::<ast::ImplItem>("impl X { fn test() {} }");
-        impl_item.implementee().unwrap().syntax().should_eq("X");
+        impl_item.ty().unwrap().syntax().should_eq("X");
         let func = impl_item.functions().next().unwrap();
         func.syntax().should_eq("fn test() {}");
 
         let impl_item = parse::<ast::ImplItem>("impl X for Y { fn test() {} }");
-        impl_item.implementee().unwrap().syntax().should_eq("X");
+        impl_item.ty().unwrap().syntax().should_eq("X");
         impl_item.impl_ty().unwrap().syntax().should_eq("Y");
         let func = impl_item.functions().next().unwrap();
         func.syntax().should_eq("fn test() {}");

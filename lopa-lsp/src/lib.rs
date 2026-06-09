@@ -8,11 +8,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use dashmap::DashMap;
+use itertools::Itertools;
 use lopa_core::ide::base::VfsPath;
 use lopa_core::ide::{Analysis, File, SourceRoot};
 use notify_rust::Notification;
 use salsa::{Database, Setter as _};
-use tokio::task;
+use tokio::task::{self, AbortHandle};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
@@ -40,7 +41,10 @@ impl Backend {
     }
 }
 
-pub struct FileData {}
+#[derive(Default)]
+pub struct FileData {
+    diagnostics_task: Option<AbortHandle>,
+}
 
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -141,7 +145,15 @@ impl LanguageServer for Backend {
                 self.scan_files(root.as_path(), &mut vfs);
             }
         }
-        self.spawn_update_diagnostics(uri);
+        self.analysis.lock().unwrap().db.trigger_cancellation();
+        let uris = self
+            .opened_files
+            .iter()
+            .map(|o| o.key().clone())
+            .collect_vec();
+        for uri in uris {
+            self.spawn_update_diagnostics(uri.clone());
+        }
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -149,7 +161,7 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         let vfs_path = uri.to_vfs_path().unwrap();
 
-        self.opened_files.insert(uri.clone(), FileData {});
+        self.opened_files.insert(uri.clone(), FileData::default());
         if let Some(root) = Self::find_package_root(Path::new(vfs_path.0.as_path())) {
             if vfs.source_root().is_none() {
                 let source_root = SourceRoot::new(
@@ -184,8 +196,12 @@ impl LanguageServer for Backend {
             }
             self.analysis.lock().unwrap().apply_change(file);
         }
-        for file in self.opened_files.iter() {
-            let uri = file.key();
+        let uris = self
+            .opened_files
+            .iter()
+            .map(|o| o.key().clone())
+            .collect_vec();
+        for uri in uris {
             self.spawn_update_diagnostics(uri.clone());
         }
     }
@@ -300,9 +316,17 @@ impl Backend {
         let uri_clone = uri.clone();
         let task = task::spawn_blocking(move || {
             let state = State { analysis, vfs };
-            handler::diagnostics(state, &uri_clone)
+            salsa::Cancelled::catch(|| handler::diagnostics(state, &uri_clone)).unwrap_or_default()
         });
-        //TODO: termiante previous diagnostics if present (see opened_files)
+        let Some(mut file) = self.opened_files.get_mut(&uri) else {
+            task.abort();
+            return;
+        };
+        if let Some(prev_task) = file.diagnostics_task.replace(task.abort_handle()) {
+            prev_task.abort();
+        }
+        drop(file);
+
         task::spawn({
             let client = self.client.clone();
             async move {
