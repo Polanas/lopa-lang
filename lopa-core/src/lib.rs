@@ -1,4 +1,5 @@
 pub mod parsing;
+pub mod range_max;
 pub mod ptr;
 pub mod common;
 #[macro_use]

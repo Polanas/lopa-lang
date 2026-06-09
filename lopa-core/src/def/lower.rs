@@ -16,7 +16,6 @@ use crate::{
         diagnostics::{self, Diagnostic, DiagnosticKind},
     },
     parsing::ast,
-    ustr_hash::UstrIndexMap,
 };
 
 #[salsa::tracked(debug)]
@@ -28,7 +27,7 @@ pub struct ModuleItemData<'db> {
     #[returns(ref)]
     pub use_imports: Vec<ir::UseItem<'db>>,
     #[returns(ref)]
-    pub children: Vec<ide::File>,
+    pub children: Vec<ir::Module<'db>>,
 }
 
 #[salsa::tracked(debug)]
@@ -51,7 +50,7 @@ struct LowerCtx<'db> {
     structs: Vec<ir::Struct<'db>>,
     use_items: Vec<ir::UseItem<'db>>,
     impl_blocks: Vec<ImplBlock<'db>>,
-    children: Vec<ide::File>,
+    children: Vec<ir::Module<'db>>,
     file: ide::File,
 }
 
@@ -147,7 +146,11 @@ impl<'db> LowerCtx<'db> {
                         )
                         .accumulate(self.db);
                     } else {
-                        self.children.push(module);
+                        self.children.push(ir::Module::new(
+                            self.db,
+                            module,
+                            ast::AstPtr::new(&mod_item),
+                        ));
                     }
                 } else {
                     Diagnostic::new(
@@ -333,30 +336,41 @@ pub fn resolve_type_path<'db>(
     };
 
     match item {
-        resolver::ResolveItemResult::Struct(strct) => Type::Struct(strct),
-        resolver::ResolveItemResult::Function(function) => {
-            Diagnostic::new(
-                path_type.syntax().text_range(),
-                DiagnosticKind::TypeError,
-                format!("expected type, got function `{}`", function.name(db)),
-            )
-            .accumulate(db);
-            return Type::Unknown;
+        resolver::ResolveItemResult::Type(ty) | resolver::ResolveItemResult::Both { ty, .. } => {
+            match ty {
+                ir::ModuleDef::Struct(strct) => Type::Struct(strct),
+                ir::ModuleDef::Module(module) => {
+                    Diagnostic::new(
+                        path_type.syntax().text_range(),
+                        DiagnosticKind::TypeError,
+                        format!(
+                            "expected type, got module `{}`",
+                            ide::module_name(db, module)
+                        ),
+                    )
+                    .accumulate(db);
+                    return Type::Unknown;
+                }
+                _ => unreachable!(),
+            }
         }
-        resolver::ResolveItemResult::Module(file) => {
-            Diagnostic::new(
-                path_type.syntax().text_range(),
-                DiagnosticKind::TypeError,
-                format!("expected type, got module `{}`", ide::module_name(db, file)),
-            )
-            .accumulate(db);
-            return Type::Unknown;
-        }
+        resolver::ResolveItemResult::Value(value) => match value {
+            ir::ModuleDef::Function(function) => {
+                Diagnostic::new(
+                    path_type.syntax().text_range(),
+                    DiagnosticKind::TypeError,
+                    format!("expected type, got function `{}`", function.name(db)),
+                )
+                .accumulate(db);
+                return Type::Unknown;
+            }
+            _ => unreachable!(),
+        },
     }
 }
 
 #[salsa::tracked]
-pub fn module_parent(db: &dyn salsa::Database, file: ide::File) -> Option<ide::File> {
+pub fn module_parent<'db>(db: &'db dyn salsa::Database, file: ide::File) -> Option<ide::File> {
     module_parents(db, file.source_root(db))
         .get(&file)
         .cloned()?
@@ -373,8 +387,9 @@ fn module_parents(
         parents: &mut indexmap::IndexMap<ide::File, Option<ide::File>>,
     ) {
         for child in module_items(db, parent).children(db) {
-            module_parents_inner(db, *child, parents);
-            parents.insert(*child, Some(parent));
+            //TODO: store Modules instead of Files
+            module_parents_inner(db, child.file(db), parents);
+            parents.insert(child.file(db), Some(parent));
         }
     }
     let mut parents: indexmap::IndexMap<ide::File, Option<ide::File>> = Default::default();

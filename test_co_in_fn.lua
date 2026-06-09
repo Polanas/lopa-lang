@@ -1,9 +1,25 @@
 local ffi = require("ffi")
 
-local array = ffi.new("uint8_t[?]", 10)
-array[0] = 51
-array[1] = 32
-array[2] = 51
+ffi.cdef([[
+  typedef struct {
+    float x;
+    float y;
+  } Vec2;
+]])
 
-local str = ffi.string(array, 10)
-print(str)
+ffi.metatype(ffi.typeof("Vec2"), {
+	__add = function(a, b)
+		return ffi.new("Vec2", a.x + a.x, b.y + b.y)
+	end,
+})
+
+local array = ffi.new("Vec2[?]", 10)
+local first = array[-1]
+
+local first = ffi.cast("Vec2*", first)
+
+print(ffi.typeof(first))
+
+local sum = first + first
+
+print(sum.x, sum.y)

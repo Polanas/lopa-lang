@@ -1,39 +1,49 @@
 use std::ops::Deref;
 
 use la_arena::{Idx, RawIdx};
-use rowan::ast::{AstNode, AstPtr};
-use salsa::Accumulator;
-use ustr::{Ustr, UstrMap};
+use ustr::Ustr;
 
 use crate::{
     common::LitKind,
-    def::{
-        ir,
-        lower::{self, lower_type_expr, lower_type_expr_with_self},
-        scope,
-    },
-    ide::{
-        self,
-        diagnostics::{Diagnostic, DiagnosticKind},
-    },
+    def::lower::{lower_type_expr, lower_type_expr_with_self},
+    ide::{self},
     parsing::ast::{self, BinaryOpKind, UnaryOpKind},
     ustr_hash::{UstrHash, UstrIndexMap},
 };
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
 pub struct Local<'db> {
     pub parent: Function<'db>,
     pub pattern_id: PatternId,
 }
 
 #[derive(salsa::Supertype, Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
-pub enum ModuleValueDef<'db> {
+pub enum ModuleDef<'db> {
     Function(Function<'db>),
-}
-
-#[derive(salsa::Supertype, Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
-pub enum ModuleTypeDef<'db> {
     Struct(Struct<'db>),
     Module(ide::File),
+}
+
+impl ModuleDef<'_> {
+    fn kind(&self) -> ModuleDefKind {
+        match self {
+            ModuleDef::Function(_) => ModuleDefKind::Function,
+            ModuleDef::Struct(_) => ModuleDefKind::Struct,
+            ModuleDef::Module(_) => ModuleDefKind::Module,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
+pub enum ModuleDefKind {
+    Function,
+    Struct,
+    Module,
+}
+
+#[salsa::tracked(debug)]
+pub struct Module<'db> {
+    pub file: ide::File,
+    pub ast_ptr: ast::AstPtr<ast::ModItem>,
 }
 
 #[salsa::tracked(debug)]
@@ -376,7 +386,7 @@ impl<'db> Type<'db> {
 
 pub type ExprId = Idx<Expr>;
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash, Default)]
 pub struct Path(pub Vec<Ustr>);
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]

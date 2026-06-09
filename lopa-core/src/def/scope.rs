@@ -12,7 +12,7 @@ use ustr::Ustr;
 use crate::{
     def::{
         body,
-        ir::{self, ExprId, PatternId, StmtId},
+        ir::{self, ExprId, ModuleDefKind, PatternId, StmtId},
         lower, resolver,
     },
     ide::{
@@ -20,6 +20,7 @@ use crate::{
         diagnostics::{Diagnostic, DiagnosticKind},
     },
     parsing::ast::{self, AstPtr},
+    range_max::RangeMax,
     ustr_hash::{UstrHash, UstrIndexMap},
 };
 
@@ -41,30 +42,95 @@ impl<'db> ModuleSourceMap<'db> {
 
 #[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
 pub struct ModuleScope<'db> {
-    values: UstrIndexMap<ir::ModuleValueDef<'db>>,
-    types: UstrIndexMap<ir::ModuleTypeDef<'db>>,
-    scope_names: UstrIndexMap<ir::Path>,
+    //items declared inside the module
+    values: UstrIndexMap<ir::ModuleDef<'db>>,
+    types: UstrIndexMap<ir::ModuleDef<'db>>,
+
+    //all visible items, including imports
+    scope_values: UstrIndexMap<ScopeName>,
+    scope_types: UstrIndexMap<ScopeName>,
+
     global_imports: Vec<ir::Path>,
 }
 
+#[derive(salsa::Update, Clone, PartialEq, Eq, Default, Debug)]
+pub struct ScopeName {
+    pub path: ir::Path,
+    pub range: rowan::TextRange,
+    pub item: Option<ModuleDefKind>,
+}
+
+struct ScopeNames<'db> {
+    db: &'db dyn salsa::Database,
+    values: UstrIndexMap<ScopeName>,
+    types: UstrIndexMap<ScopeName>,
+}
+
+impl<'db> ScopeNames<'db> {
+    fn new(db: &'db dyn salsa::Database) -> Self {
+        Self {
+            db,
+            values: Default::default(),
+            types: Default::default(),
+        }
+    }
+
+    fn insert(
+        name: Ustr,
+        scope_name: ScopeName,
+        db: &dyn salsa::Database,
+        names: &mut UstrIndexMap<ScopeName>,
+    ) {
+        if let Some(old) = names.insert(name.into(), scope_name.clone()) {
+            let range = match (old.item, scope_name.item) {
+                (Some(old), Some(new)) if old == new => scope_name.range,
+                _ => scope_name.range.max(old.range),
+            };
+            Diagnostic::new(
+                range,
+                DiagnosticKind::ModuleError,
+                format!("the name `{}` is defined multiple times", name),
+            )
+            .accumulate(db);
+        }
+    }
+
+    fn insert_value_type(&mut self, name: Ustr, scope_name: ScopeName) {
+        self.insert_value(name, scope_name.clone());
+        self.insert_type(name, scope_name);
+    }
+
+    fn insert_value(&mut self, name: Ustr, scope_name: ScopeName) {
+        Self::insert(name, scope_name, self.db, &mut self.values);
+    }
+
+    fn insert_type(&mut self, name: Ustr, scope_name: ScopeName) {
+        Self::insert(name, scope_name, self.db, &mut self.types);
+    }
+}
+
 impl<'db> ModuleScope<'db> {
-    pub fn resolve_value(&self, name: &Ustr) -> Option<&ir::ModuleValueDef<'db>> {
+    pub fn value_item(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
         self.values.get(name)
     }
 
-    pub fn resolve_type(&self, name: &Ustr) -> Option<&ir::ModuleTypeDef<'db>> {
+    pub fn type_item(&self, name: &Ustr) -> Option<&ir::ModuleDef<'db>> {
         self.types.get(name)
     }
 
-    pub fn resolve_name(&self, name: &Ustr) -> Option<&ir::Path> {
-        self.scope_names.get(name)
+    pub fn type_scope_names(&self, name: &Ustr) -> Option<&ScopeName> {
+        self.scope_types.get(name)
     }
 
-    pub fn values(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleValueDef)> {
+    pub fn value_scope_names(&self, name: &Ustr) -> Option<&ScopeName> {
+        self.scope_values.get(name)
+    }
+
+    pub fn values(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleDef)> {
         self.values.iter()
     }
 
-    pub fn types(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleTypeDef)> {
+    pub fn types(&self) -> impl ExactSizeIterator<Item = (&UstrHash, &ir::ModuleDef)> {
         self.types.iter()
     }
 
@@ -83,39 +149,69 @@ pub fn module_scope_with_source_map<'db>(
     let mut source_map = ModuleSourceMap::default();
     let mut scope = ModuleScope::default();
     let parse = ide::parse(db, file);
-
-    for func in items.functions(db) {
-        source_map
-            .functions
-            .insert(MyAstPtr(func.ast_ptr(db).clone()), *func);
-        scope
-            .values
-            .insert(func.name(db).into(), ir::ModuleValueDef::Function(*func));
-        scope
-            .scope_names
-            .insert(func.name(db).into(), ir::Path(vec![func.name(db)]));
-    }
+    let mut scope_names = ScopeNames::new(db);
 
     for strct in items.structs(db) {
+        let range = strct
+            .ast_ptr(db)
+            .to_node(&parse.syntax_node(db))
+            .syntax()
+            .text_range();
         source_map
             .structs
             .insert(MyAstPtr(strct.ast_ptr(db).clone()), *strct);
+        scope_names.insert_type(
+            strct.name(db),
+            ScopeName {
+                path: ir::Path(vec![strct.name(db)]),
+                range,
+                item: Some(ModuleDefKind::Struct),
+            },
+        );
         scope
             .types
-            .insert(strct.name(db).into(), ir::ModuleTypeDef::Struct(*strct));
+            .insert(strct.name(db).into(), ir::ModuleDef::Struct(*strct));
+    }
+    for func in items.functions(db) {
+        let range = func
+            .ast_ptr(db)
+            .to_node(&parse.syntax_node(db))
+            .syntax()
+            .text_range();
+        source_map
+            .functions
+            .insert(MyAstPtr(func.ast_ptr(db).clone()), *func);
+        scope_names.insert_value(
+            func.name(db),
+            ScopeName {
+                path: ir::Path(vec![func.name(db)]),
+                range,
+                item: Some(ModuleDefKind::Function),
+            },
+        );
         scope
-            .scope_names
-            .insert(strct.name(db).into(), ir::Path(vec![strct.name(db)]));
+            .values
+            .insert(func.name(db).into(), ir::ModuleDef::Function(*func));
     }
 
-    for file in items.children(db) {
-        let module_name = ide::module_name(db, *file);
+    for module in items.children(db) {
+        let range = module
+            .ast_ptr(db)
+            .to_node(&parse.syntax_node(db))
+            .syntax()
+            .text_range();
+        let module_name = ide::module_name(db, module.file(db));
+        scope_names.insert_type(
+            module_name,
+            ScopeName {
+                path: ir::Path(vec![module_name]),
+                range,
+                item: Some(ModuleDefKind::Function),
+            },
+        );
         scope
             .types
-            .insert(module_name.into(), ir::ModuleTypeDef::Module(*file));
-        scope
-            .scope_names
-            .insert(module_name.into(), ir::Path(vec![module_name]));
+            .insert(module_name.into(), ir::ModuleDef::Module(module.file(db)));
     }
 
     for import in items.use_imports(db) {
@@ -131,10 +227,13 @@ pub fn module_scope_with_source_map<'db>(
             file,
             &use_tree,
             &ir::Path(vec![]),
-            &mut scope.scope_names,
+            &mut scope_names,
             &mut scope.global_imports,
         );
     }
+
+    scope.scope_values = scope_names.values;
+    scope.scope_types = scope_names.types;
 
     (scope.into(), source_map.into())
 }
@@ -248,7 +347,7 @@ fn traverse_use_tree(
     file: ide::File,
     tree: &ast::UseTree,
     path: &ir::Path,
-    names: &mut UstrIndexMap<ir::Path>,
+    names: &mut ScopeNames,
     globals: &mut Vec<ir::Path>,
 ) -> Option<()> {
     match tree {
@@ -256,12 +355,26 @@ fn traverse_use_tree(
             let mut path = path.clone();
             let name = use_name.name()?.text()?;
             path.0.push(name);
-            names.insert(name.into(), path);
+            names.insert_value_type(
+                use_name.name()?.text()?,
+                ScopeName {
+                    path,
+                    range: use_name.syntax().text_range(),
+                    item: None,
+                },
+            );
         }
-        ast::UseTree::UseSelfName(_) => {
+        ast::UseTree::UseSelfName(self_name) => {
             let path = path.clone();
             let name = *path.0.last().unwrap();
-            names.insert(name.into(), path);
+            names.insert_value_type(
+                name,
+                ScopeName {
+                    path,
+                    range: self_name.syntax().text_range(),
+                    item: None,
+                },
+            );
         }
         ast::UseTree::UsePath(use_path) => {
             let mut path = path.clone();

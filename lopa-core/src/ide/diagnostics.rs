@@ -82,11 +82,11 @@ pub fn diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
             .into_iter()
             .cloned(),
     );
-    // diagnostics.extend(
-    //     lower::module_items::accumulated::<Diagnostic>(db, file)
-    //         .into_iter()
-    //         .cloned(),
-    // );
+    diagnostics.extend(
+        scope::module_scope_with_source_map::accumulated::<Diagnostic>(db, file)
+            .into_iter()
+            .cloned(),
+    );
     let ir = lower::module_items(db, file);
     for struct_item in ir.structs(db) {
         diagnostics.extend(

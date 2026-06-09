@@ -1,18 +1,15 @@
-use std::{path::Path, sync::Arc};
-
-use indexmap::map::Entry;
-use itertools::Itertools;
-use notify_rust::Notification;
+use salsa::Accumulator;
 use ustr::Ustr;
 
 use crate::{
     def::{
-        ir::{self, ExprId, Local},
-        lower,
+        ir::{self, ExprId, Local, ModuleDef},
         scope::{self, ScopeId},
     },
-    ide::{self, diagnostics::Diagnostic},
-    parsing::ast,
+    ide::{
+        self,
+        diagnostics::{Diagnostic, DiagnosticKind},
+    },
     ustr_hash::UstrIndexMap,
 };
 //
@@ -94,13 +91,16 @@ pub enum ResolveResult<'db> {
     Struct(ir::Struct<'db>),
 }
 
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::Update)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, salsa::Update)]
 pub enum ResolveItemResult<'db> {
-    Function(ir::Function<'db>),
-    Struct(ir::Struct<'db>),
-    Module(ide::File),
+    Type(ir::ModuleDef<'db>),
+    Value(ir::ModuleDef<'db>),
+    Both {
+        ty: ir::ModuleDef<'db>,
+        value: ir::ModuleDef<'db>,
+    },
 }
-//
+
 // impl<'db> Resolver<'db> {
 //     pub fn names_in_scope(&self) -> UstrIndexMap<ResolveResult<'_>> {
 //         let mut map = ScopeNames::default();
@@ -220,21 +220,15 @@ pub fn resolve_item_name<'db>(
     name: Ustr,
 ) -> Option<ResolveItemResult<'db>> {
     let module_scope = scope::module_scope(db, file);
-
-    Some(if let Some(value) = module_scope.resolve_value(&name) {
-        match value {
-            ir::ModuleValueDef::Function(function) => ResolveItemResult::Function(*function),
-        }
-    } else if let Some(ty) = module_scope.resolve_type(&name) {
-        match ty {
-            ir::ModuleTypeDef::Struct(strct) => ResolveItemResult::Struct(*strct),
-            ir::ModuleTypeDef::Module(file) => ResolveItemResult::Module(*file),
-        }
-    } else {
-        return None;
+    let value = module_scope.value_item(&name).cloned();
+    let ty = module_scope.type_item(&name).cloned();
+    Some(match (value, ty) {
+        (Some(value), Some(ty)) => ResolveItemResult::Both { ty, value },
+        (Some(value), None) => ResolveItemResult::Value(value),
+        (None, Some(ty)) => ResolveItemResult::Type(ty),
+        _ => return None,
     })
 }
-
 #[salsa::tracked]
 pub fn resolve_path<'db>(
     db: &'db dyn salsa::Database,
@@ -248,12 +242,18 @@ pub fn resolve_path<'db>(
     ) -> Option<ResolveItemResult<'db>> {
         let first = *path.0.first()?;
         let mut current_item = match first.as_str() {
-            "root" => ResolveItemResult::Module(ide::root_module(db, file.source_root(db))?),
+            "root" => ResolveItemResult::Type(ModuleDef::Module(ide::root_module(
+                db,
+                file.source_root(db),
+            )?)),
             _ => resolve_item_name(db, file, *path.0.first()?).or_else(|| {
                 let scope = scope::module_scope(db, file);
                 for global_path in scope.global_imports() {
                     let mut global_path = global_path.clone();
                     global_path.0.push(*path.0.first()?);
+                    if path == global_path {
+                        return None;
+                    }
                     let Some(output) = resolve_path(db, file, global_path.clone()) else {
                         continue;
                     };
@@ -263,29 +263,81 @@ pub fn resolve_path<'db>(
             })?,
         };
         for (id, segment) in path.0.iter().skip(1).enumerate() {
-            match current_item {
-                ResolveItemResult::Function(function) => {
-                    if id == path.0.len() - 1 {
-                        return Some(ResolveItemResult::Function(function));
+            match current_item.clone() {
+                ResolveItemResult::Type(module_def) => match module_def {
+                    ModuleDef::Struct(strct) => {
+                        if id == path.0.len() - 1 {
+                            return Some(ResolveItemResult::Type(ModuleDef::Struct(strct)));
+                        }
+                        return None;
                     }
-                    return None;
-                }
-                ResolveItemResult::Struct(strct) => {
-                    if id == path.0.len() - 1 {
-                        return Some(ResolveItemResult::Struct(strct));
+                    ModuleDef::Module(file) => {
+                        if id == path.0.len() - 1 {
+                            return Some(ResolveItemResult::Type(ModuleDef::Module(file)));
+                        }
+                        if segment == "self" {
+                            continue;
+                        }
+                        let mut module_path = ide::module_path(db, file);
+                        module_path.0.push(*segment);
+                        //TODO: public/private imports
+                        current_item = resolve_path(db, file, ir::Path(vec![*segment]))?;
                     }
-                    return None;
-                }
-                ResolveItemResult::Module(file) => {
-                    if id == path.0.len() - 1 {
-                        return Some(ResolveItemResult::Module(file));
+                    _ => unreachable!(),
+                },
+                ResolveItemResult::Value(module_def) => match module_def {
+                    ModuleDef::Function(func) => {
+                        if id == path.0.len() - 1 {
+                            return Some(ResolveItemResult::Value(ModuleDef::Function(func)));
+                        }
+                        return None;
                     }
-                    if segment == "self" {
-                        continue;
+                    _ => unreachable!(),
+                },
+                ResolveItemResult::Both { ty, value } => {
+                    let ty = match ty {
+                        ModuleDef::Struct(strct) => {
+                            if id == path.0.len() - 1 {
+                                Some(ModuleDef::Struct(strct))
+                            } else {
+                                None
+                            }
+                        }
+                        ModuleDef::Module(file) => {
+                            if id == path.0.len() - 1 {
+                                Some(ModuleDef::Module(file))
+                            } else {
+                                if segment == "self" {
+                                    continue;
+                                }
+                                let mut module_path = ide::module_path(db, file);
+                                module_path.0.push(*segment);
+                                //TODO: public/private imports
+                                current_item = resolve_path(db, file, ir::Path(vec![*segment]))?;
+                                None
+                            }
+                        }
+                        _ => unreachable!(),
+                    };
+                    let value = match value.clone() {
+                        ModuleDef::Function(func) => {
+                            if id == path.0.len() - 1 {
+                                Some(ModuleDef::Function(func))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => unreachable!(),
+                    };
+
+                    match (ty, value) {
+                        (Some(ty), Some(value)) => {
+                            return Some(ResolveItemResult::Both { ty, value });
+                        }
+                        (Some(ty), None) => return Some(ResolveItemResult::Type(ty)),
+                        (None, Some(value)) => return Some(ResolveItemResult::Value(value)),
+                        _ => {}
                     }
-                    let mut module_path = ide::module_path(db, file);
-                    module_path.0.push(*segment);
-                    current_item = resolve_path(db, file, ir::Path(vec![*segment]))?;
                 }
             }
         }
@@ -294,7 +346,10 @@ pub fn resolve_path<'db>(
 
     let module_scope = scope::module_scope(db, file);
     let first = path.0.first()?;
-    if let Some(outer) = module_scope.resolve_name(first) {
+    if let Some(scope::ScopeName { path: outer, .. }) = module_scope
+        .type_scope_names(first)
+        .or_else(|| module_scope.value_scope_names(first))
+    {
         let mut outer = outer.clone();
         outer.0.remove(outer.0.len() - 1);
         outer.0.append(&mut path.0.clone());
@@ -325,13 +380,44 @@ pub fn resolve_name_for_expr<'db>(
     }
     let module_scope = scope::module_scope(db, func.file(db));
 
-    if let Some(result) = module_scope.resolve_value(name) {
+    if let Some(result) = module_scope.value_item(name) {
         match result {
-            ir::ModuleValueDef::Function(function) => {
+            ir::ModuleDef::Function(function) => {
                 return Some(ResolveResult::Function(*function));
             }
+            _ => unreachable!(),
         }
     }
+    None
+}
+
+#[salsa::tracked]
+pub fn visible_module_items<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+) -> UstrIndexMap<ResolveItemResult<'db>> {
+    let mut items = UstrIndexMap::<ResolveItemResult<'db>>::default();
+    let try_insert = |name: Ustr, text_range: rowan::TextRange, item: ResolveItemResult<'db>| {
+        if items.insert(name.into(), item).is_some() {
+            Diagnostic::new(
+                text_range,
+                DiagnosticKind::ModuleError,
+                format!("the name `{}` is defined multiple times", name),
+            )
+            .accumulate(db);
+        }
+    };
+
+    let module_scope = scope::module_scope(db, file);
+    items
+}
+
+#[salsa::tracked]
+pub fn resolve_name<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    name: Ustr,
+) -> Option<ResolveItemResult<'db>> {
     None
 }
 
