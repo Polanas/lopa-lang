@@ -131,12 +131,58 @@ pub struct Param<'db> {
     pub name: Option<Ustr>,
     pub ty: Type<'db>,
 }
+#[salsa::tracked(returns(ref))]
+pub fn function_params<'db>(
+    db: &'db dyn salsa::Database,
+    function: Function<'db>,
+) -> Vec<Param<'db>> {
+    let mut params = vec![];
+    let file = function.file(db);
+    let root = ide::parse(db, file).syntax_node(db);
+    for param in function
+        .ast_ptr(db)
+        .to_node(&root)
+        .params()
+        .into_iter()
+        .flat_map(|p| p.params())
+    {
+        if param.self_token().is_some() {
+            let Some(owner) = function.owner(db) else {
+                Diagnostic::new(
+                    param.syntax().text_range(),
+                    DiagnosticKind::TypeError,
+                    "`self` parameter is only allowed in associated functions".to_string(),
+                )
+                .accumulate(db);
+                continue;
+            };
+            params.push(Param {
+                name: Some("self".into()),
+                ty: owner,
+            });
+        } else {
+            let name = param.pattern().and_then(|p| {
+                Some(match p {
+                    ast::Pattern::NamePattern(name_patern) => name_patern,
+                })
+                .and_then(|n| n.name())
+                .and_then(|n| n.text())
+            });
+            let ty = param
+                .ty()
+                .map(|ty| lower_type_expr_with_self(db, file, ty, function.owner(db)))
+                .unwrap_or_else(|| Type::Unknown);
+            params.push(Param { name, ty });
+        }
+    }
+    params
+}
 
 #[salsa::tracked]
 impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     fn is_method(self, db: &'db dyn salsa::Database) -> bool {
-        self.params(db)
+        function_params(db, self)
             .iter()
             .next()
             .and_then(|p| self.owner(db).map(|o| p.ty == o))
@@ -145,60 +191,16 @@ impl<'db> Function<'db> {
 
     #[salsa::tracked(returns(ref))]
     pub fn params_by_name(self, db: &'db dyn salsa::Database) -> UstrIndexMap<Param<'db>> {
-        self.params(db)
+        function_params(db, self)
             .iter()
             .filter_map(|p| p.name.map(|n| (UstrHash(n), p.clone())))
             .collect()
     }
 
     #[salsa::tracked(returns(ref))]
-    pub fn params(self, db: &'db dyn salsa::Database) -> Vec<Param<'db>> {
-        let mut params = vec![];
-        let file = self.file(db);
-        let root = ide::parse(db, file).syntax_node(db);
-        for param in self
-            .ast_ptr(db)
-            .to_node(&root)
-            .params()
-            .into_iter()
-            .flat_map(|p| p.params())
-        {
-            if param.self_token().is_some() {
-                let Some(owner) = self.owner(db) else {
-                    Diagnostic::new(
-                        param.syntax().text_range(),
-                        DiagnosticKind::TypeError,
-                        "`self` parameter is only allowed in associated functions".to_string(),
-                    )
-                    .accumulate(db);
-                    continue;
-                };
-                params.push(Param {
-                    name: Some("self".into()),
-                    ty: owner,
-                });
-            } else {
-                let name = param.pattern().and_then(|p| {
-                    Some(match p {
-                        ast::Pattern::NamePattern(name_patern) => name_patern,
-                    })
-                    .and_then(|n| n.name())
-                    .and_then(|n| n.text())
-                });
-                let ty = param
-                    .ty()
-                    .map(|ty| lower_type_expr_with_self(db, file, ty, self.owner(db)))
-                    .unwrap_or_else(|| Type::Unknown);
-                params.push(Param { name, ty });
-            }
-        }
-        params
-    }
-
-    #[salsa::tracked(returns(ref))]
     pub fn bare_fn_ty(self, db: &'db dyn salsa::Database) -> BareFn<'db> {
         BareFn {
-            params: self.params(db).clone(),
+            params: function_params(db, self).clone(),
             output: self.output(db).clone().into(),
         }
     }

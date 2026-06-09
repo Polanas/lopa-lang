@@ -445,10 +445,8 @@ pub fn expr_text<'db>(
     func: ir::Function<'db>,
     expr: ExprId,
 ) -> Option<Ustr> {
-    let range = expr_range(db, func, expr)?;
-    let contents = func.file(db).contents(db).read().unwrap();
-    let contents = contents.as_str();
-    Some(Ustr::from(&contents[range]))
+    let node = expr_node(db, func, expr)?;
+    Some(node.text().to_string().into())
 }
 
 pub fn stmt_type_text<'db>(
@@ -456,10 +454,8 @@ pub fn stmt_type_text<'db>(
     func: ir::Function<'db>,
     stmt: StmtId,
 ) -> Option<Ustr> {
-    let range = stmt_type_range(db, func, stmt)?;
-    let contents = func.file(db).contents(db).read().unwrap();
-    let contents = contents.as_str();
-    Some(Ustr::from(&contents[range]))
+    let node = expr_node(db, func, stmt.into())?;
+    Some(node.text().to_string().into())
 }
 
 pub fn lower<'db>(

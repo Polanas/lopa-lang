@@ -138,13 +138,6 @@ impl LanguageServer for Backend {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
-        {
-            let mut vfs = self.vfs.write().unwrap();
-            let vfs_path = uri.to_vfs_path().unwrap();
-            if let Some(root) = Self::find_package_root(Path::new(vfs_path.0.as_path())) {
-                self.scan_files(root.as_path(), &mut vfs);
-            }
-        }
         self.analysis.lock().unwrap().db.trigger_cancellation();
         let uris = self
             .opened_files
@@ -153,6 +146,13 @@ impl LanguageServer for Backend {
             .collect_vec();
         for uri in uris {
             self.spawn_update_diagnostics(uri.clone());
+        }
+        {
+            let mut vfs = self.vfs.write().unwrap();
+            let vfs_path = uri.to_vfs_path().unwrap();
+            if let Some(root) = Self::find_package_root(Path::new(vfs_path.0.as_path())) {
+                self.scan_files(root.as_path(), &mut vfs);
+            }
         }
     }
 
@@ -316,6 +316,7 @@ impl Backend {
         let uri_clone = uri.clone();
         let task = task::spawn_blocking(move || {
             let state = State { analysis, vfs };
+
             salsa::Cancelled::catch(|| handler::diagnostics(state, &uri_clone)).unwrap_or_default()
         });
         let Some(mut file) = self.opened_files.get_mut(&uri) else {

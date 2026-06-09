@@ -2,6 +2,7 @@ use std::{borrow::Cow, mem::transmute};
 
 use itertools::{Itertools, Position};
 use la_arena::{ArenaMap, Idx};
+use notify_rust::Notification;
 use rowan::{TextRange, ast::AstNode};
 use salsa::Accumulator;
 use ustr::Ustr;
@@ -100,7 +101,12 @@ impl<'db> InferCtx<'db> {
     }
 
     fn infer_function(&self) -> Option<()> {
-        for (param_id, param) in self.body.params().iter().zip(self.func.params(self.db)) {
+        for (param_id, param) in self
+            .body
+            .params()
+            .iter()
+            .zip(ir::function_params(self.db, self.func))
+        {
             self.insert_pattern_ty(*param_id, param.ty.clone());
         }
         let ty = self.infer_expr(self.body.body_expr(), None)?;
@@ -229,7 +235,7 @@ impl<'db> InferCtx<'db> {
                     return None;
                 };
                 let params_by_name = func.params_by_name(self.db);
-                let params = func.params(self.db);
+                let params = ir::function_params(self.db, *func);
 
                 let mut param_id = 0;
                 let mut used_arg_names = vec![];
@@ -626,8 +632,7 @@ fn stringify_type<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
 
             format!(
                 "fn ({}){}",
-                function
-                    .params(db)
+                ir::function_params(db, *function)
                     .iter()
                     .map(|p| {
                         //TODO: convert any patterns to strings
