@@ -1,10 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use itertools::Itertools;
-use notify_rust::Notification;
 use rowan::ast::AstNode;
 use salsa::{Accumulator, Database};
-use ustr::Ustr;
 
 use crate::{
     def::{

@@ -57,6 +57,7 @@ const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]])
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
 const PARENT_LIST_RECOVERY: TokenSet = TokenSet::new(&[T!["{"]]).union(ITEM_FIRST);
 const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
+const GENERICS_RECOVERY: TokenSet = TokenSet::new(&[T!["{"], T![>]]).union(ITEM_FIRST);
 
 pub fn parse(input: &str) -> (GreenNode, Vec<ParseError>) {
     let mut p = Parser::new(input);
@@ -79,6 +80,7 @@ pub enum SyntaxErrorKind {
     ExpectedOperator,
     ExpectedArgument,
     ExpectedStatement,
+    ExpectedGeneric,
     ExpectedType,
     ExpectedParameter,
     ExpectedParent,
@@ -111,6 +113,7 @@ impl std::fmt::Display for SyntaxErrorKind {
             Self::ExpectedStructElement => "expected struct element",
             Self::ExpectedEnumElement => "expected enum element",
             Self::ExpectedImplElement => "expected impl element",
+            Self::ExpectedGeneric => "expected generic",
             Self::ExpectedUseDeclaration => "expected use declaration",
             Self::Other(text) => text,
         }
@@ -450,6 +453,7 @@ impl<'a> Parser<'a> {
         self.with(ENUM_ITEM, |this| {
             this.expect(T![enum]);
             this.name();
+            this.generics();
             if this.ate(T![:]) {
                 this.parents_list();
             }
@@ -474,16 +478,14 @@ impl<'a> Parser<'a> {
     }
 
     fn enum_element(&mut self) {
-        self.with(ENUM_ELEMENT, |this| {
-            if this.at(T![fn]) {
-                this.fn_item();
-            } else {
-                this.field();
-                if !this.at(T!["}"]) {
-                    this.expect(T![,]);
-                }
+        if self.at(T![fn]) {
+            self.fn_item();
+        } else {
+            self.field();
+            if !self.at(T!["}"]) {
+                self.expect(T![,]);
             }
-        });
+        }
     }
 
     fn field(&mut self) {
@@ -500,6 +502,7 @@ impl<'a> Parser<'a> {
     fn impl_item(&mut self) {
         self.with(IMPL_ITEM, |this| {
             this.expect(T![impl]);
+            this.generics();
             this.type_expr();
             if this.ate(T![for]) {
                 this.with(IMPL_STRUCT_TYPE, |this| {
@@ -527,6 +530,7 @@ impl<'a> Parser<'a> {
         self.with(STRUCT_ITEM, |this| {
             this.expect(T![struct]);
             this.name();
+            this.generics();
             if this.ate(T![:]) {
                 this.parents_list();
             }
@@ -599,8 +603,8 @@ impl<'a> Parser<'a> {
     fn fn_item(&mut self) {
         self.with(FN_ITEM, |this| {
             this.expect(T![fn]);
-
             this.name();
+            this.generics();
             this.param_list();
             if this.at(T![->]) {
                 this.return_type();
@@ -733,6 +737,7 @@ impl<'a> Parser<'a> {
                             _ => {}
                         }
                     }
+                    self.type_generic_args();
                     if self.ate(T![?]) {
                         self.with_at(NILABLE_TYPE, checkpoint, |_| {});
                     }
@@ -757,6 +762,10 @@ impl<'a> Parser<'a> {
                 while this.at_path_sep(0) && !this.at(EOF) {
                     this.expect(T![:]);
                     this.expect(T![:]);
+                    if this.at(T![<]) {
+                        this.generic_args();
+                        break;
+                    }
                     if this.at(T![super]) && at_super {
                         this.expect(T![super]);
                     } else {
@@ -929,10 +938,14 @@ impl<'a> Parser<'a> {
                     self.with_at(INDEX_EXPR, checkpoint, |this| this.index());
                 }
                 T![.] => {
-                    if self.nth(2) == T!["("] {
+                    if self.nth(2) == T!["("] || self.nth(2) == T![:] {
                         self.with_at(METHOD_EXPR, checkpoint, |this| {
                             this.expect(T![.]);
                             this.name();
+                            if this.ate(T![:]) {
+                                this.expect(T![:]);
+                                this.generics();
+                            }
                             this.arg_list();
                         })
                     } else {
@@ -1076,6 +1089,72 @@ impl<'a> Parser<'a> {
             }
             if !this.at(T![")"]) {
                 this.expect(T![,]);
+            }
+        });
+    }
+
+    fn type_generic_args(&mut self) {
+        if !self.at(T![<]) {
+            return;
+        }
+        self.generic_args();
+    }
+
+    fn generic_args(&mut self) {
+        self.with(GENERIC_ARGUMENTS, |this| {
+            this.expect(T![<]);
+            while !this.at(T![>]) && !this.eof() {
+                if this.at(IDENT) {
+                    this.name();
+                } else {
+                    if this.at_any(TokenSet::new(&[T![>], T![;]])) {
+                        break;
+                    } else {
+                        this.advance_with_error(SyntaxErrorKind::ExpectedGeneric);
+                    }
+                }
+                if !this.at(T![>]) {
+                    this.expect(T![,]);
+                }
+            }
+            this.expect(T![>]);
+        });
+    }
+
+    fn generics(&mut self) {
+        if !self.at(T![<]) {
+            return;
+        }
+        self.with(GENERICS, |this| {
+            this.expect(T![<]);
+            while !this.at(T![>]) && !this.eof() {
+                if this.at(IDENT) {
+                    this.type_param();
+                } else {
+                    if this.at_any(GENERICS_RECOVERY) {
+                        break;
+                    } else {
+                        this.advance_with_error(SyntaxErrorKind::ExpectedGeneric);
+                    }
+                }
+                if !this.at(T![>]) {
+                    this.expect(T![,]);
+                }
+            }
+            this.expect(T![>]);
+        });
+    }
+
+    fn type_param(&mut self) {
+        self.with(TYPE_PARAM, |this| {
+            this.name();
+            if this.at(T![:]) {
+                this.expect(T![:]);
+                this.type_expr();
+                while this.at(T![+]) {
+                    this.expect(T![+]);
+                    this.type_expr();
+                }
             }
         });
     }
@@ -1296,11 +1375,15 @@ mod test {
             }",
             |p| p.impl_item()
         ));
+        insta::assert_snapshot!(parse(
+            "impl<A: C + B, D> Generic for MyType<A,B> {
+            }",
+            |p| p.impl_item(),
+        ));
     }
 
     #[test]
     fn fn_item() {
-        println!("{}", parse("fn f() { 90 + 2 }", |p| p.fn_item()));
         insta::assert_snapshot!(parse("fn test(a: int, b: string)->int { stmt; }", |p| p.fn_item()));
         insta::assert_snapshot!(parse(
             "fn test() {
@@ -1308,6 +1391,7 @@ mod test {
         }",
             |p| p.fn_item()
         ));
+        insta::assert_snapshot!(parse("fn identity<T>() -> T { }", |p| p.fn_item()));
     }
 
     #[test]
@@ -1407,7 +1491,12 @@ mod test {
         insta::assert_snapshot!(parse("math::Vec2 { x: 1, y: 2, }", |p| p.expr()));
         insta::assert_snapshot!(parse("Vec2 {}", |p| p.expr()));
         insta::assert_snapshot!(parse("(20 as float) as int", |p| p.expr()));
+        insta::assert_snapshot!(parse("generic_call::<A>()", |p| p.expr()));
+        insta::assert_snapshot!(parse("obj.generic_method::<A>()", |p| p.expr()));
     }
+
+    #[test]
+    fn temp() {}
 
     #[test]
     fn enum_item() {
@@ -1446,6 +1535,7 @@ mod test {
             |p| p.struct_item()
         ));
         insta::assert_snapshot!(parse("struct X { a: root::a::b::c }", |p| p.struct_item()));
+        insta::assert_snapshot!(parse("struct Generic<A,B,C> {}", |p| p.struct_item()));
     }
 
     #[test]

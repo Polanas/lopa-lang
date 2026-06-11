@@ -1,0 +1,49 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"impl<A: C + B, D> Generic for MyType<A,B> {\n            }\", |p|\np.impl_item(),)"
+---
+IMPL_ITEM: 0..57 
+  IMPL_KW: 0..4 "impl"
+  GENERICS: 4..17 
+    LT: 4..5 "<"
+    TYPE_PARAM: 5..13 
+      IDENT: 5..6 "A"
+      COLON: 6..7 ":"
+      WHITESPACE: 7..8 
+      PATH_TYPE: 8..9 
+        PATH: 8..9 
+          IDENT: 8..9 "C"
+      WHITESPACE: 9..10 
+      PLUS: 10..11 "+"
+      WHITESPACE: 11..12 
+      PATH_TYPE: 12..13 
+        PATH: 12..13 
+          IDENT: 12..13 "B"
+    COMMA: 13..14 ","
+    WHITESPACE: 14..15 
+    TYPE_PARAM: 15..16 
+      IDENT: 15..16 "D"
+    GT: 16..17 ">"
+  WHITESPACE: 17..18 
+  PATH_TYPE: 18..25 
+    PATH: 18..25 
+      IDENT: 18..25 "Generic"
+  WHITESPACE: 25..26 
+  FOR_KW: 26..29 "for"
+  WHITESPACE: 29..30 
+  IMPL_STRUCT_TYPE: 30..41 
+    PATH_TYPE: 30..36 
+      PATH: 30..36 
+        IDENT: 30..36 "MyType"
+    GENERIC_ARGUMENTS: 36..41 
+      LT: 36..37 "<"
+      NAME: 37..38 
+        IDENT: 37..38 "A"
+      COMMA: 38..39 ","
+      NAME: 39..40 
+        IDENT: 39..40 "B"
+      GT: 40..41 ">"
+  WHITESPACE: 41..42 
+  L_BRACE: 42..43 "{"
+  WHITESPACE: 43..56 
+  R_BRACE: 56..57 "}"

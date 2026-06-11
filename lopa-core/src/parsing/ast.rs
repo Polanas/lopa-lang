@@ -382,6 +382,7 @@ structs! {
     },
     IMPL_ITEM = ImplItem {
         impl_token: T![impl],
+        generics: Generics,
         ty: TypeExpr,
         impl_ty: ImplStructType,
         for_token: T![for],
@@ -423,6 +424,7 @@ structs! {
     ENUM_ITEM = EnumItem {
         enum_token: T![enum],
         name: Name,
+        generics: Generics,
         left_brace_token: T!["{"],
         elements: [EnumElem],
         right_brace_token: T!["}"],
@@ -430,6 +432,7 @@ structs! {
     STRUCT_ITEM = StructItem {
         struct_token: T![struct],
         name: Name,
+        generics: Generics,
         parents: Parents,
         left_brace_token: T!["{"],
         elements: [StructElem],
@@ -458,6 +461,17 @@ structs! {
     },
     ITEM_TYPE_ENUM = EnumItemType {
         enum_item: EnumItem,
+    },
+    GENERIC_ARGUMENTS = GenericArgs {
+        names: [Name],
+    },
+    GENERICS = Generics {
+        params: [TypeParam],
+    },
+    TYPE_PARAM = TypeParam {
+        name: Name,
+        colon_token: T![:],
+        bounds: [TypeExpr],
     },
     ITEM_TYPE = ItemType {
         ty: TypeExpr,
@@ -733,6 +747,7 @@ structs! {
         }
     },
     PATH = Path {
+        generics_args: GenericArgs,
         pub fn segments(&self) -> impl Iterator<Item = Ustr> {
             self.0.
                 children_with_tokens()

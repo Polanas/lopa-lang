@@ -104,6 +104,13 @@ pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic>
                 .cloned(),
         );
     }
+    for enum_item in ir.enums(db) {
+        diagnostics.extend(
+            def::ir::enum_fields::accumulated::<Diagnostic>(db, *enum_item)
+                .into_iter()
+                .cloned(),
+        );
+    }
     for func in ir.functions(db) {
         diagnostics.extend(
             infer::infer_function::accumulated::<Diagnostic>(db, *func)

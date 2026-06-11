@@ -1,0 +1,17 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"generic_call::<A>()\", |p| p.expr())"
+---
+CALL_EXPR: 0..19 
+  PATH_EXPR: 0..17 
+    PATH: 0..17 
+      IDENT: 0..12 "generic_call"
+      COLON: 12..13 ":"
+      COLON: 13..14 ":"
+      GENERIC_ARGUMENTS: 14..17 
+        LT: 14..15 "<"
+        NAME: 15..16 
+          IDENT: 15..16 "A"
+        GT: 16..17 ">"
+  L_PAREN: 17..18 "("
+  R_PAREN: 18..19 ")"
