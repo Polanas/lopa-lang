@@ -937,22 +937,41 @@ impl<'a> Parser<'a> {
                 T!["["] => {
                     self.with_at(INDEX_EXPR, checkpoint, |this| this.index());
                 }
-                T![.] => {
+                T![?] | T![.] => {
+                    let safe_call = self.ate(T![?]);
                     if self.nth(2) == T!["("] || self.nth(2) == T![:] {
-                        self.with_at(METHOD_EXPR, checkpoint, |this| {
-                            this.expect(T![.]);
-                            this.name();
-                            if this.ate(T![:]) {
-                                this.expect(T![:]);
-                                this.generics();
-                            }
-                            this.arg_list();
-                        })
+                        let method_expr = |this: &mut Self, syntax: Syntax| {
+                            this.with_at(syntax, checkpoint, |this| {
+                                this.expect(T![.]);
+                                this.name();
+                                if this.ate(T![:]) {
+                                    this.expect(T![:]);
+                                    this.generics();
+                                }
+                                this.arg_list();
+                            })
+                        };
+                        if safe_call {
+                            self.with_at(METHOD_EXPR, checkpoint, |this| {
+                                method_expr(this, SAFE_METHOD_EXPR)
+                            });
+                        } else {
+                            method_expr(self, METHOD_EXPR);
+                        }
                     } else {
-                        self.with_at(FIELD_EXPR, checkpoint, |this| {
-                            this.expect(T![.]);
-                            this.name();
-                        })
+                        let field_expr = |this: &mut Self, syntax: Syntax| {
+                            this.with_at(syntax, checkpoint, |this| {
+                                this.expect(T![.]);
+                                this.name();
+                            })
+                        };
+                        if safe_call {
+                            self.with_at(FIELD_EXPR, checkpoint, |this| {
+                                field_expr(this, SAFE_FIELD_EXPR)
+                            });
+                        } else {
+                            field_expr(self, FIELD_EXPR);
+                        }
                     }
                 }
                 _ => break,
@@ -1493,10 +1512,8 @@ mod test {
         insta::assert_snapshot!(parse("(20 as float) as int", |p| p.expr()));
         insta::assert_snapshot!(parse("generic_call::<A>()", |p| p.expr()));
         insta::assert_snapshot!(parse("obj.generic_method::<A>()", |p| p.expr()));
+        insta::assert_snapshot!(parse("foo?.bar?.baz()", |p| p.expr()));
     }
-
-    #[test]
-    fn temp() {}
 
     #[test]
     fn enum_item() {

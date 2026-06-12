@@ -702,6 +702,9 @@ structs! {
         dot_token: T![.],
         name: Name,
     },
+    SAFE_FIELD_EXPR = SafeFieldExpr {
+        field_expr: FieldExpr,
+    },
     METHOD_EXPR = MethodExpr {
         expr: Expr,
         dot_token: T![.],
@@ -710,6 +713,9 @@ structs! {
         args: [Arg],
         right_paren_token: T![")"],
 
+    },
+    SAFE_METHOD_EXPR = SafeMethodExpr {
+        method_expr: MethodExpr,
     },
     RECORD_EXPR = RecordExpr {
         path: Path,
@@ -893,7 +899,7 @@ mod test {
     use crate::parsing::{
         ast::{
             self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr, ParenExpr,
-            StructItem, SyntaxNode, SyntaxToken, UseItem, UseTree,
+            SafeFieldExpr, StructItem, SyntaxNode, SyntaxToken, UseItem, UseTree,
         },
         parser::Lang,
     };
@@ -924,6 +930,16 @@ mod test {
             .descendants()
             .find_map(N::cast)
             .unwrap()
+    }
+
+    #[test]
+    fn safe_field_expr() {
+        let expr = parse::<SafeFieldExpr>(
+            "fn main() {
+            a?.b
+        }",
+        );
+        expr.field_expr().unwrap().syntax().should_eq("a?.b");
     }
 
     #[test]

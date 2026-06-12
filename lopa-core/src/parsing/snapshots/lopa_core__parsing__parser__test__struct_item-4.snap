@@ -10,13 +10,16 @@ STRUCT_ITEM: 0..24
   GENERICS: 14..21 
     LT: 14..15 "<"
     TYPE_PARAM: 15..16 
-      IDENT: 15..16 "A"
+      NAME: 15..16 
+        IDENT: 15..16 "A"
     COMMA: 16..17 ","
     TYPE_PARAM: 17..18 
-      IDENT: 17..18 "B"
+      NAME: 17..18 
+        IDENT: 17..18 "B"
     COMMA: 18..19 ","
     TYPE_PARAM: 19..20 
-      IDENT: 19..20 "C"
+      NAME: 19..20 
+        IDENT: 19..20 "C"
     GT: 20..21 ">"
   WHITESPACE: 21..22 
   L_BRACE: 22..23 "{"

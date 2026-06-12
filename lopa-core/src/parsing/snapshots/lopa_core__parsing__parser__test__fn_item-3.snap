@@ -10,7 +10,8 @@ FN_ITEM: 0..25
   GENERICS: 11..14 
     LT: 11..12 "<"
     TYPE_PARAM: 12..13 
-      IDENT: 12..13 "T"
+      NAME: 12..13 
+        IDENT: 12..13 "T"
     GT: 13..14 ">"
   PARAM_LIST: 14..16 
     L_PAREN: 14..15 "("
