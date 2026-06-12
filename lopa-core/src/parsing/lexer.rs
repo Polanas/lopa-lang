@@ -100,6 +100,7 @@ macro_rules! T {
     [@] => { super::lexer::Syntax::AT};
     [%=] => { super::lexer::Syntax::PERCENT_EQ};
     [->] => { super::lexer::Syntax::ARROW};
+    [=>] => { super::lexer::Syntax::FAT_ARROW};
     [fn] => { super::lexer::Syntax::FN_KW};
     [mod] => { super::lexer::Syntax::MOD_KW};
     [let] => { super::lexer::Syntax::LET_KW};
@@ -115,7 +116,6 @@ macro_rules! T {
     [as] => { super::lexer::Syntax::AS_KW};
     [is] => { super::lexer::Syntax::IS_KW};
     [or] => { super::lexer::Syntax::OR_KW};
-    [not] => { super::lexer::Syntax::NOT_KW};
     [return] => { super::lexer::Syntax::RETURN_KW};
     [if] => { super::lexer::Syntax::IF_KW};
     [else] => { super::lexer::Syntax::ELSE_KW};
@@ -281,6 +281,9 @@ def! {
     #[token("?")]
     MARK = ["?"],
 
+    #[token("=>")]
+    FAT_ARROW = ["=>"],
+
     #[token("->")]
     ARROW = ["->"] @SYMBOL_LAST,
 
@@ -310,9 +313,6 @@ def! {
 
     #[token("is")]
     IS_KW = ["is"],
-
-    #[token("not")]
-    NOT_KW = ["not"],
 
     #[token("nil")]
     NIL_KW = ["nil"],
@@ -544,7 +544,7 @@ pub struct LexToken<'a> {
 impl Syntax {
     pub fn prefix_bp(self) -> Option<u8> {
         Some(match self {
-            T![not] => 15,
+            T![!] => 15,
             T![-] => 16,
             _ => return None,
         })

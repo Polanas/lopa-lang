@@ -1,24 +1,24 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"1=2 or 3 and 4 == 5 != 6 < 7 + 8 * not -9\", |p| p.expr())"
+expression: "parse(\"1=2 or 3 and 4 == 5 != 6 < 7 + 8 * !true\", |p| p.expr())"
 ---
-BINARY_EXPR: 0..41 
+BINARY_EXPR: 0..40 
   LIT_EXPR: 0..1 
     INT: 0..1 "1"
   EQ: 1..2 "="
-  BINARY_EXPR: 2..41 
+  BINARY_EXPR: 2..40 
     LIT_EXPR: 2..3 
       INT: 2..3 "2"
     WHITESPACE: 3..4 
     OR_KW: 4..6 "or"
     WHITESPACE: 6..7 
-    BINARY_EXPR: 7..41 
+    BINARY_EXPR: 7..40 
       LIT_EXPR: 7..8 
         INT: 7..8 "3"
       WHITESPACE: 8..9 
       AND_KW: 9..12 "and"
       WHITESPACE: 12..13 
-      BINARY_EXPR: 13..41 
+      BINARY_EXPR: 13..40 
         BINARY_EXPR: 13..19 
           LIT_EXPR: 13..14 
             INT: 13..14 "4"
@@ -30,28 +30,25 @@ BINARY_EXPR: 0..41
         WHITESPACE: 19..20 
         NOT_EQ: 20..22 "!="
         WHITESPACE: 22..23 
-        BINARY_EXPR: 23..41 
+        BINARY_EXPR: 23..40 
           LIT_EXPR: 23..24 
             INT: 23..24 "6"
           WHITESPACE: 24..25 
           LT: 25..26 "<"
           WHITESPACE: 26..27 
-          BINARY_EXPR: 27..41 
+          BINARY_EXPR: 27..40 
             LIT_EXPR: 27..28 
               INT: 27..28 "7"
             WHITESPACE: 28..29 
             PLUS: 29..30 "+"
             WHITESPACE: 30..31 
-            BINARY_EXPR: 31..41 
+            BINARY_EXPR: 31..40 
               LIT_EXPR: 31..32 
                 INT: 31..32 "8"
               WHITESPACE: 32..33 
               STAR: 33..34 "*"
               WHITESPACE: 34..35 
-              UNARY_EXPR: 35..41 
-                NOT_KW: 35..38 "not"
-                WHITESPACE: 38..39 
-                UNARY_EXPR: 39..41 
-                  MINUS: 39..40 "-"
-                  LIT_EXPR: 40..41 
-                    INT: 40..41 "9"
+              UNARY_EXPR: 35..40 
+                BANG: 35..36 "!"
+                LIT_EXPR: 36..40 
+                  TRUE_KW: 36..40 "true"

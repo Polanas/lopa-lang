@@ -1,0 +1,39 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"fn some_fuc(@label(not_a) a: int) { }\", |p| p.fn_item())"
+---
+FN_ITEM: 0..37 
+  FN_KW: 0..2 "fn"
+  WHITESPACE: 2..3 
+  NAME: 3..11 
+    IDENT: 3..11 "some_fuc"
+  PARAM_LIST: 11..33 
+    L_PAREN: 11..12 "("
+    COMPILER_ATTRIB_LIST: 12..25 
+      COMPILER_ATTRIB: 12..25 
+        AT: 12..13 "@"
+        NAME: 13..18 
+          IDENT: 13..18 "label"
+        L_PAREN: 18..19 "("
+        COMPILER_ATTRIB_ITEM: 19..24 
+          PATH_EXPR: 19..24 
+            PATH: 19..24 
+              IDENT: 19..24 "not_a"
+        R_PAREN: 24..25 ")"
+    WHITESPACE: 25..26 
+    PARAM: 26..32 
+      NAME_PAT: 26..27 
+        NAME: 26..27 
+          IDENT: 26..27 "a"
+      COLON: 27..28 ":"
+      WHITESPACE: 28..29 
+      LIT_TYPE: 29..32 
+        PATH_TYPE: 29..32 
+          PATH: 29..32 
+            IDENT: 29..32 "int"
+    R_PAREN: 32..33 ")"
+  WHITESPACE: 33..34 
+  BLOCK_EXPR: 34..37 
+    L_BRACE: 34..35 "{"
+    WHITESPACE: 35..36 
+    R_BRACE: 36..37 "}"

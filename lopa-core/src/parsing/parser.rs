@@ -19,7 +19,6 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     STRING,
     T![true],
     T![false],
-    T![not],
     T![-],
     T![lua],
     T![nil],
@@ -29,6 +28,7 @@ const EXPR_FIRST: TokenSet = TokenSet::new(&[
     T!["("],
     T![|],
     T![self],
+    T![!],
 ]);
 const TYPE_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
@@ -47,7 +47,7 @@ const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root], T![super]]);
 
 const USE_RECOVERY: TokenSet = TokenSet::new(&[]).union(ITEM_FIRST);
-const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=]]).union(PARAM_LIST_RECOVERY);
+// const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=], T![=>], T!["{"]]);
 const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
 const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"], T![;]]).union(ITEM_FIRST);
 const RECORD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["}"], T![,]]);
@@ -55,7 +55,6 @@ const ELEMENT_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
 const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
 const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(ITEM_FIRST);
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
-const PARENT_LIST_RECOVERY: TokenSet = TokenSet::new(&[T!["{"]]).union(ITEM_FIRST);
 const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
 const GENERICS_RECOVERY: TokenSet = TokenSet::new(&[T!["{"], T![>]]).union(ITEM_FIRST);
 
@@ -628,7 +627,7 @@ impl<'a> Parser<'a> {
         self.with(PARAM_LIST, |this| {
             this.expect(T!["("]);
             while !this.at(T![")"]) && !this.eof() {
-                // this.compiler_attrib_list();
+                this.compiler_attrib_list();
                 if this.at_any(PATTERN_FIRST) || this.at(T![self]) {
                     this.param();
                 } else {
@@ -996,6 +995,7 @@ impl<'a> Parser<'a> {
             T![is] => {
                 self.with_at(IS_EXPR, checkpoint, |this| {
                     this.expect(T![is]);
+                    //if !value and !value { }
                     this.pattern();
                 });
             }
@@ -1435,6 +1435,7 @@ mod test {
             |p| p.fn_item()
         ));
         insta::assert_snapshot!(parse("fn identity<T>() -> T { }", |p| p.fn_item()));
+        insta::assert_snapshot!(parse("fn some_fuc(@label(not_a) a: int) { }", |p| p.fn_item()));
     }
 
     #[test]
@@ -1493,10 +1494,10 @@ mod test {
         insta::assert_snapshot!(parse("a;", |p| {
             p.stmt_expr();
         }));
-        insta::assert_snapshot!(parse("1+1;", |p| { _ = p.stmt_expr() }));
-        insta::assert_snapshot!(parse("print();", |p| { _ = p.stmt_expr() }));
-        insta::assert_snapshot!(parse("no_semi % idk;", |p| { _ = p.stmt_expr() }));
-        insta::assert_snapshot!(parse("vec2 { };", |p| { _ = p.stmt_expr() }));
+        insta::assert_snapshot!(parse("1+1;", |p| { p.stmt_expr() }));
+        insta::assert_snapshot!(parse("print();", |p| { p.stmt_expr() }));
+        insta::assert_snapshot!(parse("no_semi % idk;", |p| { p.stmt_expr() }));
+        insta::assert_snapshot!(parse("vec2 { };", |p| { p.stmt_expr() }));
     }
 
     #[test]
@@ -1528,10 +1529,10 @@ mod test {
         insta::assert_snapshot!(parse("1", |p| p.expr()));
         insta::assert_snapshot!(parse("1+1", |p| p.expr()));
         insta::assert_snapshot!(parse("1+1*3/4%3", |p| p.expr()));
-        insta::assert_snapshot!(parse("1=2 or 3 and 4 == 5 != 6 < 7 + 8 * not -9", |p| p.expr()));
+        insta::assert_snapshot!(parse("1=2 or 3 and 4 == 5 != 6 < 7 + 8 * !true", |p| p.expr()));
         insta::assert_snapshot!(parse("(1)", |p| p.expr()));
         insta::assert_snapshot!(parse("1 + { 1 }", |p| p.expr()));
-        insta::assert_snapshot!(parse("if not true {} else {}", |p| p.expr()));
+        insta::assert_snapshot!(parse("if !true {} else {}", |p| p.expr()));
         insta::assert_snapshot!(parse("if true {} else if VALUE { yo_mister_white }", |p| p.expr()));
         insta::assert_snapshot!(parse("\"a string\"", |p| p.expr()));
         insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
