@@ -364,7 +364,7 @@ pub enum UnaryOpKind {
 impl std::fmt::Display for UnaryOpKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UnaryOpKind::Not => write!(f, "not"),
+            UnaryOpKind::Not => write!(f, "!"),
             UnaryOpKind::Neg => write!(f, "-"),
         }
     }
