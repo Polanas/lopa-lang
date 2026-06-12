@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"10.1\", |p| p.pattern())"
+---
+LIT_PAT: 0..4 
+  FLOAT: 0..4 "10.1"

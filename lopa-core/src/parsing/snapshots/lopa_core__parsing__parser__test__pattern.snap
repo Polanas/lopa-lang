@@ -1,0 +1,7 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"ident\", |p| p.pattern())"
+---
+NAME_PAT: 0..5 
+  NAME: 0..5 
+    IDENT: 0..5 "ident"

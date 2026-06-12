@@ -17,7 +17,7 @@ FN_ITEM: 0..69
     LET_STMT: 26..59 
       LET_KW: 26..29 "let"
       WHITESPACE: 29..30 
-      NAME_PATTERN: 30..31 
+      NAME_PAT: 30..31 
         NAME: 30..31 
           IDENT: 30..31 "x"
       COLON: 31..32 ":"

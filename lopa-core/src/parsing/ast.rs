@@ -507,10 +507,16 @@ structs! {
         expr: Expr,
         semi: T![;],
     },
-    NAME_PATTERN = NamePattern {
+    NAME_PAT = NamePattern {
         name: Name,
-    },
 
+    },
+    PATH_PAT = PathPattern {
+        path: Path,
+    },
+    WILDCARD_PAT = WildcardPattern {
+        wildcard_token: T![_],
+    },
     NILABLE_TYPE = NilableType {
         ty: TypeExpr,
         mark_token: T![?],
@@ -861,6 +867,8 @@ enums! {
     //TODO: finish patterns
     Pattern {
         NamePattern,
+        PathPattern,
+        WildcardPattern,
     },
     ItemTypeExpr {
         StructItemType,

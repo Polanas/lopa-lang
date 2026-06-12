@@ -162,9 +162,10 @@ pub fn function_params<'db>(
             });
         } else {
             let name = param.pattern().and_then(|p| {
-                Some(match p {
-                    ast::Pattern::NamePattern(name_patern) => name_patern,
-                })
+                match p {
+                    ast::Pattern::NamePattern(name_patern) => Some(name_patern),
+                    _ => None,
+                }
                 .and_then(|n| n.name())
                 .and_then(|n| n.text())
             });
@@ -553,6 +554,8 @@ pub type PatternId = Idx<Pattern>;
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
 pub enum Pattern {
     Missing,
+    Wildcard,
+    Path(Path),
     Name(Ustr),
 }
 

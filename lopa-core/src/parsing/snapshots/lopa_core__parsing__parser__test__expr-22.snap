@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"1\", |p| p.expr())"
+---
+LIT_EXPR: 0..1 
+  INT: 0..1 "1"

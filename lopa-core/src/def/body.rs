@@ -309,6 +309,18 @@ impl<'db> BodyLowerCtx<'db> {
                     .unwrap_or_else(|| Pattern::Missing);
                 self.alloc_pattern(pattern, ptr)
             }
+            ast::Pattern::PathPattern(path_pattern) => {
+                let pattern = path_pattern
+                    .path()
+                    .map(|p| p.segments().collect_vec())
+                    .map(ir::Path)
+                    .map(Pattern::Path)
+                    .unwrap_or_else(|| Pattern::Missing);
+                self.alloc_pattern(pattern, ptr)
+            }
+            ast::Pattern::WildcardPattern(_) => {
+                self.alloc_pattern(Pattern::Wildcard, ptr)
+            }
         }
     }
 

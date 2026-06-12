@@ -65,6 +65,7 @@ macro_rules! T {
     ["["] => { super::lexer::Syntax::L_BRACKET};
     ["]"] => { super::lexer::Syntax::R_BRACKET};
     [" "] => { super::lexer::Syntax::WHITESPACE};
+    [_] => { super::lexer::Syntax::WILDCARD};
     [?] => { super::lexer::Syntax::MARK};
     [|] => { super::lexer::Syntax::BAR};
     [|=] => { super::lexer::Syntax::BAR_EQ};
@@ -112,6 +113,7 @@ macro_rules! T {
     [super] => { super::lexer::Syntax::SUPER_KW};
     [and] => { super::lexer::Syntax::AND_KW};
     [as] => { super::lexer::Syntax::AS_KW};
+    [is] => { super::lexer::Syntax::IS_KW};
     [or] => { super::lexer::Syntax::OR_KW};
     [not] => { super::lexer::Syntax::NOT_KW};
     [return] => { super::lexer::Syntax::RETURN_KW};
@@ -141,7 +143,7 @@ def! {
     #[regex(r"--[^\n\r]*?")]
     COMMENT @WHITESPACE_LAST,
 
-    #[regex(r"[_]?[A-Za-z_][0-9A-Za-z_]*")]
+    #[regex(r"[0-9A-Za-z_][0-9A-Za-z_]*", priority=1)]
     IDENT = ["identifier"],
 
     #[regex(r"[\d][\d|_]*\.[\d]+")]
@@ -158,6 +160,9 @@ def! {
 
     #[regex(r#"\[\["#, lex_bracket_string)]
     BRACKET_STRING = ["string"],
+
+    #[token("_")]
+    WILDCARD = ["_"],
 
     #[token("(")]
     L_PAREN = ["("] @SYMBOL_FIRST,
@@ -303,6 +308,9 @@ def! {
     #[token("as")]
     AS_KW = ["as"],
 
+    #[token("is")]
+    IS_KW = ["is"],
+
     #[token("not")]
     NOT_KW = ["not"],
 
@@ -429,7 +437,6 @@ def! {
     SELF_TYPE,
     DYN_TYPE,
 
-    AS_EXPR,
     SELF_EXPR,
     RECORD_EXPR,
     UNIT_EXPR,
@@ -453,8 +460,13 @@ def! {
     SAFE_METHOD_EXPR,
     FIELD_EXPR,
     SAFE_FIELD_EXPR,
+    AS_EXPR,
+    IS_EXPR,
 
-    NAME_PATTERN,
+    NAME_PAT,
+    PATH_PAT,
+    LIT_PAT,
+    WILDCARD_PAT,
 
     LUA_BREAK_EXPR,
     LUA_LIT_EXPR,

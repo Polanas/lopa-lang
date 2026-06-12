@@ -633,6 +633,8 @@ impl<'db> ExprScopesCtx<'db> {
                     pattern: pattern_id,
                 });
             }
+            ir::Pattern::Wildcard => {},
+            ir::Pattern::Path(path) => {},
         }
     }
 

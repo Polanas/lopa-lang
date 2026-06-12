@@ -3,7 +3,7 @@ source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"param: type,\", |p| p.param())"
 ---
 PARAM: 0..12 
-  NAME_PATTERN: 0..5 
+  NAME_PAT: 0..5 
     NAME: 0..5 
       IDENT: 0..5 "param"
   COLON: 5..6 ":"

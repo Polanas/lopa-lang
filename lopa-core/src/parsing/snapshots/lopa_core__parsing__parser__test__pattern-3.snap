@@ -1,0 +1,10 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"Color::Red\", |p| p.pattern())"
+---
+PATH_PAT: 0..10 
+  PATH: 0..10 
+    IDENT: 0..5 "Color"
+    COLON: 5..6 ":"
+    COLON: 6..7 ":"
+    IDENT: 7..10 "Red"

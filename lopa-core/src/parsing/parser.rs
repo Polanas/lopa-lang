@@ -39,11 +39,11 @@ const TYPE_FIRST: TokenSet = TokenSet::new(&[
     T![root],
     T![super],
 ]);
+const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT, INT, FLOAT, STRING, T!["("], T!["["]]);
 const ITEM_TYPE_FIRST: TokenSet = TokenSet::new(&[T![struct], T![enum]]).union(TYPE_FIRST);
 const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
 const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
-const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT]);
 const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root], T![super]]);
 
 const USE_RECOVERY: TokenSet = TokenSet::new(&[]).union(ITEM_FIRST);
@@ -660,14 +660,28 @@ impl<'a> Parser<'a> {
 
     fn pattern(&mut self) {
         match self.peek() {
-            IDENT => {
-                self.with(NAME_PATTERN, |this| {
-                    this.name();
+            token
+            @ (INT | FLOAT | STRING | TRUE_KW | FALSE_KW | SINGLE_STRING | BRACKET_STRING) => {
+                self.with(LIT_PAT, |this| {
+                    this.ate(token);
                 });
             }
+            IDENT => {
+                if self.nth(1) == T![:] && self.nth(2) == T![:] {
+                    self.with(PATH_PAT, |this| {
+                        this.path();
+                    });
+                } else {
+                    self.with(NAME_PAT, |this| {
+                        this.name();
+                    });
+                }
+            }
+            T![_] => self.with(WILDCARD_PAT, |this| {
+                this.expect(T![_]);
+            }),
             _ => {
                 self.error(SyntaxErrorKind::ExpectedPattern);
-                return;
             }
         }
     }
@@ -978,10 +992,20 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if self.ate(T![as]) {
-            self.with_at(AS_EXPR, checkpoint, |this| {
-                this.type_expr();
-            });
+        match self.peek() {
+            T![is] => {
+                self.with_at(IS_EXPR, checkpoint, |this| {
+                    this.expect(T![is]);
+                    this.pattern();
+                });
+            }
+            T![as] => {
+                self.with_at(AS_EXPR, checkpoint, |this| {
+                    this.expect(T![as]);
+                    this.type_expr();
+                });
+            }
+            _ => {}
         }
         Some(())
     }
@@ -1487,6 +1511,16 @@ mod test {
         insta::assert_snapshot!(parse("{ 1 }", |p| p.block()));
         insta::assert_snapshot!(parse("{ something; something_else; }", |p| p.block()));
         insta::assert_snapshot!(parse("{ vec2 { a : 1 }; }", |p| p.block()));
+    }
+
+    #[test]
+    fn pattern() {
+        insta::assert_snapshot!(parse("ident", |p| p.pattern()));
+        insta::assert_snapshot!(parse("_", |p| p.pattern()));
+        insta::assert_snapshot!(parse("Color::Red", |p| p.pattern()));
+        insta::assert_snapshot!(parse("10.1", |p| p.pattern()));
+        insta::assert_snapshot!(parse("'hello there!'", |p| p.pattern()));
+        insta::assert_snapshot!(parse("true", |p| p.pattern()));
     }
 
     #[test]

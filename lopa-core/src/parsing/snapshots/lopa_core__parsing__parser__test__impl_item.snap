@@ -30,7 +30,7 @@ IMPL_ITEM: 0..104
         COMMA: 55..56 ","
       WHITESPACE: 56..57 
       PARAM: 57..69 
-        NAME_PATTERN: 57..58 
+        NAME_PAT: 57..58 
           NAME: 57..58 
             IDENT: 57..58 "f"
         COLON: 58..59 ":"

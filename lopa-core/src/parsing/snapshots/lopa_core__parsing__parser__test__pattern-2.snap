@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"_\", |p| p.pattern())"
+---
+WILDCARD_PAT: 0..1 
+  WILDCARD: 0..1 "_"

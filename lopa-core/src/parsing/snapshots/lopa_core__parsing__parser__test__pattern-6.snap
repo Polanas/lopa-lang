@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"true\", |p| p.pattern())"
+---
+LIT_PAT: 0..4 
+  TRUE_KW: 0..4 "true"
