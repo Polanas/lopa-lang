@@ -992,10 +992,15 @@ impl<'a> Parser<'a> {
         }
 
         match self.peek() {
+            T![!is] => {
+                self.with_at(IS_NOT_EXPR, checkpoint, |this| {
+                    this.expect(T![!is]);
+                    this.pattern();
+                });
+            }
             T![is] => {
                 self.with_at(IS_EXPR, checkpoint, |this| {
                     this.expect(T![is]);
-                    //if !value and !value { }
                     this.pattern();
                 });
             }
@@ -1548,6 +1553,7 @@ mod test {
         insta::assert_snapshot!(parse("generic_call::<A>()", |p| p.expr()));
         insta::assert_snapshot!(parse("obj.generic_method::<A>()", |p| p.expr()));
         insta::assert_snapshot!(parse("foo?.bar?.baz()", |p| p.expr()));
+        insta::assert_snapshot!(parse("x is value and x !is value", |p| p.expr()));
     }
 
     #[test]

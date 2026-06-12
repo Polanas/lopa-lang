@@ -543,7 +543,7 @@ impl<'db> ExprScopesCtx<'db> {
     fn traverse(mut self) -> ExprScopes {
         let root = self.root_scope();
         for param in self.body.params() {
-            self.add_bindings(*param, root);
+            self.traverse_pattern(*param, root);
         }
         self.traverse_expr(self.body.body_expr(), root);
         ExprScopes {
@@ -604,7 +604,17 @@ impl<'db> ExprScopesCtx<'db> {
             ir::Expr::As { expr, .. } => {
                 self.traverse_expr(*expr, scope);
             }
-            ir::Expr::Closure { params, output } => {}
+            ir::Expr::Closure { params, output } => {
+                //TODO:
+            }
+            ir::Expr::Is { expr, pat } => {
+                self.traverse_pattern(*pat, scope);
+                self.traverse_expr(*expr, scope);
+            }
+            ir::Expr::IsNot { expr, pat } => {
+                self.traverse_pattern(*pat, scope);
+                self.traverse_expr(*expr, scope);
+            }
         }
     }
 
@@ -612,8 +622,10 @@ impl<'db> ExprScopesCtx<'db> {
         for stmt_id in stmts {
             let stmt = self.body.stmt(*stmt_id);
             match stmt {
-                ir::Stmt::Let { pattern, expr, .. } => {
-                    self.add_bindings(*pattern, scope);
+                ir::Stmt::Let {
+                    pat: pattern, expr, ..
+                } => {
+                    self.traverse_pattern(*pattern, scope);
                     self.traverse_expr(*expr, scope);
                 }
                 ir::Stmt::Expr { expr, .. } => {
@@ -623,7 +635,7 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn add_bindings(&mut self, pattern_id: PatternId, scope: ScopeId) {
+    fn traverse_pattern(&mut self, pattern_id: PatternId, scope: ScopeId) {
         let pattern = &self.body.pattern(pattern_id);
         match pattern {
             ir::Pattern::Missing => {}
@@ -633,8 +645,8 @@ impl<'db> ExprScopesCtx<'db> {
                     pattern: pattern_id,
                 });
             }
-            ir::Pattern::Wildcard => {},
-            ir::Pattern::Path(path) => {},
+            ir::Pattern::Wildcard => {}
+            ir::Pattern::Path(_) => {}
         }
     }
 

@@ -334,6 +334,8 @@ impl<'db> InferCtx<'db> {
             Expr::Record { path, fields } => {}
             Expr::Closure { params, output } => {}
             Expr::SelfVar => {}
+            Expr::Is { expr, pat } => {}
+            Expr::IsNot { expr, pat } => {}
         };
         self.expr_ty_map.get(expr_id)
     }
@@ -399,7 +401,7 @@ impl<'db> InferCtx<'db> {
         let stmt = self.body.stmt(stmt_id);
         match stmt {
             Stmt::Let {
-                pattern: pattern_id,
+                pat: pattern_id,
                 ty,
                 expr: expr_id,
             } => {

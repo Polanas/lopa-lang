@@ -115,6 +115,8 @@ macro_rules! T {
     [and] => { super::lexer::Syntax::AND_KW};
     [as] => { super::lexer::Syntax::AS_KW};
     [is] => { super::lexer::Syntax::IS_KW};
+    [!is] => { super::lexer::Syntax::IS_NOT_KW};
+    [is_not] => { super::lexer::Syntax::IS_NOT_KW};
     [or] => { super::lexer::Syntax::OR_KW};
     [return] => { super::lexer::Syntax::RETURN_KW};
     [if] => { super::lexer::Syntax::IF_KW};
@@ -314,6 +316,9 @@ def! {
     #[token("is")]
     IS_KW = ["is"],
 
+    #[token("!is")]
+    IS_NOT_KW = ["!is"],
+
     #[token("nil")]
     NIL_KW = ["nil"],
 
@@ -462,6 +467,7 @@ def! {
     SAFE_FIELD_EXPR,
     AS_EXPR,
     IS_EXPR,
+    IS_NOT_EXPR,
 
     NAME_PAT,
     PATH_PAT,
@@ -504,7 +510,6 @@ def! {
     LUA_FOR_STMT,
     LUA_LOCAL_STMT,
     LUA_REPEAT_STMT,
-
 }
 
 #[derive(Clone)]

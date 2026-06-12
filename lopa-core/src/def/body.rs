@@ -248,6 +248,16 @@ impl<'db> BodyLowerCtx<'db> {
                     ptr,
                 )
             }
+            ast::Expr::IsExpr(is_expr) => {
+                let pat = self.lower_pattern_opt(is_expr.pat());
+                let expr = self.lower_expr_opt(is_expr.expr());
+                self.alloc_expr(Expr::Is { expr, pat }, ptr)
+            }
+            ast::Expr::IsNotExpr(is_not_expr) => {
+                let pat = self.lower_pattern_opt(is_not_expr.pat());
+                let expr = self.lower_expr_opt(is_not_expr.expr());
+                self.alloc_expr(Expr::IsNot { expr, pat }, ptr)
+            }
             ast::Expr::ClosureExpr(closure_expr) => {
                 //TODO: closure
                 self.missing_expr(ptr)
@@ -318,9 +328,7 @@ impl<'db> BodyLowerCtx<'db> {
                     .unwrap_or_else(|| Pattern::Missing);
                 self.alloc_pattern(pattern, ptr)
             }
-            ast::Pattern::WildcardPattern(_) => {
-                self.alloc_pattern(Pattern::Wildcard, ptr)
-            }
+            ast::Pattern::WildcardPattern(_) => self.alloc_pattern(Pattern::Wildcard, ptr),
         }
     }
 
@@ -335,7 +343,7 @@ impl<'db> BodyLowerCtx<'db> {
                 let expr = self.lower_expr(expr);
                 self.alloc_stmt(
                     Stmt::Let {
-                        pattern,
+                        pat: pattern,
                         expr,
                         ty: let_stmt
                             .ty()

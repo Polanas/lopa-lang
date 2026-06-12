@@ -486,6 +486,14 @@ pub enum Expr {
         expr: ExprId,
         ty: Type<'static>,
     },
+    Is {
+        expr: ExprId,
+        pat: PatternId,
+    },
+    IsNot {
+        expr: ExprId,
+        pat: PatternId,
+    },
     BlockExpr {
         stmts: Vec<StmtId>,
     },
@@ -578,7 +586,7 @@ pub type StmtId = RawIdx;
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
 pub enum Stmt<'db> {
     Let {
-        pattern: PatternId,
+        pat: PatternId,
         ty: Option<Type<'db>>,
         expr: ExprId,
     },

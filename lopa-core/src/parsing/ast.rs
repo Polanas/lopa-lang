@@ -586,6 +586,16 @@ structs! {
             })
         }
     },
+    IS_EXPR = IsExpr {
+        expr: Expr,
+        is_token: T![is],
+        pat: Pattern,
+    },
+    IS_NOT_EXPR = IsNotExpr {
+        expr: Expr,
+        is_token: T![is_not],
+        pat: Pattern,
+    },
     AS_EXPR = AsExpr {
         expr: Expr,
         as_token: T![as],
@@ -829,6 +839,8 @@ enums! {
     },
     Expr {
         AsExpr,
+        IsExpr,
+        IsNotExpr,
         SelfExpr,
         ClosureExpr,
         FieldExpr,
