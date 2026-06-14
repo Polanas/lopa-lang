@@ -34,17 +34,19 @@ IMPL_ITEM: 0..57
   FOR_KW: 26..29 "for"
   WHITESPACE: 29..30 
   IMPL_STRUCT_TYPE: 30..41 
-    PATH_TYPE: 30..36 
-      PATH: 30..36 
+    PATH_TYPE: 30..41 
+      PATH: 30..41 
         IDENT: 30..36 "MyType"
-    GENERIC_ARGUMENTS: 36..41 
-      LT: 36..37 "<"
-      NAME: 37..38 
-        IDENT: 37..38 "A"
-      COMMA: 38..39 ","
-      NAME: 39..40 
-        IDENT: 39..40 "B"
-      GT: 40..41 ">"
+        GENERIC_ARGUMENTS: 36..41 
+          LT: 36..37 "<"
+          PATH_TYPE: 37..38 
+            PATH: 37..38 
+              IDENT: 37..38 "A"
+          COMMA: 38..39 ","
+          PATH_TYPE: 39..40 
+            PATH: 39..40 
+              IDENT: 39..40 "B"
+          GT: 40..41 ">"
   WHITESPACE: 41..42 
   L_BRACE: 42..43 "{"
   WHITESPACE: 43..56 

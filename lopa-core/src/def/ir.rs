@@ -115,9 +115,7 @@ impl<'db> ImplBlock<'db> {
     pub fn implementee(self, db: &'db dyn salsa::Database) -> Option<Type<'db>> {
         let parse = ide::parse(db, self.file(db));
         let impl_block = self.ast_ptr(db).to_node(&parse.syntax_node(db));
-        let Some(implementee) = impl_block.impl_ty().and_then(|t| t.ty()) else {
-            return None;
-        };
+        let implementee = impl_block.impl_ty().and_then(|t| t.ty())?;
         Some(resolver::resolve_type_expr(
             db,
             self.file(db),
@@ -288,7 +286,13 @@ impl<'db> Function<'db> {
                 let ty = param
                     .ty()
                     .map(|ty| {
-                        resolver::resolve_type_expr(db, file, ty, Some(self.generics(db)), None)
+                        resolver::resolve_type_expr(
+                            db,
+                            file,
+                            ty,
+                            Some(self.generics(db)),
+                            self.owner(db).as_ref(),
+                        )
                     })
                     .unwrap_or_else(|| Type::Unknown);
                 params.push(Param { name, ty });
@@ -348,10 +352,9 @@ impl<'db> Function<'db> {
                 FunctionOwnerItem::Enum(enum_item) => enum_item.generic_type(db),
             }
             .clone()
-        } else if let Some(impl_block) = self.impl_block(db) {
-            impl_block.owner(db).clone()
         } else {
-            return None;
+            let impl_block = self.impl_block(db)?;
+            impl_block.owner(db).clone()
         })
     }
 
@@ -359,12 +362,18 @@ impl<'db> Function<'db> {
     pub fn generics(self, db: &'db dyn salsa::Database) -> Generics<'db> {
         let file = self.file(db);
         let root = ide::parse(db, file).syntax_node(db);
-        let impl_generics = self.impl_block(db).map(|b| b.generics(db));
+        let owner_generics = self.impl_block(db).map(|b| b.generics(db)).or_else(|| {
+            let owner = self.owner_item(db)?;
+            Some(match owner {
+                FunctionOwnerItem::Struct(struct_item) => struct_item.generics(db),
+                FunctionOwnerItem::Enum(enum_item) => enum_item.generics(db),
+            })
+        });
 
         let generics = self.ast_ptr(db).to_node(&root).generics();
         let mut generics = generic_types(db, file, generics);
 
-        if let Some(impl_generics) = impl_generics {
+        if let Some(impl_generics) = owner_generics {
             for impl_param in &impl_generics.params {
                 if let Some(duplicate) = generics.param(&impl_param.name) {
                     Diagnostic::new(
@@ -400,6 +409,9 @@ pub struct Enum<'db> {
 #[salsa::tracked]
 pub fn enum_diagnostics_acc<'db>(db: &'db dyn salsa::Database, item: Enum<'db>) {
     let _fields = item.fields(db);
+    for func in item.functions(db) {
+        infer::infer_function(db, *func);
+    }
 }
 
 #[salsa::tracked]
@@ -488,6 +500,9 @@ pub struct Struct<'db> {
 #[salsa::tracked]
 pub fn struct_diagnostics_acc<'db>(db: &'db dyn salsa::Database, item: Struct<'db>) {
     let _fields = item.fields(db);
+    for func in item.functions(db) {
+        infer::infer_function(db, *func);
+    }
 }
 
 #[salsa::tracked]

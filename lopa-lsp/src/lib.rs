@@ -140,7 +140,6 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceDiagnosticParams,
     ) -> Result<WorkspaceDiagnosticReportResult> {
-        Notification::new().summary("here").show().unwrap();
         Ok(WorkspaceDiagnosticReportResult::Report(
             WorkspaceDiagnosticReport { items: vec![] },
         ))

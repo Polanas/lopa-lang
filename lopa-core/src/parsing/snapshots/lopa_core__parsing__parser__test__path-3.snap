@@ -1,0 +1,22 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"hey::<A,B,C>\", |p| p.expr_path())"
+---
+PATH: 0..12 
+  IDENT: 0..3 "hey"
+  COLON: 3..4 ":"
+  COLON: 4..5 ":"
+  GENERIC_ARGUMENTS: 5..12 
+    LT: 5..6 "<"
+    PATH_TYPE: 6..7 
+      PATH: 6..7 
+        IDENT: 6..7 "A"
+    COMMA: 7..8 ","
+    PATH_TYPE: 8..9 
+      PATH: 8..9 
+        IDENT: 8..9 "B"
+    COMMA: 9..10 ","
+    PATH_TYPE: 10..11 
+      PATH: 10..11 
+        IDENT: 10..11 "C"
+    GT: 11..12 ">"

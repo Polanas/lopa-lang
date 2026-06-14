@@ -668,7 +668,7 @@ impl<'a> Parser<'a> {
             IDENT => {
                 if self.nth(1) == T![:] && self.nth(2) == T![:] {
                     self.with(PATH_PAT, |this| {
-                        this.path();
+                        this.expr_path();
                     });
                 } else {
                     self.with(NAME_PAT, |this| {
@@ -717,7 +717,7 @@ impl<'a> Parser<'a> {
                 }),
                 T![dyn] => self.with(DYN_TYPE, |this| {
                     this.expect(T![dyn]);
-                    this.path();
+                    this.type_path();
                 }),
                 T!["("] => {
                     self.expect(T!["("]);
@@ -737,11 +737,11 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let next_span = self.nth_span(0);
-                    let is_path = self.at_path_sep(1);
+                    let can_be_lit = self.at_path_sep(1);
                     self.with(PATH_TYPE, |this| {
-                        this.path();
+                        this.type_path();
                     });
-                    if !is_path {
+                    if !can_be_lit {
                         match &self.input[next_span] {
                             "int" | "float" | "string" | "bool" => {
                                 self.with_at(LIT_TYPE, checkpoint, |_| {})
@@ -750,7 +750,6 @@ impl<'a> Parser<'a> {
                             _ => {}
                         }
                     }
-                    self.type_generic_args();
                     if self.ate(T![?]) {
                         self.with_at(NILABLE_TYPE, checkpoint, |_| {});
                     }
@@ -761,7 +760,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn path(&mut self) {
+    fn expr_path(&mut self) {
+        self.path(false);
+    }
+
+    fn type_path(&mut self) {
+        self.path(true);
+    }
+
+    fn path(&mut self, is_type_path: bool) {
         if self.at_any(TokenSet::new(&[IDENT, ROOT_KW, SUPER_KW])) {
             self.with(PATH, |this| {
                 if this.at(T![root]) {
@@ -775,7 +782,7 @@ impl<'a> Parser<'a> {
                 while this.at_path_sep(0) && !this.at(EOF) {
                     this.expect(T![:]);
                     this.expect(T![:]);
-                    if this.at(T![<]) {
+                    if !is_type_path && this.at(T![<]) {
                         this.generic_args();
                         break;
                     }
@@ -785,6 +792,9 @@ impl<'a> Parser<'a> {
                         at_super = false;
                         this.expect(IDENT);
                     }
+                }
+                if is_type_path && this.at(T![<]) {
+                    this.generic_args();
                 }
             });
         }
@@ -927,7 +937,7 @@ impl<'a> Parser<'a> {
             }
             IDENT => {
                 let checkpoint = self.checkpoint();
-                self.path();
+                self.expr_path();
 
                 if self.at(T!["{"])
                     && ((self.nth(1) == IDENT && self.nth(2) == T![:]) || self.nth(1) == T!["}"])
@@ -1139,13 +1149,6 @@ impl<'a> Parser<'a> {
                 this.expect(T![,]);
             }
         });
-    }
-
-    fn type_generic_args(&mut self) {
-        if !self.at(T![<]) {
-            return;
-        }
-        self.generic_args();
     }
 
     fn generic_args(&mut self) {
@@ -1445,8 +1448,10 @@ mod test {
 
     #[test]
     fn path() {
-        insta::assert_snapshot!(parse("a::b::c", |p| p.path()));
-        insta::assert_snapshot!(parse("root::hello", |p| p.path()));
+        insta::assert_snapshot!(parse("a::b::c", |p| p.expr_path()));
+        insta::assert_snapshot!(parse("root::hello", |p| p.expr_path()));
+        insta::assert_snapshot!(parse("hey::<A,B,C>", |p| p.expr_path()));
+        insta::assert_snapshot!(parse("hey<A,B,C>", |p| p.type_path()));
     }
 
     #[test]
@@ -1594,6 +1599,7 @@ mod test {
         ));
         insta::assert_snapshot!(parse("struct X { a: root::a::b::c }", |p| p.struct_item()));
         insta::assert_snapshot!(parse("struct Generic<A,B,C> {}", |p| p.struct_item()));
+        insta::assert_snapshot!(parse("struct Y { value: S<int,int,int> }", |p| p.struct_item()));
     }
 
     #[test]

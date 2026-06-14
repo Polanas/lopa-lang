@@ -10,8 +10,9 @@ CALL_EXPR: 0..19
       COLON: 13..14 ":"
       GENERIC_ARGUMENTS: 14..17 
         LT: 14..15 "<"
-        NAME: 15..16 
-          IDENT: 15..16 "A"
+        PATH_TYPE: 15..16 
+          PATH: 15..16 
+            IDENT: 15..16 "A"
         GT: 16..17 ">"
   L_PAREN: 17..18 "("
   R_PAREN: 18..19 ")"

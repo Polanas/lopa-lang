@@ -558,7 +558,7 @@ impl<'db> InferCtx<'db> {
                 provided,
             } => (
                 format!(
-                    "too many arguments provided: expected {}, provided {}",
+                    "too many arguments provided: expected {}, got {}",
                     expected, provided
                 ),
                 body::expr_range(self.db, self.func, expr),
@@ -573,7 +573,7 @@ impl<'db> InferCtx<'db> {
                 expected,
             } => (
                 format!(
-                    "too few arguments provided: expected {}, provided {}",
+                    "too few arguments provided: expected {}, got {}",
                     expected, provided
                 ),
                 body::expr_range(self.db, self.func, expr),
@@ -704,6 +704,7 @@ pub fn infer_function<'db>(
 ) -> InferenceResult<'db> {
     let body = ide::body(db, func).as_ref();
     let scopes = scope::expr_scopes(db, func).as_ref();
+    let _generics = func.generics(db);
     let ctx = InferCtx {
         db,
         body: unsafe { transmute::<&body::Body<'db>, &body::Body<'static>>(body) },
