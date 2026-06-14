@@ -9,7 +9,8 @@ use ustr::Ustr;
 use crate::{
     def::{
         ir::{self, Arg, Expr, ExprId, Pattern, PatternId, Stmt, StmtId, Type},
-        lower::{self, lower_type_expr},
+        lower::{self},
+        resolver,
         scope::MyAstPtr,
     },
     ide::{self, base::InFile},
@@ -78,6 +79,7 @@ impl<'db> Default for Body<'db> {
 struct BodyLowerCtx<'db> {
     db: &'db dyn salsa::Database,
     body: Body<'db>,
+    function: ir::Function<'db>,
     source_map: BodySourceMap<'db>,
     file: ide::File,
 }
@@ -113,15 +115,41 @@ impl<'db> BodyLowerCtx<'db> {
         id
     }
 
+    fn lower_type_expr(&self, ty: ast::TypeExpr) -> ir::Type<'static> {
+        unsafe {
+            transmute::<Type<'db>, Type<'static>>(resolver::resolve_type_expr(
+                self.db,
+                self.file,
+                ty,
+                Some(self.function.generics(self.db)),
+                self.function.owner(self.db).as_ref(),
+            ))
+        }
+    }
+
+    fn lower_generic_args(&self, args: Option<ast::GenericArgs>) -> ir::GenericParams<'static> {
+        let Some(args) = args else {
+            return ir::GenericParams::default();
+        };
+        let params = args.types().map(|t| self.lower_type_expr(t)).collect_vec();
+
+        ir::GenericParams::new(params)
+    }
+
     fn lower_expr(&mut self, expr: ast::Expr) -> ExprId {
         let ptr = AstPtr::new(&expr);
         match expr {
             ast::Expr::PathExpr(path_expr) => {
-                let expr = path_expr
-                    .path()
-                    .map(|n| n.segments().collect_vec())
-                    .map(ir::Path)
-                    .map(Expr::Path)
+                let path = path_expr.path().map(|n| n.segments().collect_vec());
+                let generics =
+                    self.lower_generic_args(path_expr.path().and_then(|p| p.generic_args()));
+                let expr = path
+                    .map(|path| {
+                        Expr::Path(ir::GenericPath {
+                            value: path,
+                            params: generics,
+                        })
+                    })
                     .unwrap_or_else(|| Expr::Missing);
                 self.alloc_expr(expr, ptr)
             }
@@ -239,14 +267,8 @@ impl<'db> BodyLowerCtx<'db> {
                     return self.missing_expr(ptr);
                 };
                 let expr = self.lower_expr_opt(as_expr.expr());
-                let ty = lower::lower_type_expr(self.db, self.file, ty);
-                self.alloc_expr(
-                    Expr::As {
-                        expr,
-                        ty: unsafe { transmute::<Type<'_>, Type<'static>>(ty) },
-                    },
-                    ptr,
-                )
+                let ty = self.lower_type_expr(ty);
+                self.alloc_expr(Expr::As { expr, ty }, ptr)
             }
             ast::Expr::IsExpr(is_expr) => {
                 let pat = self.lower_pattern_opt(is_expr.pat());
@@ -345,9 +367,7 @@ impl<'db> BodyLowerCtx<'db> {
                     Stmt::Let {
                         pat: pattern,
                         expr,
-                        ty: let_stmt
-                            .ty()
-                            .map(|ty| lower::lower_type_expr(self.db, self.file, ty)),
+                        ty: let_stmt.ty().map(|ty| self.lower_type_expr(ty)),
                     },
                     ptr,
                 )
@@ -487,10 +507,11 @@ pub fn lower<'db>(
     let ast = function.ast_ptr(db).to_node(&parse.syntax_node(db));
 
     let mut ctx = BodyLowerCtx {
-        body: Default::default(),
-        source_map: BodySourceMap::default(),
+        function,
         file,
         db,
+        source_map: BodySourceMap::default(),
+        body: Default::default(),
     };
     if let Some(params) = ast.params() {
         for ast_param in params.params() {

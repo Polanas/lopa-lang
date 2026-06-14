@@ -101,12 +101,7 @@ impl<'db> InferCtx<'db> {
     }
 
     fn infer_function(&self) -> Option<()> {
-        for (param_id, param) in self
-            .body
-            .params()
-            .iter()
-            .zip(ir::function_params(self.db, self.func))
-        {
+        for (param_id, param) in self.body.params().iter().zip(self.func.params(self.db)) {
             self.insert_pattern_ty(*param_id, param.ty.clone());
         }
         let ty = self.infer_expr(self.body.body_expr(), None)?;
@@ -165,9 +160,14 @@ impl<'db> InferCtx<'db> {
                         self.insert_expr_ty(expr_id, pattern_ty.clone());
                     }
                     resolver::ResolveResult::Function(function) => {
-                        self.insert_expr_ty(expr_id, Type::Function(function));
+                        self.insert_expr_ty(expr_id, function);
                     }
-                    resolver::ResolveResult::Struct(_) => {}
+                    resolver::ResolveResult::Struct(struct_item) => {
+                        self.insert_expr_ty(expr_id, struct_item);
+                    }
+                    resolver::ResolveResult::Enum(enum_item) => {
+                        self.insert_expr_ty(expr_id, enum_item);
+                    }
                 };
             }
             ir::Expr::Lit(lit_kind) => {
@@ -226,7 +226,7 @@ impl<'db> InferCtx<'db> {
             }
             ir::Expr::Call { func, args } => {
                 let func = self.infer_expr(*func, None)?;
-                let Type::Function(func) = func else {
+                let Type::Function(func, params) = func else {
                     self.add_error(TypeDiagnostic::Expected {
                         expected: "function".into(),
                         actual: func.clone(),
@@ -235,7 +235,7 @@ impl<'db> InferCtx<'db> {
                     return None;
                 };
                 let params_by_name = func.params_by_name(self.db);
-                let params = ir::function_params(self.db, *func);
+                let params = self.func.params(self.db);
 
                 let mut param_id = 0;
                 let mut used_arg_names = vec![];
@@ -453,9 +453,14 @@ impl<'db> InferCtx<'db> {
                 rhs == lhs || (*lhs == LitKind::Float && *rhs == LitKind::Int)
             }
             (Type::Unit, Type::Unit) => true,
-            (Type::Function(lhs), Type::Function(rhs)) => lhs == rhs,
-            (Type::Struct(lhs), Type::Struct(rhs)) => lhs == rhs,
-            (Type::BareFn(lhs), Type::Function(rhs)) => {
+            (Type::Function(lhs, lhs_params), Type::Function(rhs, rhs_params)) => {
+                lhs == rhs && lhs_params == rhs_params
+            }
+            (Type::Struct(lhs, lhs_params), Type::Struct(rhs, rhs_params)) => {
+                lhs == rhs && lhs_params == rhs_params
+            }
+            //TODO: wtf to do with params?
+            (Type::BareFn(lhs), Type::Function(rhs, params)) => {
                 let rhs_bare = rhs.bare_fn_ty(self.db);
                 lhs.params == rhs_bare.params && lhs.output == rhs_bare.output
             }
@@ -586,6 +591,20 @@ impl<'db> InferCtx<'db> {
     }
 }
 
+fn stringify_generic_params<'db>(
+    db: &'db dyn salsa::Database,
+    params: &ir::GenericParams<'db>,
+) -> Ustr {
+    if params.iter().count() == 0 {
+        return Ustr::from("");
+    };
+    format!(
+        "<{}>",
+        params.iter().map(|p| stringify_type(db, p)).join(", ")
+    )
+    .into()
+}
+
 fn stringify_type<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
     match ty {
         Type::Unknown => "{unknown}".into(),
@@ -624,7 +643,7 @@ fn stringify_type<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
             )
             .into()
         }
-        Type::Function(function) => {
+        Type::Function(function, params) => {
             let output_ty = function.output(db).clone();
             let output = if matches!(output_ty, Type::Unit) {
                 Cow::Borrowed("")
@@ -633,8 +652,11 @@ fn stringify_type<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
             };
 
             format!(
-                "fn ({}){}",
-                ir::function_params(db, *function)
+                "fn {}{}({}){}",
+                function.name(db),
+                stringify_generic_params(db, params),
+                function
+                    .params(db)
                     .iter()
                     .map(|p| {
                         //TODO: convert any patterns to strings
@@ -650,10 +672,28 @@ fn stringify_type<'db>(db: &'db dyn salsa::Database, ty: &'db Type) -> Ustr {
             )
             .into()
         }
-        Type::Struct(strct) => strct.name(db),
+        Type::Struct(struct_item, params) => format!(
+            "struct {}{}",
+            struct_item.name(db),
+            stringify_generic_params(db, params)
+        )
+        .into(),
         Type::Never => "!".into(),
-        Type::Dyn(strct) => format!("dyn {}", strct.name(db)).into(),
-        Type::Enum(enum_item) => enum_item.name(db),
+        Type::Dyn(structs) => format!(
+            "dyn {}",
+            structs
+                .iter()
+                .map(|(strct, params)| stringify_type(db, &Type::Struct(*strct, params.clone())))
+                .join("+ ")
+        )
+        .into(),
+        Type::Enum(enum_item, params) => format!(
+            "enum {}{}",
+            enum_item.name(db),
+            stringify_generic_params(db, params)
+        )
+        .into(),
+        Type::Generic(ustr) => *ustr,
     }
 }
 

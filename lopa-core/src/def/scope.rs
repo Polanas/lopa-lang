@@ -317,7 +317,7 @@ fn resolve_use_tree(
             let name = use_name.name()?.text()?;
             path.0.push(name);
 
-            if resolver::resolve_path(db, file, path).is_none() {
+            if resolver::resolve_path_item(db, file, path).is_none() {
                 diagnostics.push(Diagnostic::new(
                     use_name.syntax().text_range(),
                     DiagnosticKind::ModuleError,
@@ -330,7 +330,7 @@ fn resolve_use_tree(
             let name = Ustr::from("self");
             path.0.push(name);
 
-            if resolver::resolve_path(db, file, path).is_none() {
+            if resolver::resolve_path_item(db, file, path).is_none() {
                 diagnostics.push(Diagnostic::new(
                     use_self_name.syntax().text_range(),
                     DiagnosticKind::ModuleError,
@@ -342,7 +342,7 @@ fn resolve_use_tree(
             let mut path = path.clone();
             let name = use_path.name()?.text()?;
             path.0.push(name);
-            if resolver::resolve_path(db, file, path.clone()).is_none() {
+            if resolver::resolve_path_item(db, file, path.clone()).is_none() {
                 diagnostics.push(Diagnostic::new(
                     use_path.name()?.syntax().text_range(),
                     DiagnosticKind::ModuleError,
@@ -355,7 +355,7 @@ fn resolve_use_tree(
             let mut path = path.clone();
             let name = "root".into();
             path.0.push(name);
-            if resolver::resolve_path(db, file, path.clone()).is_none() {
+            if resolver::resolve_path_item(db, file, path.clone()).is_none() {
                 diagnostics.push(Diagnostic::new(
                     use_root_path.root_token()?.text_range(),
                     DiagnosticKind::ModuleError,
@@ -374,7 +374,7 @@ fn resolve_use_tree(
             let mut path = path.clone();
             let name = "root".into();
             path.0.push(name);
-            if resolver::resolve_path(db, file, path.clone()).is_none() {
+            if resolver::resolve_path_item(db, file, path.clone()).is_none() {
                 diagnostics.push(Diagnostic::new(
                     use_super_path.super_token()?.text_range(),
                     DiagnosticKind::ModuleError,

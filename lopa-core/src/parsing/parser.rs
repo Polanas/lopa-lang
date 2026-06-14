@@ -1152,13 +1152,13 @@ impl<'a> Parser<'a> {
         self.with(GENERIC_ARGUMENTS, |this| {
             this.expect(T![<]);
             while !this.at(T![>]) && !this.eof() {
-                if this.at(IDENT) {
-                    this.name();
+                if this.at_any(TYPE_FIRST) {
+                    this.type_expr();
                 } else {
                     if this.at_any(TokenSet::new(&[T![>], T![;]])) {
                         break;
                     } else {
-                        this.advance_with_error(SyntaxErrorKind::ExpectedGeneric);
+                        this.advance_with_error(SyntaxErrorKind::ExpectedType);
                     }
                 }
                 if !this.at(T![>]) {

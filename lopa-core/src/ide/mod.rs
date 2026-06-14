@@ -126,6 +126,15 @@ pub struct File {
     pub source_root: SourceRoot,
 }
 
+//TODO: rewrite most tracked functions as methods
+
+// #[salsa::tracked]
+// impl<'db> File {
+//     #[salsa::tracked]
+//     pub fn parse(self, db: &'db dyn salsa::Database) -> Parse<'db> {
+//     }
+// }
+
 #[salsa::tracked]
 pub fn is_root_file(db: &dyn salsa::Database, file: File) -> bool {
     module_name(db, file) == "root"
@@ -258,11 +267,13 @@ type ImplMap<'db> = indexmap::IndexMap<ImplKey<'db>, UstrIndexMap<ImplItem<'db>>
 pub fn impl_map(db: &dyn salsa::Database, root: SourceRoot) -> ImplMap<'_> {
     let mut impls: ImplMap = Default::default();
     for &file in root.files(db).unwrap().iter() {
-        let lower = impl_blocks(db, file);
-        for block in lower.impl_blocks(db) {
-            let implementor = block.owner(db);
+        let impl_blocks = impl_blocks(db, file);
+        for block in impl_blocks.iter() {
+            let implementor = block.owner(db).clone();
             let implementee = block
                 .implementee(db)
+                .as_ref()
+                .cloned()
                 .map(Implementee::Type)
                 .unwrap_or_else(|| Implementee::Itself);
             let items = impls

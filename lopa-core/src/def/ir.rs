@@ -1,19 +1,21 @@
 use std::ops::Deref;
 
+use itertools::Itertools;
 use la_arena::{Idx, RawIdx};
 use notify_rust::Notification;
 use rowan::ast::AstNode;
-use salsa::Accumulator;
+use salsa::{Accumulator, Database};
 use ustr::Ustr;
 
 use crate::{
     common::LitKind,
-    def::lower::{lower_item_type_expr_with_self, lower_type_expr, lower_type_expr_with_self},
+    def::resolver,
     ide::{
         self,
         diagnostics::{Diagnostic, DiagnosticKind},
     },
     parsing::ast::{self, BinaryOpKind, UnaryOpKind},
+    ty::infer,
     ustr_hash::{UstrHash, UstrIndexMap},
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, salsa::Update)]
@@ -60,70 +62,175 @@ pub enum ImplItem<'db> {
     Function(Function<'db>),
 }
 
-// #[salsa::tracked]
-// impl<'db> ImplFunction<'db> {
-//     #[salsa::tracked(returns(ref))]
-//     fn is_method(self, db: &'db dyn salsa::Database) -> bool {
-//         self.params(db)
-//             .iter()
-//             .next()
-//             .map(|p| p.ty == self.owner(db))
-//             .unwrap_or_default()
-//     }
-//
-//     #[salsa::tracked(returns(ref))]
-//     pub fn params(self, db: &'db dyn salsa::Database) -> Vec<Param<'db>> {
-//         let mut params = vec![];
-//         let file = self.func(db).file(db);
-//         let root = ide::parse(db, file).syntax_node(db);
-//         for param in self
-//             .func(db)
-//             .ast_ptr(db)
-//             .to_node(&root)
-//             .params()
-//             .into_iter()
-//             .flat_map(|p| p.params())
-//         {
-//             //TODO: check for self
-//             let name = param.pattern().and_then(|p| {
-//                 Some(match p {
-//                     ast::Pattern::NamePattern(name_patern) => name_patern,
-//                 })
-//                 .and_then(|n| n.name())
-//                 .and_then(|n| n.text())
-//             });
-//             let ty = param
-//                 .ty()
-//                 .map(|ty| lower_type_expr_with_self(db, file, ty, Some(self.owner(db))))
-//                 .unwrap_or_else(|| Type::Unknown);
-//             params.push(Param { name, ty });
-//         }
-//         params
-//     }
-//
-//     #[salsa::tracked(returns(ref))]
-//     pub fn output(self, db: &'db dyn salsa::Database) -> Type<'db> {
-//         let file = self.func(db).file(db);
-//         let root = ide::parse(db, file).syntax_node(db);
-//         let output = self
-//             .func(db)
-//             .ast_ptr(db)
-//             .to_node(&root)
-//             .output()
-//             .and_then(|o| o.ty());
-//         output
-//             .map(|o| lower_type_expr_with_self(db, file, o, Some(self.owner(db))))
-//             .unwrap_or_else(|| Type::Unit)
-//     }
-// }
+#[salsa::tracked(debug)]
+pub struct ImplBlock<'db> {
+    pub file: ide::File,
+    pub ast_ptr: ast::AstPtr<ast::ImplItem>,
+}
+
+#[salsa::tracked]
+pub fn impl_block_diagnostics_acc<'db>(db: &'db dyn salsa::Database, item: ImplBlock<'db>) {
+    let functions = item.functions(db);
+    for func in functions {
+        infer::infer_function(db, *func);
+    }
+}
+
+#[salsa::tracked]
+impl<'db> ImplBlock<'db> {
+    #[salsa::tracked(returns(ref))]
+    pub fn functions(self, db: &'db dyn salsa::Database) -> Vec<Function<'db>> {
+        let mut functions = vec![];
+        let file = self.file(db);
+        let parse = ide::parse(db, file);
+        let impl_block = self.ast_ptr(db).to_node(&parse.syntax_node(db));
+
+        for function in impl_block.functions() {
+            let Some(name) = function.name().and_then(|n| n.text()) else {
+                continue;
+            };
+
+            functions.push(Function::new(
+                db,
+                name,
+                ast::AstPtr::new(&function),
+                file,
+                None,
+                Some(self),
+            ));
+        }
+
+        functions
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn generics(self, db: &'db dyn salsa::Database) -> Generics<'db> {
+        let file = self.file(db);
+        let parse = ide::parse(db, file);
+        let impl_block = self.ast_ptr(db).to_node(&parse.syntax_node(db));
+        generic_types(db, file, impl_block.generics())
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn implementee(self, db: &'db dyn salsa::Database) -> Option<Type<'db>> {
+        let parse = ide::parse(db, self.file(db));
+        let impl_block = self.ast_ptr(db).to_node(&parse.syntax_node(db));
+        let Some(implementee) = impl_block.impl_ty().and_then(|t| t.ty()) else {
+            return None;
+        };
+        Some(resolver::resolve_type_expr(
+            db,
+            self.file(db),
+            implementee,
+            Some(self.generics(db)),
+            None,
+        ))
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn owner(self, db: &'db dyn salsa::Database) -> Type<'db> {
+        let file = self.file(db);
+        let parse = ide::parse(db, file);
+        let impl_block = self.ast_ptr(db).to_node(&parse.syntax_node(db));
+
+        let Some(owner) = impl_block
+            .impl_ty()
+            .and_then(|t| t.ty())
+            .or_else(|| impl_block.ty())
+        else {
+            return Type::Unknown;
+        };
+
+        resolver::resolve_type_expr(db, file, owner, Some(self.generics(db)), None)
+    }
+}
+
+pub fn generic_types<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    generics: Option<ast::Generics>,
+) -> Generics<'db> {
+    let mut params = vec![];
+    for param in generics.map(|g| g.params()).into_iter().flatten() {
+        let Some((name, range)) = param
+            .name()
+            .and_then(|n| n.text().map(|t| (t, n.syntax().text_range())))
+        else {
+            continue;
+        };
+        let bounds = param
+            .bounds()
+            .map(|ty| resolver::resolve_type_expr(db, file, ty, None, None))
+            .collect_vec();
+        params.push(TypeParam {
+            name,
+            bounds: if bounds.len() == 0 {
+                TypeBounds::default()
+            } else {
+                TypeBounds(Some(bounds))
+            },
+            text_range: range,
+        });
+    }
+    Generics::new(params)
+}
+
+#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
+pub enum FunctionOwnerItem<'db> {
+    Struct(Struct<'db>),
+    Enum(Enum<'db>),
+}
 
 #[salsa::tracked(debug)]
 pub struct Function<'db> {
     pub name: Ustr,
     pub ast_ptr: ast::AstPtr<ast::FnItem>,
     pub file: ide::File,
-    pub owner: Option<Type<'db>>,
-    pub implementee: Option<Type<'db>>,
+    pub owner_item: Option<FunctionOwnerItem<'db>>,
+    pub impl_block: Option<ImplBlock<'db>>,
+}
+
+//TODO: refactor into tracked struct
+#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
+pub struct Generics<'db> {
+    pub params: Vec<TypeParam<'db>>,
+}
+
+impl<'db> Generics<'db> {
+    pub fn new(params: Vec<TypeParam<'db>>) -> Self {
+        Self { params }
+    }
+
+    pub fn param(&self, name: &str) -> Option<&TypeParam<'db>> {
+        self.params.iter().find(|p| p.name == name)
+    }
+
+    pub fn param_mut(&mut self, name: &str) -> Option<&mut TypeParam<'db>> {
+        self.params.iter_mut().find(|p| p.name == name)
+    }
+}
+
+#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
+pub struct TypeParam<'db> {
+    pub name: Ustr,
+    pub bounds: TypeBounds<'db>,
+    pub text_range: rowan::TextRange,
+}
+
+#[derive(salsa::Update, Default, Hash, PartialEq, Eq, Clone, Debug)]
+pub struct TypeBounds<'db>(Option<Vec<Type<'db>>>);
+
+impl<'db> TypeBounds<'db> {
+    pub fn new(bounds: Vec<Type<'db>>) -> Self {
+        Self(Some(bounds))
+    }
+    pub fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Type<'db>> {
+        self.0.iter().flatten()
+    }
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
@@ -131,68 +238,68 @@ pub struct Param<'db> {
     pub name: Option<Ustr>,
     pub ty: Type<'db>,
 }
-#[salsa::tracked(returns(ref))]
-pub fn function_params<'db>(
-    db: &'db dyn salsa::Database,
-    function: Function<'db>,
-) -> Vec<Param<'db>> {
-    let mut params = vec![];
-    let file = function.file(db);
-    let root = ide::parse(db, file).syntax_node(db);
-    for param in function
-        .ast_ptr(db)
-        .to_node(&root)
-        .params()
-        .into_iter()
-        .flat_map(|p| p.params())
-    {
-        if param.self_token().is_some() {
-            let Some(owner) = function.owner(db) else {
-                Diagnostic::new(
-                    param.syntax().text_range(),
-                    DiagnosticKind::TypeError,
-                    "`self` parameter is only allowed in associated functions".to_string(),
-                )
-                .accumulate(db);
-                continue;
-            };
-            params.push(Param {
-                name: Some("self".into()),
-                ty: owner,
-            });
-        } else {
-            let name = param.pattern().and_then(|p| {
-                match p {
-                    ast::Pattern::NamePattern(name_patern) => Some(name_patern),
-                    _ => None,
-                }
-                .and_then(|n| n.name())
-                .and_then(|n| n.text())
-            });
-            let ty = param
-                .ty()
-                .map(|ty| lower_type_expr_with_self(db, file, ty, function.owner(db)))
-                .unwrap_or_else(|| Type::Unknown);
-            params.push(Param { name, ty });
-        }
-    }
-    params
-}
 
 #[salsa::tracked]
 impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     fn is_method(self, db: &'db dyn salsa::Database) -> bool {
-        function_params(db, self)
+        self.params(db)
             .iter()
             .next()
-            .and_then(|p| self.owner(db).map(|o| p.ty == o))
+            .and_then(|p| self.owner(db).as_ref().map(|o| p.ty == *o))
             .unwrap_or_default()
     }
 
     #[salsa::tracked(returns(ref))]
+    pub fn params(self, db: &'db dyn salsa::Database) -> Vec<Param<'db>> {
+        let mut params = vec![];
+        let file = self.file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        for param in self
+            .ast_ptr(db)
+            .to_node(&root)
+            .params()
+            .into_iter()
+            .flat_map(|p| p.params())
+        {
+            if param.self_token().is_some() {
+                let Some(owner) = self.owner(db) else {
+                    Diagnostic::new(
+                        param.syntax().text_range(),
+                        DiagnosticKind::TypeError,
+                        "`self` parameter is only allowed in associated functions".to_string(),
+                    )
+                    .accumulate(db);
+                    continue;
+                };
+                params.push(Param {
+                    name: Some("self".into()),
+                    ty: owner.clone(),
+                });
+            } else {
+                let name = param.pattern().and_then(|p| {
+                    match p {
+                        ast::Pattern::NamePattern(name_patern) => Some(name_patern),
+                        _ => None,
+                    }
+                    .and_then(|n| n.name())
+                    .and_then(|n| n.text())
+                });
+                let ty = param
+                    .ty()
+                    .map(|ty| {
+                        resolver::resolve_type_expr(db, file, ty, Some(self.generics(db)), None)
+                    })
+                    .unwrap_or_else(|| Type::Unknown);
+                params.push(Param { name, ty });
+            }
+        }
+        params
+    }
+
+    #[salsa::tracked(returns(ref))]
     pub fn params_by_name(self, db: &'db dyn salsa::Database) -> UstrIndexMap<Param<'db>> {
-        function_params(db, self)
+        self.params(db)
             .iter()
             .filter_map(|p| p.name.map(|n| (UstrHash(n), p.clone())))
             .collect()
@@ -201,9 +308,14 @@ impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn bare_fn_ty(self, db: &'db dyn salsa::Database) -> BareFn<'db> {
         BareFn {
-            params: function_params(db, self).clone(),
+            params: self.params(db).clone(),
             output: self.output(db).clone().into(),
         }
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn generic_type(self, db: &'db dyn salsa::Database) -> Type<'db> {
+        Type::Function(self, GenericParams::from_generics(self.generics(db)))
     }
 
     #[salsa::tracked(returns(ref))]
@@ -216,8 +328,60 @@ impl<'db> Function<'db> {
             .output()
             .and_then(|o| o.ty());
         output
-            .map(|o| lower_type_expr(db, file, o))
+            .map(|o| {
+                resolver::resolve_type_expr(
+                    db,
+                    file,
+                    o,
+                    Some(self.generics(db)),
+                    self.owner(db).as_ref(),
+                )
+            })
             .unwrap_or_else(|| Type::Unit)
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn owner(self, db: &'db dyn salsa::Database) -> Option<Type<'db>> {
+        Some(if let Some(owner_item) = self.owner_item(db) {
+            match owner_item {
+                FunctionOwnerItem::Struct(struct_item) => struct_item.generic_type(db),
+                FunctionOwnerItem::Enum(enum_item) => enum_item.generic_type(db),
+            }
+            .clone()
+        } else if let Some(impl_block) = self.impl_block(db) {
+            impl_block.owner(db).clone()
+        } else {
+            return None;
+        })
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn generics(self, db: &'db dyn salsa::Database) -> Generics<'db> {
+        let file = self.file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        let impl_generics = self.impl_block(db).map(|b| b.generics(db));
+
+        let generics = self.ast_ptr(db).to_node(&root).generics();
+        let mut generics = generic_types(db, file, generics);
+
+        if let Some(impl_generics) = impl_generics {
+            for impl_param in &impl_generics.params {
+                if let Some(duplicate) = generics.param(&impl_param.name) {
+                    Diagnostic::new(
+                        duplicate.text_range,
+                        DiagnosticKind::TypeError,
+                        format!(
+                            "the name `{}` is already used for generic parameter",
+                            duplicate.name
+                        ),
+                    )
+                    .accumulate(db);
+                }
+                generics.params.push(impl_param.clone());
+            }
+        }
+
+        generics
     }
 }
 
@@ -233,11 +397,175 @@ pub struct Enum<'db> {
     pub file: ide::File,
 }
 
+#[salsa::tracked]
+pub fn enum_diagnostics_acc<'db>(db: &'db dyn salsa::Database, item: Enum<'db>) {
+    let _fields = item.fields(db);
+}
+
+#[salsa::tracked]
+impl<'db> Enum<'db> {
+    #[salsa::tracked(returns(ref))]
+    pub fn generics(self, db: &'db dyn salsa::Database) -> Generics<'db> {
+        let file = self.file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        let generics = self.ast_ptr(db).to_node(&root).generics();
+        generic_types(db, file, generics)
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn generic_type(self, db: &'db dyn salsa::Database) -> Type<'db> {
+        Type::Enum(self, GenericParams::from_generics(self.generics(db)))
+    }
+    #[salsa::tracked(returns(ref))]
+    pub fn fields(self, db: &'db dyn salsa::Database) -> Vec<Field<'db>> {
+        let mut fields = vec![];
+        let file = self.file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        for element in self.ast_ptr(db).to_node(&root).elements() {
+            if let ast::EnumElem::Field(field) = element {
+                let Some(name) = field.name().and_then(|n| n.text()) else {
+                    continue;
+                };
+
+                let ptr = ast::AstPtr::new(&field);
+                let Some((_, ir_ty)) = field.ty().map(|ty| {
+                    (
+                        ty.clone(),
+                        resolver::resolve_item_type_expr(
+                            db,
+                            file,
+                            ty,
+                            Some(self.generics(db)),
+                            Some(self.generic_type(db)),
+                        ),
+                    )
+                }) else {
+                    continue;
+                };
+
+                fields.push(Field::new(db, name, ir_ty, ptr));
+            }
+        }
+        fields
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn functions(self, db: &'db dyn salsa::Database) -> Vec<Function<'db>> {
+        let mut functions = vec![];
+        let file = self.file(db);
+        let parse = ide::parse(db, file);
+        let struct_item = self.ast_ptr(db).to_node(&parse.syntax_node(db));
+
+        for elem in struct_item.elements() {
+            let ast::EnumElem::FnItem(fn_item) = elem else {
+                continue;
+            };
+            let Some(name) = fn_item.name().and_then(|n| n.text()) else {
+                continue;
+            };
+
+            functions.push(Function::new(
+                db,
+                name,
+                ast::AstPtr::new(&fn_item),
+                file,
+                Some(FunctionOwnerItem::Enum(self)),
+                None,
+            ));
+        }
+
+        functions
+    }
+}
+
 #[salsa::tracked(debug)]
 pub struct Struct<'db> {
     pub name: Ustr,
     pub ast_ptr: ast::AstPtr<ast::StructItem>,
     pub file: ide::File,
+}
+
+#[salsa::tracked]
+pub fn struct_diagnostics_acc<'db>(db: &'db dyn salsa::Database, item: Struct<'db>) {
+    let _fields = item.fields(db);
+}
+
+#[salsa::tracked]
+impl<'db> Struct<'db> {
+    #[salsa::tracked(returns(ref))]
+    pub fn generics(self, db: &'db dyn salsa::Database) -> Generics<'db> {
+        let file = self.file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        let generics = self.ast_ptr(db).to_node(&root).generics();
+        generic_types(db, file, generics)
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn generic_type(self, db: &'db dyn salsa::Database) -> Type<'db> {
+        Type::Struct(self, GenericParams::from_generics(self.generics(db)))
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn functions(self, db: &'db dyn salsa::Database) -> Vec<Function<'db>> {
+        let mut functions = vec![];
+        let file = self.file(db);
+        let parse = ide::parse(db, file);
+        let struct_item = self.ast_ptr(db).to_node(&parse.syntax_node(db));
+
+        for elem in struct_item.elements() {
+            let ast::StructElem::FnItem(fn_item) = elem else {
+                continue;
+            };
+            let Some(name) = fn_item.name().and_then(|n| n.text()) else {
+                continue;
+            };
+
+            functions.push(Function::new(
+                db,
+                name,
+                ast::AstPtr::new(&fn_item),
+                file,
+                Some(FunctionOwnerItem::Struct(self)),
+                None,
+            ));
+        }
+
+        functions
+    }
+
+    #[salsa::tracked(returns(ref))]
+    pub fn fields(self, db: &'db dyn salsa::Database) -> Vec<Field<'db>> {
+        let mut fields = vec![];
+        let file = self.file(db);
+        let root = ide::parse(db, file).syntax_node(db);
+        for element in self.ast_ptr(db).to_node(&root).elements() {
+            if let ast::StructElem::Field(field) = element {
+                let Some(name) = field.name().and_then(|n| n.text()) else {
+                    continue;
+                };
+
+                let ptr = ast::AstPtr::new(&field);
+                let Some((_, ir_ty)) = field.ty().map(|ty| {
+                    (
+                        ty.clone(),
+                        resolver::resolve_item_type_expr(
+                            db,
+                            file,
+                            ty,
+                            Some(self.generics(db)),
+                            Some(self.generic_type(db)),
+                        ),
+                    )
+                }) else {
+                    continue;
+                };
+
+                fields.push(Field::new(db, name, ir_ty, ptr));
+            }
+        }
+
+        fields
+    }
 }
 
 #[derive(salsa::Supertype, salsa::Update, PartialEq, Eq, Debug, Clone, Copy, Hash)]
@@ -252,27 +580,6 @@ pub struct Field<'db> {
     pub ty: Type<'db>,
     pub ast_ptr: ast::AstPtr<ast::Field>,
 }
-
-// #[salsa::tracked(returns(ref))]
-// pub fn struct_non_static_methods<'db>(
-//     db: &'db dyn salsa::Database,
-//     struct_item: Struct<'db>,
-//     files: Files,
-// ) -> UstrIndexMap<ir::ImplFunction<'db>> {
-//     // ide::impls(db, files)
-//     //     .functions
-//     //     .get(&ImplPair {
-//     //         implementee: Type::Struct(struct_item),
-//     //         impl_ty: None,
-//     //     })
-//     //     .map(|fns| {
-//     //         fns.iter()
-//     //             .filter(|f| *f.is_method(db))
-//     //             .map(|f| (UstrHash(f.func(db).name(db)), *f))
-//     //             .collect::<UstrIndexMap<ir::ImplFunction<'db>>>()
-//     //     })
-//     //     .unwrap_or_default()
-// }
 
 // #[salsa::tracked(returns(ref))]
 // pub fn struct_fns_for_ty<'db>(
@@ -294,84 +601,58 @@ pub struct Field<'db> {
 //         })
 //         .unwrap_or_default()
 // }
-#[salsa::tracked(returns(ref))]
-pub fn enum_fields<'db>(db: &'db dyn salsa::Database, enum_item: Enum<'db>) -> Vec<Field<'db>> {
-    let mut fields = vec![];
-    let file = enum_item.file(db);
-    let root = ide::parse(db, file).syntax_node(db);
-    for element in enum_item.ast_ptr(db).to_node(&root).elements() {
-        if let ast::EnumElem::Field(field) = element {
-            let Some(name) = field.name().and_then(|n| n.text()) else {
-                continue;
-            };
 
-            let ptr = ast::AstPtr::new(&field);
-            let Some((ast_ty, ir_ty)) = field.ty().map(|ty| {
-                (
-                    ty.clone(),
-                    lower_item_type_expr_with_self(db, file, ty, Some(Type::Enum(enum_item))),
-                )
-            }) else {
-                continue;
-            };
-
-            fields.push(Field::new(db, name, ir_ty, ptr));
-        }
-    }
-
-    fields
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn struct_impl_item<'db>(
-    db: &'db dyn salsa::Database,
-    struct_item: Struct<'db>,
-    implementee: ide::Implementee<'db>,
-    name: Ustr,
-) -> Option<ImplItem<'db>> {
-    let impl_map = ide::impl_map(db, struct_item.file(db).source_root(db));
-    let key = ide::ImplKey {
-        implementor: Type::Struct(struct_item),
-        implementee,
-    };
-    impl_map.get(&key)?.get(&name).cloned()
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn struct_fields<'db>(
-    db: &'db dyn salsa::Database,
-    struct_item: Struct<'db>,
-) -> Vec<Field<'db>> {
-    let mut fields = vec![];
-    let file = struct_item.file(db);
-    let root = ide::parse(db, file).syntax_node(db);
-    for element in struct_item.ast_ptr(db).to_node(&root).elements() {
-        if let ast::StructElem::Field(field) = element {
-            let Some(name) = field.name().and_then(|n| n.text()) else {
-                continue;
-            };
-
-            let ptr = ast::AstPtr::new(&field);
-            let Some((ast_ty, ir_ty)) = field.ty().map(|ty| {
-                (
-                    ty.clone(),
-                    lower_item_type_expr_with_self(db, file, ty, Some(Type::Struct(struct_item))),
-                )
-            }) else {
-                continue;
-            };
-
-            fields.push(Field::new(db, name, ir_ty, ptr));
-        }
-    }
-
-    fields
-}
+// #[salsa::tracked(returns(ref))]
+// pub fn struct_impl_item<'db>(
+//     db: &'db dyn salsa::Database,
+//     struct_item: Struct<'db>,
+//     implementee: ide::Implementee<'db>,
+//     name: Ustr,
+// ) -> Option<ImplItem<'db>> {
+//     let impl_map = ide::impl_map(db, struct_item.file(db).source_root(db));
+//     let key = ide::ImplKey {
+//         implementor: Type::Struct(struct_item, GenericParams::default()),
+//         implementee,
+//     };
+//     impl_map.get(&key)?.get(&name).cloned()
+// }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct BareFn<'db> {
     pub params: Vec<Param<'db>>,
     pub output: Box<Type<'db>>,
+}
+
+#[derive(salsa::Update, Default, Hash, PartialEq, Eq, Clone, Debug)]
+pub struct GenericParams<'db>(Option<Vec<Type<'db>>>);
+
+impl<'db> GenericParams<'db> {
+    pub fn from_generics(generics: &Generics<'db>) -> Self {
+        if generics.params.is_empty() {
+            return Self::default();
+        };
+
+        let params = generics
+            .params
+            .iter()
+            .map(|p| Type::Generic(p.name))
+            .collect_vec();
+        Self(Some(params))
+    }
+}
+
+impl<'db> GenericParams<'db> {
+    pub fn new(params: Vec<Type<'db>>) -> Self {
+        Self(Some(params))
+    }
+
+    pub fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Type<'db>> {
+        self.0.iter().flatten()
+    }
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
@@ -380,11 +661,12 @@ pub enum Type<'db> {
     Any,
     Unit,
     Never,
+    Generic(Ustr),
     Lit(LitKind),
-    Struct(Struct<'db>),
-    Enum(Enum<'db>),
-    Dyn(Struct<'db>),
-    Function(Function<'db>),
+    Struct(Struct<'db>, GenericParams<'db>),
+    Enum(Enum<'db>, GenericParams<'db>),
+    Dyn(Vec<(Struct<'db>, GenericParams<'db>)>),
+    Function(Function<'db>, GenericParams<'db>),
     Nilable(Box<Type<'db>>),
     BareFn(BareFn<'db>),
 }
@@ -474,13 +756,19 @@ impl<'db> Type<'db> {
 pub type ExprId = Idx<Expr>;
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash, Default)]
+pub struct GenericPath<'db> {
+    pub value: Vec<Ustr>,
+    pub params: GenericParams<'db>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash, Default)]
 pub struct Path(pub Vec<Ustr>);
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update)]
 pub enum Expr {
     Missing,
     Unit,
-    Path(Path),
+    Path(GenericPath<'static>),
     Lit(LitKind),
     As {
         expr: ExprId,

@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use notify_rust::Notification;
 use rowan::ast::AstNode;
 use salsa::Accumulator;
@@ -13,13 +14,15 @@ use crate::{
         self,
         diagnostics::{Diagnostic, DiagnosticKind},
     },
+    parsing::ast,
 };
 
 #[derive(Debug)]
 pub enum ResolveResult<'db> {
     Local(ir::Local<'db>),
-    Function(ir::Function<'db>),
-    Struct(ir::Struct<'db>),
+    Function(ir::Type<'db>),
+    Struct(ir::Type<'db>),
+    Enum(ir::Type<'db>),
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq, salsa::Update)]
@@ -57,8 +60,227 @@ fn resolve_path_cycle_result<'db>(
 ) -> Option<ResolveItemResult<'db>> {
     None
 }
+
+pub fn resolve_item_type_expr<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    ty: ast::ItemTypeExpr,
+    generics: Option<&ir::Generics<'db>>,
+    self_ty: Option<&ir::Type<'db>>,
+) -> ir::Type<'db> {
+    match ty {
+        ast::ItemTypeExpr::StructItemType(struct_item_type) => {
+            let Some(struct_name) = struct_item_type
+                .struct_item()
+                .and_then(|e| e.name())
+                .and_then(|e| e.text())
+            else {
+                return ir::Type::Unknown;
+            };
+            let Some(result) = resolve_path_item(db, file, ir::Path(vec![struct_name])) else {
+                return ir::Type::Unknown;
+            };
+            match result {
+                ResolveItemResult::Type(ty) | ResolveItemResult::Both { ty, .. }
+                    if let ir::ModuleDef::Struct(struct_item) = ty =>
+                {
+                    struct_item.generic_type(db).clone()
+                }
+                _ => ir::Type::Unknown,
+            }
+        }
+        ast::ItemTypeExpr::EnumItemType(enum_item_type) => {
+            let Some(enum_name) = enum_item_type
+                .enum_item()
+                .and_then(|e| e.name())
+                .and_then(|e| e.text())
+            else {
+                return ir::Type::Unknown;
+            };
+            let Some(result) = resolve_path_item(db, file, ir::Path(vec![enum_name])) else {
+                return ir::Type::Unknown;
+            };
+            match result {
+                ResolveItemResult::Type(ty) | ResolveItemResult::Both { ty, .. }
+                    if let ir::ModuleDef::Enum(enum_item) = ty =>
+                {
+                    enum_item.generic_type(db).clone()
+                }
+                _ => ir::Type::Unknown,
+            }
+        }
+        ast::ItemTypeExpr::ItemType(item_type) => {
+            let Some(ty) = item_type.ty() else {
+                return ir::Type::Unknown;
+            };
+            resolve_type_expr(db, file, ty, generics, self_ty)
+        }
+    }
+}
+
+pub fn resolve_type_expr<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    ty: ast::TypeExpr,
+    generics: Option<&ir::Generics<'db>>,
+    self_ty: Option<&ir::Type<'db>>,
+) -> ir::Type<'db> {
+    let range = ty.syntax().text_range();
+    match ty {
+        ast::TypeExpr::PathType(path_type) => {
+            let Some(path) = path_type.value() else {
+                return ir::Type::Unknown;
+            };
+            resolve_type_path(db, file, path, generics, self_ty)
+        }
+        ast::TypeExpr::NilableType(nilable_type) => {
+            let Some(ty) = nilable_type.ty() else {
+                let text = nilable_type.syntax().text().to_string();
+                Diagnostic::new(
+                    range,
+                    DiagnosticKind::TypeError,
+                    format!("cannot find type `{}` in this scope", &text),
+                )
+                .accumulate(db);
+                return ir::Type::Unknown;
+            };
+            ir::Type::Nilable(Box::new(resolve_type_expr(db, file, ty, generics, self_ty)))
+        }
+        ast::TypeExpr::LitType(lit_type) => {
+            let Some(kind) = lit_type.kind() else {
+                let text = lit_type.syntax().text().to_string();
+                Diagnostic::new(
+                    range,
+                    DiagnosticKind::TypeError,
+                    format!("cannot find type `{}` in this scope", &text),
+                )
+                .accumulate(db);
+                return ir::Type::Unknown;
+            };
+
+            ir::Type::Lit(kind)
+        }
+        ast::TypeExpr::AnyType(_) => ir::Type::Any,
+        ast::TypeExpr::UnitType(_) => ir::Type::Unit,
+        ast::TypeExpr::FnType(fn_type) => ir::Type::BareFn(ir::BareFn {
+            params: fn_type
+                .param_list()
+                .map(|list| {
+                    list.params()
+                        .filter_map(|param| {
+                            param
+                                .ty()
+                                .map(|ty| resolve_type_expr(db, file, ty, generics, self_ty))
+                                .map(|ty| (ty, param.name()))
+                        })
+                        .map(|(ty, n)| ir::Param {
+                            name: n.and_then(|n| n.text()),
+                            ty,
+                        })
+                        .collect_vec()
+                })
+                .unwrap_or_default(),
+            output: fn_type
+                .output()
+                .and_then(|o| o.ty())
+                .map(|ty| resolve_type_expr(db, file, ty, generics, self_ty))
+                .unwrap_or_else(|| ir::Type::Unit)
+                .into(),
+        }),
+        ast::TypeExpr::SelfType(_) => {
+            if let Some(owner) = self_ty {
+                owner.clone()
+            } else {
+                Diagnostic::new(
+                    ty.syntax().text_range(),
+                    DiagnosticKind::TypeError,
+                    "cannot find type `Self` in this scope".to_string(),
+                )
+                .accumulate(db);
+                ir::Type::Unknown
+            }
+        }
+        ast::TypeExpr::DynType(dyn_type) => {
+            let Some(path) = dyn_type.path() else {
+                return ir::Type::Unknown;
+            };
+            resolve_type_path(db, file, path, generics, self_ty)
+        }
+    }
+}
+
+pub fn resolve_type_path<'db>(
+    db: &'db dyn salsa::Database,
+    file: ide::File,
+    ast_path: ast::Path,
+    generics: Option<&ir::Generics<'db>>,
+    self_ty: Option<&ir::Type<'db>>,
+) -> ir::Type<'db> {
+    let path = ir::Path(ast_path.segments().collect_vec());
+    if let [first] = path.0.as_slice()
+        && let Some(generics) = generics.as_ref()
+        && let Some(param) = generics.param(first)
+    {
+        return ir::Type::Generic(param.name);
+    }
+    //TODO: account for <>
+    let generic_params = ast_path
+        .generic_args()
+        .map(|args| {
+            args.types()
+                .map(|ty| resolve_type_expr(db, file, ty, generics, self_ty))
+        })
+        .map(|args| ir::GenericParams::new(args.collect_vec()))
+        .unwrap_or_else(|| ir::GenericParams::default());
+
+    let Some(item) = resolve_path_item(db, file, path.clone()) else {
+        let path_text = ast_path.syntax().text().to_string();
+        Diagnostic::new(
+            ast_path.syntax().text_range(),
+            DiagnosticKind::TypeError,
+            format!("cannot find type `{}` in this scope", path_text),
+        )
+        .accumulate(db);
+        return ir::Type::Unknown;
+    };
+
+    let ty = match item {
+        ResolveItemResult::Type(ty) | ResolveItemResult::Both { ty, .. } => match ty {
+            ir::ModuleDef::Struct(strct) => ir::Type::Struct(strct, generic_params),
+            ir::ModuleDef::Enum(enum_item) => ir::Type::Enum(enum_item, generic_params),
+            ir::ModuleDef::Module(module) => {
+                Diagnostic::new(
+                    ast_path.syntax().text_range(),
+                    DiagnosticKind::TypeError,
+                    format!(
+                        "expected type, got module `{}`",
+                        ide::module_name(db, module)
+                    ),
+                )
+                .accumulate(db);
+                ir::Type::Unknown
+            }
+            _ => unreachable!(),
+        },
+        ResolveItemResult::Value(value) => match value {
+            ir::ModuleDef::Function(function) => {
+                Diagnostic::new(
+                    ast_path.syntax().text_range(),
+                    DiagnosticKind::TypeError,
+                    format!("expected type, got function `{}`", function.name(db)),
+                )
+                .accumulate(db);
+                ir::Type::Unknown
+            }
+            _ => unreachable!(),
+        },
+    };
+
+    ty
+}
+
 #[salsa::tracked(cycle_result=resolve_path_cycle_result)]
-pub fn resolve_path<'db>(
+pub fn resolve_path_item<'db>(
     db: &'db dyn salsa::Database,
     file: ide::File,
     path: ir::Path,
@@ -79,7 +301,7 @@ pub fn resolve_path<'db>(
                 for global_path in scope.global_imports() {
                     let mut global_path = global_path.clone();
                     global_path.0.push(*path.0.first()?);
-                    let Some(output) = resolve_path(db, file, global_path.clone()) else {
+                    let Some(output) = resolve_path_item(db, file, global_path.clone()) else {
                         continue;
                     };
                     return Some(output);
@@ -113,7 +335,7 @@ pub fn resolve_path<'db>(
                         module_path.0.push(*segment);
                         //TODO: public/private imports
                         let mod_path = ir::Path(vec![*segment]);
-                        current_item = resolve_path(db, file, mod_path)?;
+                        current_item = resolve_path_item(db, file, mod_path)?;
                     }
                     _ => unreachable!(),
                 },
@@ -152,7 +374,7 @@ pub fn resolve_path<'db>(
                                 module_path.0.push(*segment);
                                 //TODO: public/private imports
                                 let mod_path = ir::Path(vec![*segment]);
-                                current_item = resolve_path(db, file, mod_path)?;
+                                current_item = resolve_path_item(db, file, mod_path)?;
                                 None
                             }
                         }
@@ -195,7 +417,7 @@ pub fn resolve_path<'db>(
         if outer == path {
             resolve_path_inner(db, file, path)
         } else {
-            resolve_path(db, file, outer)
+            resolve_path_item(db, file, outer)
         }
     } else {
         resolve_path_inner(db, file, path)
@@ -206,12 +428,12 @@ pub fn resolve_path_for_expr<'db>(
     db: &'db dyn salsa::Database,
     expr: ExprId,
     func: ir::Function<'db>,
-    path: &ir::Path,
+    path: &ir::GenericPath<'db>,
 ) -> Option<ResolveResult<'db>> {
     let scopes = scope::expr_scopes(db, func);
     let expr_scope = scopes.scope_for_expr(expr)?;
 
-    if let [name] = path.0.as_slice()
+    if let [name] = path.value.as_slice()
         && let Some(entry) = scopes.resolve_name_in_scope(expr_scope, name)
     {
         return Some(ResolveResult::Local(Local {
@@ -220,7 +442,7 @@ pub fn resolve_path_for_expr<'db>(
         }));
     }
 
-    let Some(result) = resolve_path(db, func.file(db), path.clone()) else {
+    let Some(result) = resolve_path_item(db, func.file(db), ir::Path(path.value.clone())) else {
         Diagnostic::new(
             body::expr_range(db, func, expr)?,
             DiagnosticKind::TypeError,
@@ -235,10 +457,21 @@ pub fn resolve_path_for_expr<'db>(
 
     match result {
         ResolveItemResult::Value(value) | ResolveItemResult::Both { value, .. } => match value {
-            ModuleDef::Function(function) => Some(ResolveResult::Function(function)),
-            ModuleDef::Struct(_) => unreachable!(),
-            ModuleDef::Enum(_) => unreachable!(),
-            ModuleDef::Module(_) => unreachable!(),
+            ModuleDef::Function(function) => Some(ResolveResult::Function(ir::Type::Function(
+                function,
+                path.params.clone(),
+            ))),
+            ModuleDef::Struct(struct_item) => Some(ResolveResult::Struct(ir::Type::Struct(
+                struct_item,
+                path.params.clone(),
+            ))),
+            ModuleDef::Enum(enum_item) => Some(ResolveResult::Enum(ir::Type::Enum(
+                enum_item,
+                path.params.clone(),
+            ))),
+            ModuleDef::Module(_) => {
+                return None;
+            }
         },
         _ => {
             Diagnostic::new(

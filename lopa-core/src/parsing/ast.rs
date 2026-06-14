@@ -451,6 +451,7 @@ structs! {
     FN_ITEM = FnItem {
         fn_token: T![fn],
         name: Name,
+        generics: Generics,
         params: ParamList,
         output: ReturnType,
         semi_token: T![;],
@@ -463,7 +464,7 @@ structs! {
         enum_item: EnumItem,
     },
     GENERIC_ARGUMENTS = GenericArgs {
-        names: [Name],
+        types: [TypeExpr],
     },
     GENERICS = Generics {
         params: [TypeParam],
@@ -769,7 +770,7 @@ structs! {
         }
     },
     PATH = Path {
-        generics_args: GenericArgs,
+        generic_args: GenericArgs,
         pub fn segments(&self) -> impl Iterator<Item = Ustr> {
             self.0.
                 children_with_tokens()

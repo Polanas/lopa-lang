@@ -92,21 +92,14 @@ pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic>
     diagnostics.extend(module_scope.diagnostics().to_vec());
     for enum_item in ir.enums(db) {
         diagnostics.extend(
-            def::ir::enum_fields::accumulated::<Diagnostic>(db, *enum_item)
+            def::ir::enum_diagnostics_acc::accumulated::<Diagnostic>(db, *enum_item)
                 .into_iter()
                 .cloned(),
         );
     }
     for struct_item in ir.structs(db) {
         diagnostics.extend(
-            def::ir::struct_fields::accumulated::<Diagnostic>(db, *struct_item)
-                .into_iter()
-                .cloned(),
-        );
-    }
-    for enum_item in ir.enums(db) {
-        diagnostics.extend(
-            def::ir::enum_fields::accumulated::<Diagnostic>(db, *enum_item)
+            def::ir::struct_diagnostics_acc::accumulated::<Diagnostic>(db, *struct_item)
                 .into_iter()
                 .cloned(),
         );
@@ -118,14 +111,12 @@ pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic>
                 .cloned(),
         );
     }
-    for impl_block in lower::impl_blocks(db, file).impl_blocks(db).iter() {
-        for func in impl_block.functions(db) {
-            diagnostics.extend(
-                infer::infer_function::accumulated::<Diagnostic>(db, *func)
-                    .into_iter()
-                    .cloned(),
-            );
-        }
+    for impl_block in lower::impl_blocks(db, file).iter() {
+        diagnostics.extend(
+            ir::impl_block_diagnostics_acc::accumulated::<Diagnostic>(db, *impl_block)
+                .into_iter()
+                .cloned(),
+        );
     }
 
     diagnostics
