@@ -92,6 +92,22 @@ struct InferCtx<'db> {
     expr_ty_map: Ptr<ArenaMap<Idx<Expr>, Type<'static>>>,
 }
 
+impl std::ops::Index<ExprId> for InferCtx<'_> {
+    type Output = Type<'static>;
+
+    fn index(&self, index: ExprId) -> &Self::Output {
+        self.expr_ty_map.get(index).unwrap()
+    }
+}
+
+impl std::ops::Index<PatternId> for InferCtx<'_> {
+    type Output = Type<'static>;
+
+    fn index(&self, index: PatternId) -> &Self::Output {
+        self.pattern_ty_map.get(index).unwrap()
+    }
+}
+
 impl<'db> InferCtx<'db> {
     fn results(self) -> InferenceResult<'static> {
         InferenceResult {
@@ -105,10 +121,10 @@ impl<'db> InferCtx<'db> {
             self.insert_pattern_ty(*param_id, param.ty.clone());
         }
         let ty = self.infer_expr(self.body.body_expr(), None)?;
-        if !self.can_assign_type(self.func.output(self.db), ty) {
+        if !self.can_assign_type(self.func.output(self.db), &self[ty]) {
             self.add_error(TypeDiagnostic::TypeMismatch {
                 expected: self.func.output(self.db).clone(),
-                actual: ty.clone(),
+                actual: self[ty].clone(),
                 expr: self.body.body_expr(),
             });
         }
@@ -131,14 +147,14 @@ impl<'db> InferCtx<'db> {
         self.pattern_ty_map.get(pattern_id)
     }
 
+    fn expr_ty(&self, pattern_id: ExprId) -> Option<&Type<'db>> {
+        self.expr_ty_map.get(pattern_id)
+    }
+
     //TODO: add expected type
-    fn infer_expr(
-        &self,
-        expr_id: ExprId,
-        _expected: Option<&Type<'static>>,
-    ) -> Option<&Type<'static>> {
+    fn infer_expr(&self, expr_id: ExprId, _expected: Option<&Type<'static>>) -> Option<ExprId> {
         if let Some(ty) = self.expr_ty_map.get(expr_id) {
-            return Some(ty);
+            return Some(expr_id);
         };
         match self.body.expr(expr_id) {
             ir::Expr::Missing => return None,
@@ -183,10 +199,13 @@ impl<'db> InferCtx<'db> {
                 else_branch,
             } => {
                 self.infer_expr(*if_cond, None);
-                let if_branch_ty = self.infer_expr(*if_branch, None)?.clone().collapsed_nil();
+                let if_branch_ty = self[self.infer_expr(*if_branch, None)?]
+                    .clone()
+                    .collapsed_nil();
                 if let Some(else_branch) = else_branch {
-                    let else_branch_ty =
-                        self.infer_expr(*else_branch, None)?.clone().collapsed_nil();
+                    let else_branch_ty = self[self.infer_expr(*else_branch, None)?]
+                        .clone()
+                        .collapsed_nil();
                     let Some(ty) = self.unify_nilable(if_branch_ty.clone(), else_branch_ty.clone())
                     else {
                         self.add_error(TypeDiagnostic::TypeMismatch {
@@ -210,7 +229,7 @@ impl<'db> InferCtx<'db> {
                 let lhs = self.infer_expr(*left, None)?;
                 let rhs = self.infer_expr(*right, None)?;
 
-                if let Some(result) = self.binary_op_result(lhs, rhs, *kind) {
+                if let Some(result) = self.binary_op_result(&self[lhs], &self[rhs], *kind) {
                     self.insert_expr_ty(expr_id, result);
                 } else {
                     self.add_error(TypeDiagnostic::UnsupportedBinaryOp {
@@ -221,15 +240,15 @@ impl<'db> InferCtx<'db> {
                 }
             }
             ir::Expr::Paren { expr } => {
-                let ty = self.infer_expr(*expr, None)?.clone();
-                self.insert_expr_ty(expr_id, ty);
+                let ty = self.infer_expr(*expr, None)?;
+                self.insert_expr_ty(expr_id, self[ty].clone());
             }
             ir::Expr::Call { func, args } => {
                 let func = self.infer_expr(*func, None)?;
-                let Type::Function(func, params) = func else {
+                let Type::Function(func, params) = &self[func] else {
                     self.add_error(TypeDiagnostic::Expected {
                         expected: "function".into(),
-                        actual: func.clone(),
+                        actual: self[func].clone(),
                         expr: expr_id,
                     });
                     return None;
@@ -255,10 +274,10 @@ impl<'db> InferCtx<'db> {
                             provided_params.push(param);
                             //TODO: pass the expected type here?
                             let arg_ty = self.infer_expr(*value, None)?;
-                            if !self.can_assign_type(&param.ty, arg_ty) {
+                            if !self.can_assign_type(&param.ty, &self[arg_ty]) {
                                 self.add_error(TypeDiagnostic::TypeMismatch {
                                     expected: param.ty.clone(),
-                                    actual: arg_ty.clone(),
+                                    actual: self[arg_ty].clone(),
                                     expr: arg.value(),
                                 });
                             }
@@ -285,10 +304,10 @@ impl<'db> InferCtx<'db> {
                             }
 
                             let arg_ty = self.infer_expr(*value, None)?;
-                            if !self.can_assign_type(&param.ty, arg_ty) {
+                            if !self.can_assign_type(&param.ty, &self[arg_ty]) {
                                 self.add_error(TypeDiagnostic::TypeMismatch {
                                     expected: param.ty.clone(),
-                                    actual: arg_ty.clone(),
+                                    actual: self[arg_ty].clone(),
                                     expr: arg.value(),
                                 });
                             }
@@ -337,7 +356,7 @@ impl<'db> InferCtx<'db> {
             Expr::Is { expr, pat } => {}
             Expr::IsNot { expr, pat } => {}
         };
-        self.expr_ty_map.get(expr_id)
+        Some(expr_id)
     }
 
     fn binary_op_result(
