@@ -309,6 +309,10 @@ impl Analysis {
         Self { db }
     }
 
+    pub fn format(&self, file: File) -> String {
+        format::format_file(&self.db, file)
+    }
+
     pub fn diagnostics(&self, file: File) -> Vec<Diagnostic> {
         diagnostics::file_diagnostics(&self.db, file)
     }

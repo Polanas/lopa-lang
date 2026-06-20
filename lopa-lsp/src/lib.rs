@@ -55,7 +55,7 @@ impl LanguageServer for Backend {
             }),
             offset_encoding: None,
             capabilities: ServerCapabilities {
-                // document_formatting_provider: Some(OneOf::Left(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 // inlay_hint_provider: Some(OneOf::Left(true)),
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {
@@ -143,6 +143,16 @@ impl LanguageServer for Backend {
         Ok(WorkspaceDiagnosticReportResult::Report(
             WorkspaceDiagnosticReport { items: vec![] },
         ))
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        Ok(Some(vec![handler::format(
+            State {
+                analysis: self.analysis.clone(),
+                vfs: self.vfs.clone(),
+            },
+            &params.text_document.uri,
+        )]))
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
@@ -302,6 +312,7 @@ impl Backend {
                 .push_file(&mut self.analysis.lock().unwrap().db, file);
         }
     }
+
     fn find_package_root(path: &Path) -> Option<PathBuf> {
         let mut current = path.to_path_buf();
         while let Some(root) = current.parent() {
@@ -319,6 +330,7 @@ impl Backend {
         }
         None
     }
+
     fn spawn_update_diagnostics(&self, uri: Uri) {
         let (analysis, vfs) = (self.analysis.clone(), self.vfs.clone());
         let uri_clone = uri.clone();
