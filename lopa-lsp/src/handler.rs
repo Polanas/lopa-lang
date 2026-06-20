@@ -1,6 +1,6 @@
 use tower_lsp_server::ls_types::{Diagnostic, Uri};
 
-use crate::{State, convert};
+use crate::{State, convert, vfs_ext::VfsExt};
 
 pub fn diagnostics(state: State, uri: &Uri) -> Vec<Diagnostic> {
     let (file, contents) = {

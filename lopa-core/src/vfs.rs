@@ -1,22 +1,17 @@
 use std::{
     collections::HashMap,
-    path::PathBuf,
-    str::FromStr,
     sync::{Arc, RwLock},
 };
 
 use bimap::BiMap;
-use lopa_core::ide::{File, FileContent, SourceRoot, TextRange, base::VfsPath};
-use salsa::Setter;
-use tower_lsp_server::ls_types::Uri;
+use crate::ide::{File, FileContent, SourceRoot, TextRange, base::VfsPath};
 
-use crate::uri_ext::UrlExt as _;
 
 //Maps between filesystem paths and `FileId`s, store file contents
 pub struct Vfs {
-    contents: HashMap<File, Arc<RwLock<FileContent>>>,
-    files: BiMap<File, VfsPath>,
-    source_root: Option<SourceRoot>,
+    pub contents: HashMap<File, Arc<RwLock<FileContent>>>,
+    pub files: BiMap<File, VfsPath>,
+    pub source_root: Option<SourceRoot>,
 }
 
 impl Vfs {
@@ -28,13 +23,6 @@ impl Vfs {
         }
     }
 
-    pub fn file_by_uri(&self, url: &Uri) -> Option<File> {
-        self.file_by_path(&url.to_vfs_path()?)
-    }
-
-    pub fn url_for_file(&self, file: File) -> Uri {
-        Uri::from_vfs_path(self.path_by_file(file))
-    }
 
     pub fn file_by_path(&self, path: &VfsPath) -> Option<File> {
         self.files.get_by_right(path).copied()
@@ -100,12 +88,6 @@ impl Vfs {
         }
     }
 
-    pub fn remove_uri(&mut self, url: &Uri) -> Option<()> {
-        let file = self.file_by_uri(url)?;
-        self.contents.remove(&file);
-        self.files.remove_by_left(&file);
-        Some(())
-    }
 
     pub fn source_root(&self) -> Option<SourceRoot> {
         self.source_root

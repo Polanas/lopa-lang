@@ -1,7 +1,7 @@
 pub mod base;
 pub mod diagnostics;
+pub mod format;
 
-use notify_rust::Notification;
 use rowan::GreenNode;
 use rowan::ast::AstNode as _;
 use salsa::{Accumulator, Database, Setter};
@@ -14,7 +14,6 @@ use crate::ide::base::VfsPath;
 use crate::ide::diagnostics::Diagnostic;
 use crate::parsing::ast::{self, SyntaxNode};
 use crate::parsing::parser::{self};
-use crate::ty::infer;
 use crate::ustr_hash::UstrIndexMap;
 use std::fmt::Display;
 use std::ops::Range;

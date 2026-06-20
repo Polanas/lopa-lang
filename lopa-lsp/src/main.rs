@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use lopa_core::ide::Analysis;
 use lopa_lsp::{
     Backend,
-    vfs::{self, Vfs},
 };
 use tower_lsp_server::{LspService, Server};
 

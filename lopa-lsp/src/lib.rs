@@ -2,7 +2,7 @@ pub mod base;
 pub mod convert;
 pub mod handler;
 pub mod uri_ext;
-pub mod vfs;
+pub mod vfs_ext;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
@@ -11,7 +11,7 @@ use dashmap::DashMap;
 use itertools::Itertools;
 use lopa_core::ide::base::VfsPath;
 use lopa_core::ide::{Analysis, File, SourceRoot};
-use notify_rust::Notification;
+use lopa_core::vfs::Vfs;
 use salsa::{Database, Setter as _};
 use tokio::task::{self, AbortHandle};
 use tower_lsp_server::jsonrpc::Result;
@@ -19,7 +19,7 @@ use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer};
 
 use crate::uri_ext::UrlExt as _;
-use crate::vfs::Vfs;
+use crate::vfs_ext::VfsExt;
 
 pub struct Settings {}
 
@@ -269,7 +269,7 @@ impl LanguageServer for Backend {
 }
 
 impl Backend {
-    fn scan_files(&self, root: &Path, vfs: &mut vfs::Vfs) {
+    fn scan_files(&self, root: &Path, vfs: &mut Vfs) {
         vfs.source_root()
             .unwrap()
             .clear(&mut self.analysis.lock().unwrap().db);

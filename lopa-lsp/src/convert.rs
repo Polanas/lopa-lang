@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use lopa_core::ide::{File, FileContent, TextRange, diagnostics::Diagnostic};
 use tower_lsp_server::ls_types::{self, DiagnosticSeverity, NumberOrString, Position, Range, Uri};
 
-use crate::vfs::Vfs;
+use lopa_core::vfs::Vfs;
 
 pub fn from_range(vfs: &Vfs, file: File, range: Range) -> TextRange {
     let content = vfs.content_by_file(file);
