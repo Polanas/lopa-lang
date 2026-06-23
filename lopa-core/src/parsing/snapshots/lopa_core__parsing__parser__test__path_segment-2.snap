@@ -1,0 +1,6 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"root\", |p| p.path_segment(PathSegmentKind::Expr))"
+---
+PATH_SEGMENT: 0..4 
+  ROOT_KW: 0..4 "root"

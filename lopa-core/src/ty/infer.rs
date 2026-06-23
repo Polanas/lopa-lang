@@ -161,8 +161,8 @@ impl<'db> InferCtx<'db> {
             ir::Expr::Unit => {
                 self.insert_expr_ty(expr_id, Type::Unit);
             }
-            ir::Expr::Path(path) => {
-                let result = resolver::resolve_path_for_expr(self.db, expr_id, self.func, path);
+            ir::Expr::Path(_) => {
+                let result = resolver::resolve_path_for_expr(self.db, expr_id, self.func);
                 let Some(result) = result else {
                     self.add_error(TypeDiagnostic::UnknownValue { expr: expr_id });
                     return None;
@@ -614,12 +614,17 @@ fn stringify_generic_params<'db>(
     db: &'db dyn salsa::Database,
     params: &ir::GenericParams<'db>,
 ) -> Ustr {
-    if params.iter().count() == 0 {
+    if params.params(db).iter().flatten().count() == 0 {
         return Ustr::from("");
     };
     format!(
         "<{}>",
-        params.iter().map(|p| stringify_type(db, p)).join(", ")
+        params
+            .params(db)
+            .iter()
+            .flatten()
+            .map(|p| stringify_type(db, p))
+            .join(", ")
     )
     .into()
 }

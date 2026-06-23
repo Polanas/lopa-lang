@@ -770,16 +770,18 @@ structs! {
         }
     },
     PATH = Path {
+        segments: [PathSegment],
+    },
+    PATH_SEGMENT = PathSegment {
         generic_args: GenericArgs,
-        pub fn segments(&self) -> impl Iterator<Item = Ustr> {
-            self.0.
-                children_with_tokens()
-                .filter_map(|t| t.into_token())
-                .filter_map(|t| match t.kind() {
-                    Syntax::ROOT_KW => Some(Ustr::from("root")),
-                    Syntax::IDENT => Some(Ustr::from(t.text())),
-                    _ => None,
-                })
+
+        pub fn ident(&self) -> Option<Ustr> {
+            self.0.children_with_tokens().filter_map(|t| t.into_token()).filter_map(|t| match t.kind() {
+                Syntax::SUPER_KW => Some(Ustr::from("super")),
+                Syntax::ROOT_KW => Some(Ustr::from("root")),
+                Syntax::IDENT => Some(Ustr::from(t.text())),
+                _ => None,
+            }).next()
         }
     },
     COMPILER_ATTRIB_LIST = CompilerAttribList {
@@ -951,6 +953,26 @@ mod test {
             .descendants()
             .find_map(N::cast)
             .unwrap()
+    }
+
+    #[test]
+    fn path() {
+        let expr = parse::<super::Path>(
+            "fn main() {
+            A::B::C
+        }",
+        );
+        assert_eq!(expr.segments().count(), 3);
+        expr.syntax().should_eq("A::B::C");
+        expr.segments().next().unwrap().syntax().should_eq("A");
+
+        let expr = parse::<super::Path>(
+            "fn main() {
+                generic::<int>
+        }",
+        );
+        assert_eq!(expr.segments().count(), 1);
+        expr.syntax().should_eq("generic::<int>");
     }
 
     #[test]

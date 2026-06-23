@@ -18,7 +18,8 @@ MODULE: 0..74
     WHITESPACE: 33..34 
     PATH_TYPE: 34..35 
       PATH: 34..35 
-        IDENT: 34..35 "X"
+        PATH_SEGMENT: 34..35 
+          IDENT: 34..35 "X"
     WHITESPACE: 35..36 
     L_BRACE: 36..37 "{"
     WHITESPACE: 37..52 

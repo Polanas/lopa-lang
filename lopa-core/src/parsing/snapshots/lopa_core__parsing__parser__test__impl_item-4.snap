@@ -13,13 +13,15 @@ IMPL_ITEM: 0..57
       WHITESPACE: 7..8 
       PATH_TYPE: 8..9 
         PATH: 8..9 
-          IDENT: 8..9 "C"
+          PATH_SEGMENT: 8..9 
+            IDENT: 8..9 "C"
       WHITESPACE: 9..10 
       PLUS: 10..11 "+"
       WHITESPACE: 11..12 
       PATH_TYPE: 12..13 
         PATH: 12..13 
-          IDENT: 12..13 "B"
+          PATH_SEGMENT: 12..13 
+            IDENT: 12..13 "B"
     COMMA: 13..14 ","
     WHITESPACE: 14..15 
     TYPE_PARAM: 15..16 
@@ -29,24 +31,28 @@ IMPL_ITEM: 0..57
   WHITESPACE: 17..18 
   PATH_TYPE: 18..25 
     PATH: 18..25 
-      IDENT: 18..25 "Generic"
+      PATH_SEGMENT: 18..25 
+        IDENT: 18..25 "Generic"
   WHITESPACE: 25..26 
   FOR_KW: 26..29 "for"
   WHITESPACE: 29..30 
   IMPL_STRUCT_TYPE: 30..41 
     PATH_TYPE: 30..41 
       PATH: 30..41 
-        IDENT: 30..36 "MyType"
-        GENERIC_ARGUMENTS: 36..41 
-          LT: 36..37 "<"
-          PATH_TYPE: 37..38 
-            PATH: 37..38 
-              IDENT: 37..38 "A"
-          COMMA: 38..39 ","
-          PATH_TYPE: 39..40 
-            PATH: 39..40 
-              IDENT: 39..40 "B"
-          GT: 40..41 ">"
+        PATH_SEGMENT: 30..41 
+          IDENT: 30..36 "MyType"
+          GENERIC_ARGUMENTS: 36..41 
+            LT: 36..37 "<"
+            PATH_TYPE: 37..38 
+              PATH: 37..38 
+                PATH_SEGMENT: 37..38 
+                  IDENT: 37..38 "A"
+            COMMA: 38..39 ","
+            PATH_TYPE: 39..40 
+              PATH: 39..40 
+                PATH_SEGMENT: 39..40 
+                  IDENT: 39..40 "B"
+            GT: 40..41 ">"
   WHITESPACE: 41..42 
   L_BRACE: 42..43 "{"
   WHITESPACE: 43..56 

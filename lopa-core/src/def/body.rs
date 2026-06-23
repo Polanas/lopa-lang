@@ -129,11 +129,20 @@ impl<'db> BodyLowerCtx<'db> {
 
     fn lower_generic_args(&self, args: Option<ast::GenericArgs>) -> ir::GenericParams<'static> {
         let Some(args) = args else {
-            return ir::GenericParams::default();
+            return unsafe {
+                transmute::<ir::GenericParams<'db>, ir::GenericParams<'static>>(
+                    ir::GenericParams::default(self.db),
+                )
+            };
         };
         let params = args.types().map(|t| self.lower_type_expr(t)).collect_vec();
 
-        ir::GenericParams::new(params)
+        unsafe {
+            transmute::<ir::GenericParams<'db>, ir::GenericParams<'static>>(ir::GenericParams::new(
+                self.db,
+                Some(params),
+            ))
+        }
     }
 
     fn lower_expr(&mut self, expr: ast::Expr) -> ExprId {
@@ -141,13 +150,21 @@ impl<'db> BodyLowerCtx<'db> {
         match expr {
             ast::Expr::PathExpr(path_expr) => {
                 let path = path_expr.path().map(|n| n.segments().collect_vec());
-                let generics =
-                    self.lower_generic_args(path_expr.path().and_then(|p| p.generic_args()));
                 let expr = path
                     .map(|path| {
-                        Expr::Path(ir::GenericPath {
-                            value: path,
-                            params: generics,
+                        Expr::Path(unsafe {
+                            transmute::<ir::GenericPath<'db>, ir::GenericPath<'static>>(
+                                ir::GenericPath::new(
+                                    self.db,
+                                    path.iter()
+                                        .filter_map(|p| p.ident().map(|i| (i, p.clone())))
+                                        .map(|(ident, path)| ir::GenericPathSegment {
+                                            ident,
+                                            args: self.lower_generic_args(path.generic_args()),
+                                        })
+                                        .collect_vec(),
+                                ),
+                            )
                         })
                     })
                     .unwrap_or_else(|| Expr::Missing);
@@ -259,7 +276,13 @@ impl<'db> BodyLowerCtx<'db> {
                     .fields_list()
                     .filter_map(|field| self.lower_field(field))
                     .collect_vec();
-                self.alloc_expr(Expr::Record { path, fields }, ptr)
+                self.alloc_expr(
+                    Expr::Record {
+                        path: ir::Path(path.iter().filter_map(|p| p.ident()).collect_vec()),
+                        fields,
+                    },
+                    ptr,
+                )
             }
             ast::Expr::SelfExpr(_) => self.alloc_expr(Expr::SelfVar, ptr),
             ast::Expr::AsExpr(as_expr) => {
@@ -345,6 +368,7 @@ impl<'db> BodyLowerCtx<'db> {
                 let pattern = path_pattern
                     .path()
                     .map(|p| p.segments().collect_vec())
+                    .map(|p| p.iter().filter_map(|s| s.ident()).collect_vec())
                     .map(ir::Path)
                     .map(Pattern::Path)
                     .unwrap_or_else(|| Pattern::Missing);

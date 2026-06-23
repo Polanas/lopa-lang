@@ -8,7 +8,8 @@ SAFE_METHOD_EXPR: 0..15
       FIELD_EXPR: 0..8 
         PATH_EXPR: 0..3 
           PATH: 0..3 
-            IDENT: 0..3 "foo"
+            PATH_SEGMENT: 0..3 
+              IDENT: 0..3 "foo"
         MARK: 3..4 "?"
         DOT: 4..5 "."
         NAME: 5..8 

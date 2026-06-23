@@ -7,7 +7,8 @@ INDEX_EXPR: 0..10
     INDEX_EXPR: 0..4 
       PATH_EXPR: 0..1 
         PATH: 0..1 
-          IDENT: 0..1 "a"
+          PATH_SEGMENT: 0..1 
+            IDENT: 0..1 "a"
       L_BRACKET: 1..2 "["
       LIT_EXPR: 2..3 
         INT: 2..3 "1"

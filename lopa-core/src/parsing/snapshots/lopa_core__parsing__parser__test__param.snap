@@ -10,5 +10,6 @@ PARAM: 0..12
   WHITESPACE: 6..7 
   PATH_TYPE: 7..11 
     PATH: 7..11 
-      IDENT: 7..11 "type"
+      PATH_SEGMENT: 7..11 
+        IDENT: 7..11 "type"
   COMMA: 11..12 ","

@@ -10,7 +10,8 @@ INDEX_EXPR: 0..30
           INDEX_EXPR: 0..6 
             PATH_EXPR: 0..3 
               PATH: 0..3 
-                IDENT: 0..3 "pos"
+                PATH_SEGMENT: 0..3 
+                  IDENT: 0..3 "pos"
             L_BRACKET: 3..4 "["
             LIT_EXPR: 4..5 
               INT: 4..5 "1"

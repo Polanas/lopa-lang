@@ -7,7 +7,8 @@ BINARY_EXPR: 0..12
     INDEX_EXPR: 0..4 
       PATH_EXPR: 0..1 
         PATH: 0..1 
-          IDENT: 0..1 "a"
+          PATH_SEGMENT: 0..1 
+            IDENT: 0..1 "a"
       L_BRACKET: 1..2 "["
       LIT_EXPR: 2..3 
         INT: 2..3 "1"
@@ -17,10 +18,12 @@ BINARY_EXPR: 0..12
     WHITESPACE: 6..7 
     PATH_EXPR: 7..8 
       PATH: 7..8 
-        IDENT: 7..8 "b"
+        PATH_SEGMENT: 7..8 
+          IDENT: 7..8 "b"
   WHITESPACE: 8..9 
   EQ: 9..10 "="
   WHITESPACE: 10..11 
   PATH_EXPR: 11..12 
     PATH: 11..12 
-      IDENT: 11..12 "c"
+      PATH_SEGMENT: 11..12 
+        IDENT: 11..12 "c"

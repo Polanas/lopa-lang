@@ -5,5 +5,6 @@ expression: "parse(\"a;\", |p| { p.stmt_expr(); })"
 EXPR_STMT: 0..2 
   PATH_EXPR: 0..1 
     PATH: 0..1 
-      IDENT: 0..1 "a"
+      PATH_SEGMENT: 0..1 
+        IDENT: 0..1 "a"
   SEMI: 1..2 ";"

@@ -14,7 +14,8 @@ AS_EXPR: 0..20
       LIT_TYPE: 7..12 
         PATH_TYPE: 7..12 
           PATH: 7..12 
-            IDENT: 7..12 "float"
+            PATH_SEGMENT: 7..12 
+              IDENT: 7..12 "float"
     R_PAREN: 12..13 ")"
   WHITESPACE: 13..14 
   AS_KW: 14..16 "as"
@@ -22,4 +23,5 @@ AS_EXPR: 0..20
   LIT_TYPE: 17..20 
     PATH_TYPE: 17..20 
       PATH: 17..20 
-        IDENT: 17..20 "int"
+        PATH_SEGMENT: 17..20 
+          IDENT: 17..20 "int"

@@ -4,7 +4,8 @@ expression: "parse(\"Vec2 {}\", |p| p.expr())"
 ---
 RECORD_EXPR: 0..7 
   PATH: 0..4 
-    IDENT: 0..4 "Vec2"
+    PATH_SEGMENT: 0..4 
+      IDENT: 0..4 "Vec2"
   WHITESPACE: 4..5 
   L_BRACE: 5..6 "{"
   R_BRACE: 6..7 "}"

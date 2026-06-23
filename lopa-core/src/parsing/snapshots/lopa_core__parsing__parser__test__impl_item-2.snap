@@ -7,7 +7,8 @@ IMPL_ITEM: 0..94
   WHITESPACE: 4..5 
   PATH_TYPE: 5..9 
     PATH: 5..9 
-      IDENT: 5..9 "Vec2"
+      PATH_SEGMENT: 5..9 
+        IDENT: 5..9 "Vec2"
   WHITESPACE: 9..10 
   L_BRACE: 10..11 "{"
   WHITESPACE: 11..28 

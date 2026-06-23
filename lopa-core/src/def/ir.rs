@@ -2,9 +2,8 @@ use std::ops::Deref;
 
 use itertools::Itertools;
 use la_arena::{Idx, RawIdx};
-use notify_rust::Notification;
 use rowan::ast::AstNode;
-use salsa::{Accumulator, Database};
+use salsa::Accumulator;
 use ustr::Ustr;
 
 use crate::{
@@ -319,7 +318,7 @@ impl<'db> Function<'db> {
 
     #[salsa::tracked(returns(ref))]
     pub fn generic_type(self, db: &'db dyn salsa::Database) -> Type<'db> {
-        Type::Function(self, GenericParams::from_generics(self.generics(db)))
+        Type::Function(self, GenericParams::from_generics(db, self.generics(db)))
     }
 
     #[salsa::tracked(returns(ref))]
@@ -426,7 +425,7 @@ impl<'db> Enum<'db> {
 
     #[salsa::tracked(returns(ref))]
     pub fn generic_type(self, db: &'db dyn salsa::Database) -> Type<'db> {
-        Type::Enum(self, GenericParams::from_generics(self.generics(db)))
+        Type::Enum(self, GenericParams::from_generics(db, self.generics(db)))
     }
     #[salsa::tracked(returns(ref))]
     pub fn fields(self, db: &'db dyn salsa::Database) -> Vec<Field<'db>> {
@@ -517,7 +516,7 @@ impl<'db> Struct<'db> {
 
     #[salsa::tracked(returns(ref))]
     pub fn generic_type(self, db: &'db dyn salsa::Database) -> Type<'db> {
-        Type::Struct(self, GenericParams::from_generics(self.generics(db)))
+        Type::Struct(self, GenericParams::from_generics(db, self.generics(db)))
     }
 
     #[salsa::tracked(returns(ref))]
@@ -638,13 +637,15 @@ pub struct BareFn<'db> {
     pub output: Box<Type<'db>>,
 }
 
-#[derive(salsa::Update, Default, Hash, PartialEq, Eq, Clone, Debug)]
-pub struct GenericParams<'db>(Option<Vec<Type<'db>>>);
+#[salsa::tracked(debug)]
+pub struct GenericParams<'db> {
+    pub params: Option<Vec<Type<'db>>>,
+}
 
 impl<'db> GenericParams<'db> {
-    pub fn from_generics(generics: &Generics<'db>) -> Self {
+    pub fn from_generics(db: &'db dyn salsa::Database, generics: &Generics<'db>) -> Self {
         if generics.params.is_empty() {
-            return Self::default();
+            return Self::new(db, None);
         };
 
         let params = generics
@@ -652,21 +653,15 @@ impl<'db> GenericParams<'db> {
             .iter()
             .map(|p| Type::Generic(p.name))
             .collect_vec();
-        Self(Some(params))
-    }
-}
-
-impl<'db> GenericParams<'db> {
-    pub fn new(params: Vec<Type<'db>>) -> Self {
-        Self(Some(params))
+        Self::new(db, Some(params))
     }
 
-    pub fn is_some(&self) -> bool {
-        self.0.is_some()
+    pub fn default(db: &'db dyn salsa::Database) -> Self {
+        Self::new(db, None)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Type<'db>> {
-        self.0.iter().flatten()
+    pub fn is_some(&self, db: &'db dyn salsa::Database) -> bool {
+        self.params(db).is_some()
     }
 }
 
@@ -770,10 +765,15 @@ impl<'db> Type<'db> {
 
 pub type ExprId = Idx<Expr>;
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash, Default)]
+#[salsa::tracked(debug)]
 pub struct GenericPath<'db> {
-    pub value: Vec<Ustr>,
-    pub params: GenericParams<'db>,
+    pub segments: Vec<GenericPathSegment<'db>>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub struct GenericPathSegment<'db> {
+    pub ident: Ustr,
+    pub args: GenericParams<'db>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash, Default)]
@@ -838,7 +838,7 @@ pub enum Expr {
         args: Vec<Arg>,
     },
     Record {
-        path: Vec<Ustr>,
+        path: Path,
         fields: Vec<RecordField>,
     },
     Closure {

@@ -8,7 +8,8 @@ BLOCK_EXPR: 0..19
   EXPR_STMT: 2..17 
     RECORD_EXPR: 2..16 
       PATH: 2..6 
-        IDENT: 2..6 "vec2"
+        PATH_SEGMENT: 2..6 
+          IDENT: 2..6 "vec2"
       WHITESPACE: 6..7 
       L_BRACE: 7..8 "{"
       WHITESPACE: 8..9 

@@ -27,7 +27,8 @@ ENUM_ITEM: 0..213
     ITEM_TYPE: 57..60 
       PATH_TYPE: 57..60 
         PATH: 57..60 
-          IDENT: 57..60 "Foo"
+          PATH_SEGMENT: 57..60 
+            IDENT: 57..60 "Foo"
   COMMA: 60..61 ","
   WHITESPACE: 61..82 
   FIELD: 82..90 
@@ -38,7 +39,8 @@ ENUM_ITEM: 0..213
     ITEM_TYPE: 87..90 
       PATH_TYPE: 87..90 
         PATH: 87..90 
-          IDENT: 87..90 "Bar"
+          PATH_SEGMENT: 87..90 
+            IDENT: 87..90 "Bar"
   COMMA: 90..91 ","
   WHITESPACE: 91..112 
   FN_ITEM: 112..203 
@@ -57,7 +59,8 @@ ENUM_ITEM: 0..213
       WHITESPACE: 128..129 
       PATH_TYPE: 129..135 
         PATH: 129..135 
-          IDENT: 129..135 "FooBar"
+          PATH_SEGMENT: 129..135 
+            IDENT: 129..135 "FooBar"
     WHITESPACE: 135..136 
     BLOCK_EXPR: 136..203 
       L_BRACE: 136..137 "{"

@@ -5,7 +5,8 @@ expression: "parse(\"obj.generic_method::<A>()\", |p| p.expr())"
 METHOD_EXPR: 0..25 
   PATH_EXPR: 0..3 
     PATH: 0..3 
-      IDENT: 0..3 "obj"
+      PATH_SEGMENT: 0..3 
+        IDENT: 0..3 "obj"
   DOT: 3..4 "."
   NAME: 4..18 
     IDENT: 4..18 "generic_method"

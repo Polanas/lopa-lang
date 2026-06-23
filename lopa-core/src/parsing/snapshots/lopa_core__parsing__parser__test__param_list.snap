@@ -13,7 +13,8 @@ PARAM_LIST: 0..20
     LIT_TYPE: 4..7 
       PATH_TYPE: 4..7 
         PATH: 4..7 
-          IDENT: 4..7 "int"
+          PATH_SEGMENT: 4..7 
+            IDENT: 4..7 "int"
     COMMA: 7..8 ","
   WHITESPACE: 8..9 
   PARAM: 9..19 
@@ -26,5 +27,6 @@ PARAM_LIST: 0..20
     LIT_TYPE: 13..19 
       PATH_TYPE: 13..19 
         PATH: 13..19 
-          IDENT: 13..19 "string"
+          PATH_SEGMENT: 13..19 
+            IDENT: 13..19 "string"
   R_PAREN: 19..20 ")"

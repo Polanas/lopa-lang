@@ -9,6 +9,7 @@ NILABLE_TYPE: 0..12
       DYN_KW: 1..4 "dyn"
       WHITESPACE: 4..5 
       PATH: 5..10 
-        IDENT: 5..10 "Debug"
+        PATH_SEGMENT: 5..10 
+          IDENT: 5..10 "Debug"
     R_PAREN: 10..11 ")"
   MARK: 11..12 "?"

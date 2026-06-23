@@ -19,6 +19,7 @@ ITEM_TYPE_STRUCT: 0..49
       ITEM_TYPE: 33..39 
         PATH_TYPE: 33..39 
           PATH: 33..39 
-            IDENT: 33..39 "String"
+            PATH_SEGMENT: 33..39 
+              IDENT: 33..39 "String"
     WHITESPACE: 39..48 
     R_BRACE: 48..49 "}"

@@ -12,7 +12,7 @@ use super::lexer::Syntax::{self, *};
 use itertools::Itertools;
 use rowan::{GreenNode, GreenNodeBuilder, TextSize};
 
-const EXPR_FIRST: TokenSet = TokenSet::new(&[
+pub const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
     INT,
     FLOAT,
@@ -45,6 +45,7 @@ const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
 const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root], T![super]]);
+const PATH_FIRST: TokenSet = TokenSet::new(&[T![root], T![super], IDENT]);
 
 const USE_RECOVERY: TokenSet = TokenSet::new(&[]).union(ITEM_FIRST);
 // const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=], T![=>], T!["{"]]);
@@ -87,6 +88,8 @@ pub enum SyntaxErrorKind {
     ExpectedEnumElement,
     ExpectedImplElement,
     ExpectedField,
+    ExpectedPathSegment,
+    ExpectedPath,
     ExpectedAttribute,
     ExpectedPattern,
     ExpectedItem,
@@ -113,6 +116,8 @@ impl std::fmt::Display for SyntaxErrorKind {
             Self::ExpectedEnumElement => "expected enum element",
             Self::ExpectedImplElement => "expected impl element",
             Self::ExpectedGeneric => "expected generic",
+            Self::ExpectedPathSegment => "expected path segment",
+            Self::ExpectedPath => "expected path",
             Self::ExpectedUseDeclaration => "expected use declaration",
             Self::Other(text) => text,
         }
@@ -344,6 +349,12 @@ impl<'a> Parser<'a> {
         self.events.push(Event::Advance { token });
         self.pos += 1;
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PathKind {
+    Expr,
+    Type,
 }
 
 impl<'a> Parser<'a> {
@@ -761,43 +772,89 @@ impl<'a> Parser<'a> {
     }
 
     fn expr_path(&mut self) {
-        self.path(false);
+        self.path(PathKind::Expr);
     }
 
     fn type_path(&mut self) {
-        self.path(true);
+        self.path(PathKind::Type);
     }
 
-    fn path(&mut self, is_type_path: bool) {
-        if self.at_any(TokenSet::new(&[IDENT, ROOT_KW, SUPER_KW])) {
-            self.with(PATH, |this| {
-                if this.at(T![root]) {
-                    this.expect(T![root]);
-                } else if this.at(T![super]) {
-                    this.expect(T![super]);
+    fn path(&mut self, kind: PathKind) {
+        self.with(PATH, |this| {
+            if this.at_any(PATH_FIRST) {
+                this.path_segment(kind);
+            } else {
+                this.advance_with_error(SyntaxErrorKind::ExpectedPath);
+                return;
+            }
+
+            while this.at_path_sep(0) && !this.at(EOF) {
+                this.expect(T![:]);
+                this.expect(T![:]);
+
+                if this.at_any(PATH_FIRST) {
+                    this.path_segment(kind);
                 } else {
-                    this.expect(IDENT);
+                    this.advance_with_error(SyntaxErrorKind::ExpectedPathSegment);
+                    break;
                 }
-                let mut at_super = this.at(T![super]);
-                while this.at_path_sep(0) && !this.at(EOF) {
-                    this.expect(T![:]);
-                    this.expect(T![:]);
-                    if !is_type_path && this.at(T![<]) {
-                        this.generic_args();
-                        break;
+            }
+        });
+        // if self.at_any(TokenSet::new(&[IDENT, ROOT_KW, SUPER_KW])) {
+        //     self.with(PATH, |this| {
+        //         if this.at(T![root]) {
+        //             this.expect(T![root]);
+        //         } else if this.at(T![super]) {
+        //             this.expect(T![super]);
+        //         } else {
+        //             this.expect(IDENT);
+        //         }
+        //         let mut at_super = this.at(T![super]);
+        //         while this.at_path_sep(0) && !this.at(EOF) {
+        //             this.expect(T![:]);
+        //             this.expect(T![:]);
+        //             if !is_type_path && this.at(T![<]) {
+        //                 this.generic_args();
+        //                 return;
+        //             }
+        //             if this.at(T![super]) && at_super {
+        //                 this.expect(T![super]);
+        //             } else {
+        //                 at_super = false;
+        //                 this.expect(IDENT);
+        //             }
+        //         }
+        //         if this.at(T![<]) {
+        //             this.generic_args();
+        //         }
+        //     });
+        // }
+    }
+
+    fn path_segment(&mut self, kind: PathKind) {
+        self.with(PATH_SEGMENT, |this| {
+            if this.at(T![root]) {
+                this.expect(T![root]);
+            } else if this.at(T![super]) {
+                this.expect(T![super]);
+            } else {
+                this.expect(IDENT);
+                match kind {
+                    PathKind::Type => {
+                        if this.at(T![<]) {
+                            this.generic_args();
+                        }
                     }
-                    if this.at(T![super]) && at_super {
-                        this.expect(T![super]);
-                    } else {
-                        at_super = false;
-                        this.expect(IDENT);
+                    PathKind::Expr => {
+                        if this.at_path_sep(0) && this.nth(2) == T![<] {
+                            this.expect(T![:]);
+                            this.expect(T![:]);
+                            this.generic_args();
+                        }
                     }
                 }
-                if is_type_path && this.at(T![<]) {
-                    this.generic_args();
-                }
-            });
-        }
+            }
+        });
     }
 
     fn fn_type(&mut self) {
@@ -1341,7 +1398,7 @@ mod test {
     use crate::parsing::{
         ast::SyntaxNode,
         lexer::Syntax,
-        parser::{Lang, Parser},
+        parser::{Lang, Parser, PathKind},
     };
 
     use rowan::{GreenNodeBuilder, NodeOrToken, SyntaxKind, SyntaxToken};
@@ -1448,10 +1505,18 @@ mod test {
 
     #[test]
     fn path() {
-        insta::assert_snapshot!(parse("a::b::c", |p| p.expr_path()));
+        insta::assert_snapshot!(parse("a : : b : : c", |p| p.expr_path()));
         insta::assert_snapshot!(parse("root::hello", |p| p.expr_path()));
         insta::assert_snapshot!(parse("hey::<A,B,C>", |p| p.expr_path()));
         insta::assert_snapshot!(parse("hey<A,B,C>", |p| p.type_path()));
+    }
+
+    #[test]
+    fn path_segment() {
+        insta::assert_snapshot!(parse("A", |p| p.path_segment(PathKind::Expr)));
+        insta::assert_snapshot!(parse("root", |p| p.path_segment(PathKind::Expr)));
+        insta::assert_snapshot!(parse("super", |p| p.path_segment(PathKind::Expr)));
+        insta::assert_snapshot!(parse("G::<T1,T2>", |p| p.path_segment(PathKind::Expr)));
     }
 
     #[test]
@@ -1559,6 +1624,7 @@ mod test {
         insta::assert_snapshot!(parse("obj.generic_method::<A>()", |p| p.expr()));
         insta::assert_snapshot!(parse("foo?.bar?.baz()", |p| p.expr()));
         insta::assert_snapshot!(parse("x is value and x !is value", |p| p.expr()));
+        insta::assert_snapshot!(parse("std::Vec::<int>::new()", |p| p.expr()));
     }
 
     #[test]

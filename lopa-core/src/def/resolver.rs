@@ -17,7 +17,7 @@ use crate::{
     parsing::ast,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq, salsa::Update)]
 pub enum ResolveResult<'db> {
     Local(ir::Local<'db>),
     Function(ir::Type<'db>),
@@ -216,7 +216,7 @@ pub fn resolve_type_path<'db>(
     generics: Option<&ir::Generics<'db>>,
     self_ty: Option<&ir::Type<'db>>,
 ) -> ir::Type<'db> {
-    let path = ir::Path(ast_path.segments().collect_vec());
+    let path = ir::Path(ast_path.segments().filter_map(|s| s.ident()).collect_vec());
     if let [first] = path.0.as_slice()
         && let Some(generics) = generics.as_ref()
         && let Some(param) = generics.param(first)
@@ -225,13 +225,18 @@ pub fn resolve_type_path<'db>(
     }
 
     let generic_args = ast_path
+        .segments()
+        .last()
+        //Type paths can only have generics args at the last segment
+        //TODO: figure out what to do when this is vialoted?
+        .unwrap()
         .generic_args()
         .map(|args| {
             args.types()
                 .map(|ty| resolve_type_expr(db, file, ty, generics, self_ty))
         })
-        .map(|args| ir::GenericParams::new(args.collect_vec()))
-        .unwrap_or_default();
+        .map(|args| ir::GenericParams::new(db, Some(args.collect_vec())))
+        .unwrap_or_else(|| ir::GenericParams::default(db));
 
     let Some(item) = resolve_path_item(db, file, path.clone()) else {
         let path_text = ast_path.syntax().text().to_string();
@@ -243,9 +248,9 @@ pub fn resolve_type_path<'db>(
         .accumulate(db);
         return ir::Type::Unknown;
     };
+    verify_generics(db, ast_path.clone(), generic_args, generics);
 
-    let args_amount = generic_args.iter().count();
-    let ty = match item {
+    match item {
         ResolveItemResult::Type(ty) | ResolveItemResult::Both { ty, .. } => match ty {
             ir::ModuleDef::Struct(strct) => ir::Type::Struct(strct, generic_args),
             ir::ModuleDef::Enum(enum_item) => ir::Type::Enum(enum_item, generic_args),
@@ -275,33 +280,42 @@ pub fn resolve_type_path<'db>(
             }
             _ => unreachable!(),
         },
-    };
-    if let Some(generics) = match &ty {
-        ir::Type::Struct(struct_item, _) => Some(struct_item.generics(db)),
-        ir::Type::Enum(enum_item, _) => Some(enum_item.generics(db)),
+    }
+}
+
+//verifies that passed generics are correct for a *type*
+fn verify_generics<'db>(
+    db: &'db dyn salsa::Database,
+    ast_path: ast::Path,
+    generic_args: ir::GenericParams<'_>,
+    generics: Option<&ir::Generics<'db>>,
+) {
+    if ast_path.segments().count() == 0 {
+        return;
+    }
+    let args_amount = generic_args.params(db).iter().flatten().count();
+    let params_amount = generics.map(|g| g.params.len()).unwrap_or_default();
+    let message = match args_amount.cmp(&params_amount) {
+        std::cmp::Ordering::Less => Some(format!(
+            "too few generic parameters provided: expected {}, got {}",
+            params_amount, args_amount
+        )),
+        std::cmp::Ordering::Greater => Some(format!(
+            "too many generic parameters provided: expected {}, got {}",
+            params_amount, args_amount
+        )),
         _ => None,
-    } {
-        let params_amount = generics.params.len();
-        let message = match args_amount.cmp(&params_amount) {
-            std::cmp::Ordering::Less => Some(format!(
-                "too few generic parameters provided: expected {}, got {}",
-                params_amount, args_amount
-            )),
-            std::cmp::Ordering::Greater => Some(format!(
-                "too many generic parameters provided: expected {}, got {}",
-                params_amount, args_amount
-            )),
-            _ => None,
-        };
+    };
+    if let Some(message) = message {
         let range = ast_path
+            .segments()
+            .last()
+            .unwrap()
             .generic_args()
             .map(|args| args.syntax().text_range())
             .unwrap_or_else(|| ast_path.syntax().text_range());
-        if let Some(message) = message {
-            Diagnostic::new(range, DiagnosticKind::TypeError, message).accumulate(db);
-        }
+        Diagnostic::new(range, DiagnosticKind::TypeError, message).accumulate(db);
     }
-    ty
 }
 
 #[salsa::tracked(cycle_result=resolve_path_cycle_result)]
@@ -449,17 +463,33 @@ pub fn resolve_path_item<'db>(
     }
 }
 
+#[salsa::tracked]
 pub fn resolve_path_for_expr<'db>(
     db: &'db dyn salsa::Database,
     expr: ExprId,
     func: ir::Function<'db>,
-    path: &ir::GenericPath<'db>,
 ) -> Option<ResolveResult<'db>> {
+    let source_map = ide::source_map(db, func);
+
+    let ast::Expr::PathExpr(path) = source_map
+        .node_for_expr(expr)?
+        .value
+        .to_node(&ide::parse(db, func.file(db)).syntax_node(db))
+    else {
+        return None;
+    };
+    let ast_path = path.path()?;
     let scopes = scope::expr_scopes(db, func);
+    let body = ide::body(db, func);
+    let ir::Expr::Path(path) = body.expr(expr) else {
+        return None;
+    };
+
     let expr_scope = scopes.scope_for_expr(expr)?;
 
-    if let [name] = path.value.as_slice()
-        && let Some(entry) = scopes.resolve_name_in_scope(expr_scope, name)
+    if path.segments(db).len() == 1
+        && let Some(name) = path.segments(db).first().map(|p| p.ident)
+        && let Some(entry) = scopes.resolve_name_in_scope(expr_scope, &name)
     {
         return Some(ResolveResult::Local(Local {
             parent: func,
@@ -467,7 +497,12 @@ pub fn resolve_path_for_expr<'db>(
         }));
     }
 
-    let Some(result) = resolve_path_item(db, func.file(db), ir::Path(path.value.clone())) else {
+    let Some(result) = resolve_path_item(
+        db,
+        func.file(db),
+        //TODO: dont clone paths all the time?
+        ir::Path(path.segments(db).iter().map(|s| s.ident).collect_vec()),
+    ) else {
         Diagnostic::new(
             body::expr_range(db, func, expr)?,
             DiagnosticKind::TypeError,
@@ -480,23 +515,49 @@ pub fn resolve_path_for_expr<'db>(
         return None;
     };
 
+    //HACK: will this always work?
+    let generic_args = path.segments(db).last().unwrap().args;
     match result {
         ResolveItemResult::Value(value) | ResolveItemResult::Both { value, .. } => match value {
-            ModuleDef::Function(function) => Some(ResolveResult::Function(ir::Type::Function(
-                function,
-                path.params.clone(),
-            ))),
+            ModuleDef::Function(function) => Some({
+                ResolveResult::Function(ir::Type::Function(
+                    {
+                        verify_generics(
+                            db,
+                            ast_path.clone(),
+                            generic_args,
+                            Some(function.generics(db)),
+                        );
+                        function
+                    },
+                    generic_args,
+                ))
+            }),
             ModuleDef::Struct(struct_item) => Some(ResolveResult::Struct(ir::Type::Struct(
-                struct_item,
-                path.params.clone(),
+                {
+                    verify_generics(
+                        db,
+                        ast_path.clone(),
+                        generic_args,
+                        Some(struct_item.generics(db)),
+                    );
+                    struct_item
+                },
+                generic_args,
             ))),
             ModuleDef::Enum(enum_item) => Some(ResolveResult::Enum(ir::Type::Enum(
-                enum_item,
-                path.params.clone(),
+                {
+                    verify_generics(
+                        db,
+                        ast_path.clone(),
+                        generic_args,
+                        Some(enum_item.generics(db)),
+                    );
+                    enum_item
+                },
+                generic_args,
             ))),
-            ModuleDef::Module(_) => {
-                return None;
-            }
+            ModuleDef::Module(_) => None,
         },
         _ => {
             Diagnostic::new(

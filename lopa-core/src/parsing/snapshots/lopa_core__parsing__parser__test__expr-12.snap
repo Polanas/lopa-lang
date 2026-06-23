@@ -5,12 +5,14 @@ expression: "parse(\"sort(array, by: callback, something_else:)\", |p| p.expr())
 CALL_EXPR: 0..42 
   PATH_EXPR: 0..4 
     PATH: 0..4 
-      IDENT: 0..4 "sort"
+      PATH_SEGMENT: 0..4 
+        IDENT: 0..4 "sort"
   L_PAREN: 4..5 "("
   ARG: 5..11 
     PATH_EXPR: 5..10 
       PATH: 5..10 
-        IDENT: 5..10 "array"
+        PATH_SEGMENT: 5..10 
+          IDENT: 5..10 "array"
     COMMA: 10..11 ","
   WHITESPACE: 11..12 
   ARG: 12..25 
@@ -20,7 +22,8 @@ CALL_EXPR: 0..42
     WHITESPACE: 15..16 
     PATH_EXPR: 16..24 
       PATH: 16..24 
-        IDENT: 16..24 "callback"
+        PATH_SEGMENT: 16..24 
+          IDENT: 16..24 "callback"
     COMMA: 24..25 ","
   WHITESPACE: 25..26 
   ARG: 26..41 

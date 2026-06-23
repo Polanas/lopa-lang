@@ -24,7 +24,8 @@ COMPILER_ATTRIB_LIST: 0..38
       BINARY_EXPR: 24..27 
         PATH_EXPR: 24..25 
           PATH: 24..25 
-            IDENT: 24..25 "a"
+            PATH_SEGMENT: 24..25 
+              IDENT: 24..25 "a"
         EQ: 25..26 "="
         LIT_EXPR: 26..27 
           INT: 26..27 "3"
@@ -33,7 +34,8 @@ COMPILER_ATTRIB_LIST: 0..38
       BINARY_EXPR: 28..31 
         PATH_EXPR: 28..29 
           PATH: 28..29 
-            IDENT: 28..29 "b"
+            PATH_SEGMENT: 28..29 
+              IDENT: 28..29 "b"
         EQ: 29..30 "="
         LIT_EXPR: 30..31 
           INT: 30..31 "4"
@@ -42,5 +44,6 @@ COMPILER_ATTRIB_LIST: 0..38
     COMPILER_ATTRIB_ITEM: 33..37 
       PATH_EXPR: 33..37 
         PATH: 33..37 
-          IDENT: 33..37 "yeah"
+          PATH_SEGMENT: 33..37 
+            IDENT: 33..37 "yeah"
     R_PAREN: 37..38 ")"

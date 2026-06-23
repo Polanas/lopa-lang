@@ -4,4 +4,5 @@ expression: "parse(\"NotInt\", |p| p.type_expr())"
 ---
 PATH_TYPE: 0..6 
   PATH: 0..6 
-    IDENT: 0..6 "NotInt"
+    PATH_SEGMENT: 0..6 
+      IDENT: 0..6 "NotInt"

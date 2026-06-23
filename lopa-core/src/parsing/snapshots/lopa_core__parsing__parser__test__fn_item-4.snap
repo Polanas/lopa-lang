@@ -18,7 +18,8 @@ FN_ITEM: 0..37
         COMPILER_ATTRIB_ITEM: 19..24 
           PATH_EXPR: 19..24 
             PATH: 19..24 
-              IDENT: 19..24 "not_a"
+              PATH_SEGMENT: 19..24 
+                IDENT: 19..24 "not_a"
         R_PAREN: 24..25 ")"
     WHITESPACE: 25..26 
     PARAM: 26..32 
@@ -30,7 +31,8 @@ FN_ITEM: 0..37
       LIT_TYPE: 29..32 
         PATH_TYPE: 29..32 
           PATH: 29..32 
-            IDENT: 29..32 "int"
+            PATH_SEGMENT: 29..32 
+              IDENT: 29..32 "int"
     R_PAREN: 32..33 ")"
   WHITESPACE: 33..34 
   BLOCK_EXPR: 34..37 

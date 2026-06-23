@@ -1,0 +1,20 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"G::<T1,T2>\", |p| p.path_segment(PathKind::Expr))"
+---
+PATH_SEGMENT: 0..10 
+  IDENT: 0..1 "G"
+  COLON: 1..2 ":"
+  COLON: 2..3 ":"
+  GENERIC_ARGUMENTS: 3..10 
+    LT: 3..4 "<"
+    PATH_TYPE: 4..6 
+      PATH: 4..6 
+        PATH_SEGMENT: 4..6 
+          IDENT: 4..6 "T1"
+    COMMA: 6..7 ","
+    PATH_TYPE: 7..9 
+      PATH: 7..9 
+        PATH_SEGMENT: 7..9 
+          IDENT: 7..9 "T2"
+    GT: 9..10 ">"

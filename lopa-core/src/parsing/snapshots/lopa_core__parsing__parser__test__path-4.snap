@@ -3,18 +3,22 @@ source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"hey<A,B,C>\", |p| p.type_path())"
 ---
 PATH: 0..10 
-  IDENT: 0..3 "hey"
-  GENERIC_ARGUMENTS: 3..10 
-    LT: 3..4 "<"
-    PATH_TYPE: 4..5 
-      PATH: 4..5 
-        IDENT: 4..5 "A"
-    COMMA: 5..6 ","
-    PATH_TYPE: 6..7 
-      PATH: 6..7 
-        IDENT: 6..7 "B"
-    COMMA: 7..8 ","
-    PATH_TYPE: 8..9 
-      PATH: 8..9 
-        IDENT: 8..9 "C"
-    GT: 9..10 ">"
+  PATH_SEGMENT: 0..10 
+    IDENT: 0..3 "hey"
+    GENERIC_ARGUMENTS: 3..10 
+      LT: 3..4 "<"
+      PATH_TYPE: 4..5 
+        PATH: 4..5 
+          PATH_SEGMENT: 4..5 
+            IDENT: 4..5 "A"
+      COMMA: 5..6 ","
+      PATH_TYPE: 6..7 
+        PATH: 6..7 
+          PATH_SEGMENT: 6..7 
+            IDENT: 6..7 "B"
+      COMMA: 7..8 ","
+      PATH_TYPE: 8..9 
+        PATH: 8..9 
+          PATH_SEGMENT: 8..9 
+            IDENT: 8..9 "C"
+      GT: 9..10 ">"

@@ -1,11 +1,12 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"vec2 { };\", |p| { _ = p.stmt_expr() })"
+expression: "parse(\"vec2 { };\", |p| { p.stmt_expr() })"
 ---
 EXPR_STMT: 0..9 
   RECORD_EXPR: 0..8 
     PATH: 0..4 
-      IDENT: 0..4 "vec2"
+      PATH_SEGMENT: 0..4 
+        IDENT: 0..4 "vec2"
     WHITESPACE: 4..5 
     L_BRACE: 5..6 "{"
     WHITESPACE: 6..7 

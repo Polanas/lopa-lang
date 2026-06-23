@@ -8,13 +8,15 @@ BLOCK_EXPR: 0..30
   EXPR_STMT: 2..12 
     PATH_EXPR: 2..11 
       PATH: 2..11 
-        IDENT: 2..11 "something"
+        PATH_SEGMENT: 2..11 
+          IDENT: 2..11 "something"
     SEMI: 11..12 ";"
   WHITESPACE: 12..13 
   EXPR_STMT: 13..28 
     PATH_EXPR: 13..27 
       PATH: 13..27 
-        IDENT: 13..27 "something_else"
+        PATH_SEGMENT: 13..27 
+          IDENT: 13..27 "something_else"
     SEMI: 27..28 ";"
   WHITESPACE: 28..29 
   R_BRACE: 29..30 "}"

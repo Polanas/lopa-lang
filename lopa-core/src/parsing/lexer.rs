@@ -58,84 +58,84 @@ macro_rules! to_str {
 
 #[macro_export]
 macro_rules! T {
-    ["("] => { super::lexer::Syntax::L_PAREN };
-    [")"] => { super::lexer::Syntax::R_PAREN };
-    ["{"] => { super::lexer::Syntax::L_BRACE};
-    ["}"] => { super::lexer::Syntax::R_BRACE};
-    ["["] => { super::lexer::Syntax::L_BRACKET};
-    ["]"] => { super::lexer::Syntax::R_BRACKET};
-    [" "] => { super::lexer::Syntax::WHITESPACE};
-    [_] => { super::lexer::Syntax::WILDCARD};
-    [?] => { super::lexer::Syntax::MARK};
-    [|] => { super::lexer::Syntax::BAR};
-    [|=] => { super::lexer::Syntax::BAR_EQ};
-    [~] => { super::lexer::Syntax::TILDE};
-    [~=] => { super::lexer::Syntax::TILDE_EQ};
-    [=] => { super::lexer::Syntax::EQ};
-    [==] => { super::lexer::Syntax::EQ2};
-    [!=] => { super::lexer::Syntax::NOT_EQ};
-    [>] => { super::lexer::Syntax::GT};
-    [<] => { super::lexer::Syntax::LT};
-    [<=] => { super::lexer::Syntax::LESS_EQ};
-    [>=] => { super::lexer::Syntax::GREATER_EQ};
-    [,] => { super::lexer::Syntax::COMMA};
-    [!] => { super::lexer::Syntax::BANG};
-    [;] => { super::lexer::Syntax::SEMI};
-    [:] => { super::lexer::Syntax::COLON};
-    [.] => { super::lexer::Syntax::DOT};
-    [..] => { super::lexer::Syntax::DOT2};
-    [...] => { super::lexer::Syntax::DOT3};
-    [+] => { super::lexer::Syntax::PLUS};
-    [+=] => { super::lexer::Syntax::PLUS_EQ};
-    [-] => { super::lexer::Syntax::MINUS};
-    [-=] => { super::lexer::Syntax::MINUS_EQ};
-    [/] => { super::lexer::Syntax::SLASH};
-    [/=] => { super::lexer::Syntax::SLASH_EQ};
-    ["//"] => { super::lexer::Syntax::SLASH2};
-    ["//="] => { super::lexer::Syntax::SLASH2_EQ};
-    [*] => { super::lexer::Syntax::STAR};
-    [*=] => { super::lexer::Syntax::STAR_EQ};
-    [%] => { super::lexer::Syntax::PERCENT};
-    [#] => { super::lexer::Syntax::HASH};
-    [@] => { super::lexer::Syntax::AT};
-    [%=] => { super::lexer::Syntax::PERCENT_EQ};
-    [->] => { super::lexer::Syntax::ARROW};
-    [=>] => { super::lexer::Syntax::FAT_ARROW};
-    [fn] => { super::lexer::Syntax::FN_KW};
-    [mod] => { super::lexer::Syntax::MOD_KW};
-    [let] => { super::lexer::Syntax::LET_KW};
-    [dyn] => { super::lexer::Syntax::DYN_KW};
-    [nil] => { super::lexer::Syntax::NIL_KW};
-    [root] => { super::lexer::Syntax::ROOT_KW};
-    [true] => { super::lexer::Syntax::TRUE_KW};
-    [lua] => { super::lexer::Syntax::LUA_KW};
-    [use] => { super::lexer::Syntax::USE_KW};
-    [false] => { super::lexer::Syntax::FALSE_KW};
+    ["("] => { $crate::parsing::lexer::Syntax::L_PAREN };
+    [")"] => { $crate::parsing::lexer::Syntax::R_PAREN };
+    ["{"] => { $crate::parsing::lexer::Syntax::L_BRACE};
+    ["}"] => { $crate::parsing::lexer::Syntax::R_BRACE};
+    ["["] => { $crate::parsing::lexer::Syntax::L_BRACKET};
+    ["]"] => { $crate::parsing::lexer::Syntax::R_BRACKET};
+    [" "] => { $crate::parsing::lexer::Syntax::WHITESPACE};
+    [_] => { $crate::parsing::lexer::Syntax::WILDCARD};
+    [?] => { $crate::parsing::lexer::Syntax::MARK};
+    [|] => { $crate::parsing::lexer::Syntax::BAR};
+    [|=] => { $crate::parsing::lexer::Syntax::BAR_EQ};
+    [~] => { $crate::parsing::lexer::Syntax::TILDE};
+    [~=] => { $crate::parsing::lexer::Syntax::TILDE_EQ};
+    [=] => { $crate::parsing::lexer::Syntax::EQ};
+    [==] => { $crate::parsing::lexer::Syntax::EQ2};
+    [!=] => { $crate::parsing::lexer::Syntax::NOT_EQ};
+    [>] => { $crate::parsing::lexer::Syntax::GT};
+    [<] => { $crate::parsing::lexer::Syntax::LT};
+    [<=] => { $crate::parsing::lexer::Syntax::LESS_EQ};
+    [>=] => { $crate::parsing::lexer::Syntax::GREATER_EQ};
+    [,] => { $crate::parsing::lexer::Syntax::COMMA};
+    [!] => { $crate::parsing::lexer::Syntax::BANG};
+    [;] => { $crate::parsing::lexer::Syntax::SEMI};
+    [:] => { $crate::parsing::lexer::Syntax::COLON};
+    [.] => { $crate::parsing::lexer::Syntax::DOT};
+    [..] => { $crate::parsing::lexer::Syntax::DOT2};
+    [...] => { $crate::parsing::lexer::Syntax::DOT3};
+    [+] => { $crate::parsing::lexer::Syntax::PLUS};
+    [+=] => { $crate::parsing::lexer::Syntax::PLUS_EQ};
+    [-] => { $crate::parsing::lexer::Syntax::MINUS};
+    [-=] => { $crate::parsing::lexer::Syntax::MINUS_EQ};
+    [/] => { $crate::parsing::lexer::Syntax::SLASH};
+    [/=] => { $crate::parsing::lexer::Syntax::SLASH_EQ};
+    ["//"] => { $crate::parsing::lexer::Syntax::SLASH2};
+    ["//="] => { $crate::parsing::lexer::Syntax::SLASH2_EQ};
+    [*] => { $crate::parsing::lexer::Syntax::STAR};
+    [*=] => { $crate::parsing::lexer::Syntax::STAR_EQ};
+    [%] => { $crate::parsing::lexer::Syntax::PERCENT};
+    [#] => { $crate::parsing::lexer::Syntax::HASH};
+    [@] => { $crate::parsing::lexer::Syntax::AT};
+    [%=] => { $crate::parsing::lexer::Syntax::PERCENT_EQ};
+    [->] => { $crate::parsing::lexer::Syntax::ARROW};
+    [=>] => { $crate::parsing::lexer::Syntax::FAT_ARROW};
+    [fn] => { $crate::parsing::lexer::Syntax::FN_KW};
+    [mod] => { $crate::parsing::lexer::Syntax::MOD_KW};
+    [let] => { $crate::parsing::lexer::Syntax::LET_KW};
+    [dyn] => { $crate::parsing::lexer::Syntax::DYN_KW};
+    [nil] => { $crate::parsing::lexer::Syntax::NIL_KW};
+    [root] => { $crate::parsing::lexer::Syntax::ROOT_KW};
+    [true] => { $crate::parsing::lexer::Syntax::TRUE_KW};
+    [lua] => { $crate::parsing::lexer::Syntax::LUA_KW};
+    [use] => { $crate::parsing::lexer::Syntax::USE_KW};
+    [false] => { $crate::parsing::lexer::Syntax::FALSE_KW};
     [super] => { super::lexer::Syntax::SUPER_KW};
-    [and] => { super::lexer::Syntax::AND_KW};
-    [as] => { super::lexer::Syntax::AS_KW};
-    [is] => { super::lexer::Syntax::IS_KW};
-    [!is] => { super::lexer::Syntax::IS_NOT_KW};
-    [is_not] => { super::lexer::Syntax::IS_NOT_KW};
-    [or] => { super::lexer::Syntax::OR_KW};
-    [return] => { super::lexer::Syntax::RETURN_KW};
-    [if] => { super::lexer::Syntax::IF_KW};
-    [else] => { super::lexer::Syntax::ELSE_KW};
-    [for] => { super::lexer::Syntax::FOR_KW};
-    [continue] => { super::lexer::Syntax::CONTINUE_KW};
-    [break] => { super::lexer::Syntax::BREAK_KW};
-    [while] => { super::lexer::Syntax::WHILE_KW};
-    [loop] => { super::lexer::Syntax::LOOP_KW};
-    [in] => { super::lexer::Syntax::IN_KW};
-    [struct] => { super::lexer::Syntax::STRUCT_KW};
-    [enum] => { super::lexer::Syntax::ENUM_KW};
-    [impl] => { super::lexer::Syntax::IMPL_KW};
-    [match] => { super::lexer::Syntax::MATCH_KW};
-    [self] => { super::lexer::Syntax::SELF_KW};
-    [Self] => { super::lexer::Syntax::SELF_TYPE_KW};
-    [const] => { super::lexer::Syntax::CONST_KW};
-    [static] => { super::lexer::Syntax::STATIC_KW};
-    [ident] => { super::lexer::Syntax::IDENT }
+    [and] => { $crate::parsing::lexer::Syntax::AND_KW};
+    [as] => { $crate::parsing::lexer::Syntax::AS_KW};
+    [is] => { $crate::parsing::lexer::Syntax::IS_KW};
+    [!is] => { $crate::parsing::lexer::Syntax::IS_NOT_KW};
+    [is_not] => { $crate::parsing::lexer::Syntax::IS_NOT_KW};
+    [or] => { $crate::parsing::lexer::Syntax::OR_KW};
+    [return] => { $crate::parsing::lexer::Syntax::RETURN_KW};
+    [if] => { $crate::parsing::lexer::Syntax::IF_KW};
+    [else] => { $crate::parsing::lexer::Syntax::ELSE_KW};
+    [for] => { $crate::parsing::lexer::Syntax::FOR_KW};
+    [continue] => { $crate::parsing::lexer::Syntax::CONTINUE_KW};
+    [break] => { $crate::parsing::lexer::Syntax::BREAK_KW};
+    [while] => { $crate::parsing::lexer::Syntax::WHILE_KW};
+    [loop] => { $crate::parsing::lexer::Syntax::LOOP_KW};
+    [in] => { $crate::parsing::lexer::Syntax::IN_KW};
+    [struct] => { $crate::parsing::lexer::Syntax::STRUCT_KW};
+    [enum] => { $crate::parsing::lexer::Syntax::ENUM_KW};
+    [impl] => { $crate::parsing::lexer::Syntax::IMPL_KW};
+    [match] => { $crate::parsing::lexer::Syntax::MATCH_KW};
+    [self] => { $crate::parsing::lexer::Syntax::SELF_KW};
+    [Self] => { $crate::parsing::lexer::Syntax::SELF_TYPE_KW};
+    [const] => { $crate::parsing::lexer::Syntax::CONST_KW};
+    [static] => { $crate::parsing::lexer::Syntax::STATIC_KW};
+    [ident] => { $crate::parsing::lexer::Syntax::IDENT }
 }
 
 def! {
@@ -393,13 +393,13 @@ def! {
 
     MODULE,
 
-    FN_ITEM,
+    FN_ITEM @ITEM_FIRST,
     STRUCT_ITEM,
     IMPL_STRUCT_TYPE,
     IMPL_ITEM,
     MOD_ITEM,
     ENUM_ITEM,
-    USE_ITEM,
+    USE_ITEM @ITEM_LAST,
 
     PATH,
     NAME,
@@ -425,6 +425,7 @@ def! {
     GENERIC_ARGUMENTS,
     TYPE_PARAM,
     TYPE_PARAM_BOUND,
+    PATH_SEGMENT,
 
     LET_STMT,
     EXPR_STMT,
@@ -585,6 +586,10 @@ impl Syntax {
 
     pub fn is_symbol(self) -> bool {
         (Self::SYMBOL_FIRST as u16..=Self::SYMBOL_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_item(self) -> bool {
+        (Self::ITEM_FIRST as u16..=Self::ITEM_LAST as u16).contains(&(self as u16))
     }
 }
 
