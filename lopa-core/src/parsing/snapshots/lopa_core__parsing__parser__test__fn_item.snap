@@ -23,6 +23,8 @@ FN_ITEM: 0..41
       COMMA: 14..15 ","
     WHITESPACE: 15..16 
     PARAM: 16..25 
+
+    verify_generics(db, ast_path.clone(), generic_args, generics);
       NAME_PAT: 16..17 
         NAME: 16..17 
           IDENT: 16..17 "b"

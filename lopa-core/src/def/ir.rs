@@ -283,7 +283,7 @@ impl<'db> Function<'db> {
                     .and_then(|n| n.text())
                 });
                 let ty = param
-                    .ty()
+                    .type_expr()
                     .map(|ty| {
                         resolver::resolve_type_expr(
                             db,

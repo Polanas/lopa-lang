@@ -9,5 +9,17 @@ pub enum LitKind {
     Nil,
 }
 
+impl LitKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            LitKind::Float => "float",
+            LitKind::Int => "int",
+            LitKind::String => "string",
+            LitKind::Bool => "bool",
+            LitKind::Nil => "nil",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, salsa::Update)]
 pub struct MyAstPtr<T: rowan::ast::AstNode + 'static>(pub ast::AstPtr<T>);

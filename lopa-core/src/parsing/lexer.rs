@@ -395,7 +395,6 @@ def! {
 
     FN_ITEM @ITEM_FIRST,
     STRUCT_ITEM,
-    IMPL_STRUCT_TYPE,
     IMPL_ITEM,
     MOD_ITEM,
     ENUM_ITEM,
@@ -414,26 +413,29 @@ def! {
     CLOSURE_PARAM_LIST,
     CLOSURE_PARAM,
     RECORD_FIELD,
-    USE_TREE_LIST,
-    USE_GLOBAL,
-    USE_SUPER_PATH,
-    USE_SELF_NAME,
-    USE_ROOT_PATH,
-    USE_NAME,
-    USE_PATH,
     GENERICS,
     GENERIC_ARGUMENTS,
     TYPE_PARAM,
     TYPE_PARAM_BOUND,
     PATH_SEGMENT,
+    IMPL_STRUCT_TYPE,
 
-    LET_STMT,
-    EXPR_STMT,
+    USE_ROOT_PATH @USE_FIRST,
+    USE_SUPER_PATH,
+    USE_SELF_NAME,
+    USE_PATH,
+    USE_NAME,
+    USE_GLOBAL,
+    USE_TREE_LIST @USE_LAST,
 
+    LET_STMT @STMT_FIRST,
+    EXPR_STMT @STMT_LAST,
+
+    ITEM_TYPE @ITEM_TYPE_EXPR_FIRST,
     ITEM_TYPE_ENUM,
-    ITEM_TYPE_STRUCT,
-    ITEM_TYPE,
-    NILABLE_TYPE,
+    ITEM_TYPE_STRUCT @ITEM_TYPE_EXPR_LAST,
+
+    NILABLE_TYPE @TYPE_EXPR_FIRST,
     PAREN_TYPE,
     LIT_TYPE,
     ANY_TYPE,
@@ -441,9 +443,9 @@ def! {
     FN_TYPE,
     UNIT_TYPE,
     SELF_TYPE,
-    DYN_TYPE,
+    DYN_TYPE @TYPE_EXPR_LAST,
 
-    SELF_EXPR,
+    SELF_EXPR @EXPR_FIRST,
     RECORD_EXPR,
     UNIT_EXPR,
     PATH_EXPR,
@@ -468,12 +470,12 @@ def! {
     SAFE_FIELD_EXPR,
     AS_EXPR,
     IS_EXPR,
-    IS_NOT_EXPR,
+    IS_NOT_EXPR @EXPR_LAST,
 
-    NAME_PAT,
+    NAME_PAT @PAT_FIRST,
     PATH_PAT,
     LIT_PAT,
-    WILDCARD_PAT,
+    WILDCARD_PAT @PAT_LAST,
 
     LUA_BREAK_EXPR,
     LUA_LIT_EXPR,
@@ -499,7 +501,7 @@ def! {
     LUA_PARAM,
     LUA_NAME,
 
-    LUA_FUNCTION_STMT,
+    LUA_FUNCTION_STMT @LUA_STMT_FIRST,
     LUA_CONTINUE_STMT,
     LUA_BREAK_STMT,
     LUA_RETURN_STMT,
@@ -510,7 +512,7 @@ def! {
     LUA_ELSEIF_STMT,
     LUA_FOR_STMT,
     LUA_LOCAL_STMT,
-    LUA_REPEAT_STMT,
+    LUA_REPEAT_STMT @LUA_STMT_LAST,
 }
 
 #[derive(Clone)]
@@ -590,6 +592,38 @@ impl Syntax {
 
     pub fn is_item(self) -> bool {
         (Self::ITEM_FIRST as u16..=Self::ITEM_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_elem(self) -> bool {
+        matches!(self, Self::FIELD | Self::FN_ITEM)
+    }
+
+    pub fn is_stmt(self) -> bool {
+        (Self::STMT_FIRST as u16..=Self::STMT_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_expr(self) -> bool {
+        (Self::EXPR_FIRST as u16..=Self::EXPR_LAST as u16).contains(&(self as u16))
+    }
+    pub fn is_use(self) -> bool {
+        (Self::USE_FIRST as u16..=Self::USE_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_pattern(self) -> bool {
+        (Self::PAT_FIRST as u16..=Self::PAT_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_type_expr(self) -> bool {
+        (Self::TYPE_EXPR_FIRST as u16..=Self::TYPE_EXPR_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_item_type_expr(self) -> bool {
+        (Self::ITEM_TYPE_EXPR_FIRST as u16..=Self::ITEM_TYPE_EXPR_LAST as u16)
+            .contains(&(self as u16))
+    }
+
+    pub fn is_lua_stmt(self) -> bool {
+        (Self::LUA_STMT_FIRST as u16..=Self::LUA_STMT_LAST as u16).contains(&(self as u16))
     }
 }
 

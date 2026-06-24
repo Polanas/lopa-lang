@@ -1429,17 +1429,31 @@ mod test {
     }
 
     #[track_caller]
-    fn parse(source: &str, f: impl FnOnce(&mut Parser)) -> String {
+    fn try_parse(source: &str, f: impl FnOnce(&mut Parser)) -> (String, Vec<super::ParseError>) {
         let mut parser = Parser::new(source);
         f(&mut parser);
         let (node, errors) = parser.build_tree();
-        if !errors.is_empty() {
-            panic!("{:?}", errors);
-        }
         let node = SyntaxNode::new_root(node);
         let mut result = String::new();
 
         parse_rec(NodeOrToken::Node(node), &mut result, 0);
+        println!("{result}");
+        (result, errors)
+    }
+
+    #[track_caller]
+    fn parse(source: &str, f: impl FnOnce(&mut Parser)) -> String {
+        let (result, errs) = try_parse(source, f);
+        if !errs.is_empty() {
+            let mut output = String::new();
+            for err in errs {
+                let range =
+                    (u32::from(err.range.start()) as usize)..(u32::from(err.range.end()) as usize);
+                output.push_str(&format!("{:?}, token: {}", err.kind, &source[range]));
+                output.push('\n');
+            }
+            panic!("{output}");
+        }
         result
     }
 
@@ -1680,19 +1694,16 @@ mod test {
         insta::assert_snapshot!(parse("1_000_000", |p| p.expr()));
     }
 
-    // #[test]
-    // fn temp() {
-    //     println!(
-    //         "{}",
-    //         parse(
-    //             "
-    //             impl Y
-    //             struct X {
-    //             }",
-    //             |p| p.module()
-    //         )
-    //     );
-    // }
+    #[test]
+    fn temp() {
+        println!(
+            "{}",
+            parse(
+                "fn test(a b c) {}",
+                |p| p.module()
+            )
+        );
+    }
 
     #[test]
     fn lua() {

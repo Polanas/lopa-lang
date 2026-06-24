@@ -1,13 +1,13 @@
 use super::{lexer::Syntax, parser};
 use crate::T;
 use crate::common::LitKind;
-use rowan::NodeOrToken;
 use rowan::ast::support::{child, children, token};
 use rowan::ast::{AstChildren, AstNode};
 use ustr::Ustr;
 
 pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
 pub type SyntaxToken = rowan::SyntaxToken<parser::Lang>;
+pub type NodeOrToken = rowan::NodeOrToken<SyntaxNode, SyntaxToken>;
 pub type SyntaxNodePtr = rowan::ast::SyntaxNodePtr<parser::Lang>;
 pub type AstPtr<N> = rowan::ast::AstPtr<N>;
 
@@ -490,9 +490,10 @@ structs! {
         self_token: T![self],
         pattern: Pattern,
         colon_token: T![:],
-        ty: TypeExpr,
+        type_expr: TypeExpr,
         eq_token: T![=],
         default_value: Expr,
+        comma_token: T![,],
     },
     EXPR_STMT = ExprStmt {
         expr: Expr,
@@ -522,9 +523,14 @@ structs! {
         ty: TypeExpr,
         mark_token: T![?],
     },
-    ANY_TYPE = AnyType { },
-    UNIT_TYPE = UnitType {},
+    ANY_TYPE = AnyType {
+        path: PathType,
+    },
+    UNIT_TYPE = UnitType {
+        path: PathType,
+    },
     LIT_TYPE = LitType {
+        path: PathType,
         pub fn kind(&self) -> Option<LitKind> {
             let token = self.syntax().first_token()?;
             let Syntax::IDENT = token.kind() else {
@@ -871,15 +877,16 @@ enums! {
         UseGlobal,
         UseTreeList,
     },
+    //After modifying, don't forget to also change Syntax::is_elem!!!
     StructElem {
         Field,
         FnItem,
     },
+    //After modifying, don't forget to also change Syntax::is_elem!!!
     EnumElem {
         Field,
         FnItem,
     },
-    //TODO: finish patterns
     Pattern {
         NamePattern,
         PathPattern,
