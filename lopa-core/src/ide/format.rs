@@ -150,7 +150,8 @@ macro_rules! fmt {
     (
         @match $iter:ident,
         $self:ident,
-        $(@next: $next:ident, $(@prev: $prev:ident,)? )?
+        @next: $next:ident,
+        @prev: $prev:ident,
         $child:ident,
         $node:ident,
         $token:ident,
@@ -170,11 +171,25 @@ macro_rules! fmt {
                 COMMENT => {
                     #[allow(unused_variables)]
                     let token = $child.as_token().unwrap();
-                    $self.token(token);
-                    if let Some(rowan::NodeOrToken::Token(token)) = $iter.peek()
+                    let Some(parent) = token.parent() else {
+                        continue;
+                    };
+                    if let Some(rowan::NodeOrToken::Token(token)) = $prev
                         && token.kind() == WHITESPACE
+                        && (parent.kind().is_item())
                     {
-                        $self.token(token);
+                        if token.text().contains("\n") {
+                            $self.new_line();
+                        } else {
+                            $self.token(&token);
+                        }
+                    }
+                    $self.token(token);
+                    match parent.kind() {
+                        kind if kind.is_item() => {}
+                        _ => {
+                            $self.new_line();
+                        }
                     }
                 }
                 _ => {}
@@ -185,36 +200,97 @@ macro_rules! fmt {
         $self:ident,
         |
             $node:ident,
-            $token:ident
-            $(,$next:ident $(,$prev:ident)?)? |
+            $token:ident |
         $($input:tt)*) => {
             let mut iter = $ast_item.syntax().children_with_tokens().peekable();
-            $(
-                $(
-                    #[allow(unused_variables)]
-                    let mut $prev: Option<ast::NodeOrToken> = None;
-                )?
-            )?
+            #[allow(unused_variables)]
+            let mut prev: Option<ast::NodeOrToken> = None;
             #[allow(unused_assignments)]
             while let Some(child) = iter.next() {
                 fmt! {
                     @match
                     iter,
                     $self,
-                    $(@next: $next, $(@prev: $prev,)? )?
+                    @next: next,
+                    @prev: prev,
                     child,
                     $node,
                     $token,
                     { },
                     $($input)*
                 }
-                $(
-                    $(
-                        $prev = Some(child.clone());
-                    )?
-                )?
+                prev = Some(child.clone());
             }
     };
+    (
+        $ast_item:ident,
+        $self:ident,
+        |
+            $node:ident,
+            $token:ident,
+            $next: ident |
+        $($input:tt)*) => {
+            let mut iter = $ast_item.syntax().children_with_tokens().peekable();
+            #[allow(unused_variables)]
+            let mut prev: Option<ast::NodeOrToken> = None;
+            #[allow(unused_assignments)]
+            while let Some(child) = iter.next() {
+                fmt! {
+                    @match
+                    iter,
+                    $self,
+                    @next: $next,
+                    @prev: prev,
+                    child,
+                    $node,
+                    $token,
+                    { },
+                    $($input)*
+                }
+                prev = Some(child.clone());
+            }
+    };
+    (
+        $ast_item:ident,
+        $self:ident,
+        |
+            $node:ident,
+            $token:ident,
+            $next:ident,
+            $prev:ident |
+        $($input:tt)*) => {
+            let mut iter = $ast_item.syntax().children_with_tokens().peekable();
+            #[allow(unused_variables)]
+            let mut $prev: Option<ast::NodeOrToken> = None;
+            #[allow(unused_assignments)]
+            while let Some(child) = iter.next() {
+                fmt! {
+                    @match
+                    iter,
+                    $self,
+                    @next: $next,
+                    @prev: $prev,
+                    child,
+                    $node,
+                    $token,
+                    { },
+                    $($input)*
+                }
+                $prev = Some(child.clone());
+            }
+    };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ItemKind {
+    Global,
+    Type,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FnItemKind {
+    Global,
+    Impl,
 }
 
 impl Context {
@@ -222,15 +298,85 @@ impl Context {
         fmt! {
             file, self, |node, token|
             FnItem(FN_ITEM) => {
-                self.fn_item(node);
+                self.fn_item(node, FnItemKind::Global);
             }
             StructItem(STRUCT_ITEM) => {
-                self.struct_item(node);
+                self.struct_item(node, ItemKind::Global);
+            }
+            EnumItem(ENUM_ITEM) => {
+                self.enum_item(node, ItemKind::Global);
+            }
+            ModItem(MOD_ITEM) => {
+                self.mod_item(node);
+            }
+            ImplItem(IMPL_ITEM) => {
+                self.impl_item(node);
             }
         }
     }
 
-    fn struct_item(&mut self, struct_item: ast::StructItem) {
+    fn impl_item(&mut self, impl_item: ast::ImplItem) {
+        let mut is_first_fn = true;
+        fmt! {
+            impl_item, self, |node, token, next, prev|
+            T![impl] => {
+                self.token_space(token);
+            }
+            Generics(GENERICS) => {
+                self.generics(node);
+            }
+            ImplStructType(IMPL_STRUCT_TYPE) => {
+                fmt! {
+                    node, self, |node, token|
+                    TypeExpr(expr) if expr.is_type_expr() => {
+                        self.type_expr(node);
+                    }
+                }
+            }
+            TypeExpr(expr) if expr.is_type_expr() => {
+                self.type_expr(node);
+            }
+            T![for] => {
+                self.token_space(token);
+            }
+            T!["{"] => {
+                self.token(token);
+                self.acc_ident();
+            }
+            T!["}"] => {
+                self.dec_ident();
+                self.new_line();
+                self.token(token);
+                self.new_line();
+                self.new_line();
+            }
+            FnItem(FN_ITEM) => {
+                if !is_first_fn {
+                    self.new_line();
+                }
+                self.new_line();
+                self.fn_item(node, FnItemKind::Impl);
+                is_first_fn = false;
+            }
+        }
+    }
+
+    fn mod_item(&mut self, mod_item: ast::ModItem) {
+        fmt! {
+            mod_item, self, |node, token|
+            T![mod] => {
+                self.token_space(token);
+            }
+            Name(NAME) => {
+                self.name(node);
+            }
+            T![;] => {
+                self.token(token);
+            }
+        }
+    }
+
+    fn struct_item(&mut self, struct_item: ast::StructItem, item_kind: ItemKind) {
         fmt! {
             struct_item, self, |node, token, next, prev|
             T![struct] => {
@@ -262,21 +408,22 @@ impl Context {
             T!["{"] => {
                 self.token(token);
                 self.acc_ident();
-                self.new_line();
             }
             StructElem(elem) if elem.is_elem() => {
+                self.new_line();
                 self.struct_elem(node);
             }
             T![,] => {
                 self.token(token);
-                self.new_line();
             }
             T!["}"] => {
                 self.dec_ident();
                 self.new_line();
                 self.token(token);
-                self.new_line();
-                self.new_line();
+                if item_kind == ItemKind::Global {
+                    self.new_line();
+                    self.new_line();
+                }
             }
         }
     }
@@ -284,7 +431,7 @@ impl Context {
     fn struct_elem(&mut self, elem: ast::StructElem) {
         match elem {
             StructElem::Field(field) => self.field(field),
-            StructElem::FnItem(fn_item) => self.fn_item(fn_item),
+            StructElem::FnItem(fn_item) => self.fn_item(fn_item, FnItemKind::Impl),
         }
     }
 
@@ -315,7 +462,7 @@ impl Context {
                 fmt! {
                     struct_item_type, self, |node, token|
                     StructItem(STRUCT_ITEM) =>  {
-                        self.struct_item(node);
+                        self.struct_item(node, ItemKind::Type);
                     }
                 }
             }
@@ -323,7 +470,7 @@ impl Context {
                 fmt! {
                     enum_item_type, self, |node, token|
                     EnumItem(ENUM_ITEM) =>  {
-                        self.enum_item(node);
+                        self.enum_item(node, ItemKind::Type);
                     }
                 }
             }
@@ -338,7 +485,64 @@ impl Context {
         }
     }
 
-    fn enum_item(&mut self, enum_item: ast::EnumItem) {}
+    fn enum_item(&mut self, enum_item: ast::EnumItem, item_kind: ItemKind) {
+        fmt! {
+            enum_item, self, |node, token, next, prev|
+            T![enum] => {
+                self.token_space(token);
+            }
+            Name(NAME) => {
+                self.name(node);
+                if let Some(rowan::NodeOrToken::Node(n)) = next
+                    && n.kind() == PARENT {
+                        continue;
+                }
+                self.space();
+            }
+            T![" "] => {
+                if let Some(rowan::NodeOrToken::Node(n)) = next
+                    && n.kind() == PARENT
+                    && let Some(rowan::NodeOrToken::Node(prev)) = prev
+                    && prev.kind() == NAME {
+                        self.output.remove(self.output.len()-1);
+                }
+            }
+            Generics(GENERICS) => {
+                self.generics(node);
+                self.space();
+            }
+            Parent(PARENT) => {
+                self.parent(node)
+            }
+            T!["{"] => {
+                self.token(token);
+                self.acc_ident();
+            }
+            EnumElem(elem) if elem.is_elem() => {
+                self.new_line();
+                self.enum_elem(node);
+            }
+            T![,] => {
+                self.token(token);
+            }
+            T!["}"] => {
+                self.dec_ident();
+                self.new_line();
+                self.token(token);
+                if item_kind == ItemKind::Global {
+                    self.new_line();
+                    self.new_line();
+                }
+            }
+        }
+    }
+
+    fn enum_elem(&mut self, elem: ast::EnumElem) {
+        match elem {
+            EnumElem::Field(field) => self.field(field),
+            EnumElem::FnItem(fn_item) => self.fn_item(fn_item, FnItemKind::Impl),
+        }
+    }
 
     fn parent(&mut self, parent: ast::Parent) {
         fmt! {
@@ -353,7 +557,7 @@ impl Context {
         }
     }
 
-    fn fn_item(&mut self, fn_item: ast::FnItem) {
+    fn fn_item(&mut self, fn_item: ast::FnItem, kind: FnItemKind) {
         fmt! {
             fn_item, self, |node, token|
             T![fn] => {
@@ -375,8 +579,25 @@ impl Context {
                 self.token(token);
             }
             BlockExpr(BLOCK_EXPR) => {
-                self.expr(ast::Expr::BlockExpr(node));
-                self.new_line();
+            fmt! {
+                node, self, |node, token|
+                T!["{"] => {
+                    self.token(token);
+                    self.acc_ident();
+                    self.new_line();
+                }
+                T!["}"] => {
+                    self.dec_ident();
+                    self.new_line();
+                    self.token(token);
+                    if kind == FnItemKind::Global {
+                        self.new_line();
+                    }
+                }
+        }
+                if kind == FnItemKind::Global {
+                    self.new_line();
+                }
             }
         }
     }
