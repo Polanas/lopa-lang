@@ -14,138 +14,206 @@ struct Context {
 }
 
 macro_rules! fmt {
-    (@match $iter:ident, $self:ident, $(@next: $next:ident,)? $child:ident, $node:ident, $token:ident, { $($acc:tt)* }, $ast:ident($var:ident) if $cond:expr  => $b:block $($tail:tt)* ) => {
-        fmt! {
-            @match
-            $iter,
-            $self,
-            $(@next: $next,)?
-            $child,
-            $node,
-            $token,
-            {
-                $($acc)*
-                $var if $cond => {
-                    let node = $child.as_node().cloned().unwrap();
-                    if let Some($node) = ast::$ast::cast(node) {
-                        $(
-                            #[allow(unused_variables)]
-                            let $next = $iter.peek();
-                        )?
-                        $b
-                    }
-                },
-            },
-            $($tail)*
-        }
-
-    };
-    (@match $iter:ident, $self:ident, $(@next: $next:ident,)? $child:ident, $node:ident, $token:ident, { $($acc:tt)* }, $ast:ident($kind:ident) => $b:block $($tail:tt)* ) => {
-        fmt! {
-            @match
-            $iter,
-            $self,
-            $(@next: $next,)?
-            $child,
-            $node,
-            $token,
-            {
-                $($acc)*
-                $kind => {
-                    #[allow(unused_variables)]
-                    let node = $child.as_node().cloned().unwrap();
-                    if let Some($node) = ast::$ast::cast(node) {
-                        $(
-                            #[allow(unused_variables)]
-                            let $next = $iter.peek();
-                        )?
-                        $b
-                    }
-                },
-            },
-            $($tail)*
-        }
-
-    };
-    (@match $iter:ident, $self:ident, $(@next: $next:ident,)? $child:ident, $node:ident, $token:ident, { $($acc:tt)* }, $kind:ident => $b:block $($tail:tt)* ) => {
-        fmt! {
-            @match
-            $iter,
-            $self,
-            $(@next: $next,)?
-            $child,
-            $node,
-            $token,
-            {
-                $($acc)*
-                $kind => {
-                    #[allow(unused_variables)]
-                    let $token = $child.as_token().unwrap();
-                    $(
-                        #[allow(unused_variables)]
-                        let $next = $iter.peek();
-                    )?
-                    $b
-                },
-            },
-            $($tail)*
-        }
-    };
-    (@match $iter:ident, $self:ident, $(@next: $next:ident,)? $child:ident, $node:ident, $token:ident, { $($acc:tt)* }, T![$tok:tt] => $b:block $($tail:tt)* ) => {
-        fmt! {
-            @match
-            $iter,
-            $self,
-            $(@next: $next,)?
-            $child,
-            $node,
-            $token,
-            {
-                $($acc)*
-                T![$tok] => {
-                    #[allow(unused_variables)]
-                    let $token = $child.as_token().unwrap();
-                    $(
-                        #[allow(unused_variables)]
-                        let $next = $iter.peek();
-                    )?
-                    $b
-                },
-            },
-            $($tail)*
-        }
-    };
-    (@match $iter:ident, $self:ident, $(@next: $next:ident,)? $child:ident, $node:ident, $token:ident, { $($acc:tt)* },) => {
-        match $child.kind() {
-            $($acc)*
-            ERROR => {
-                #[allow(unused_variables)]
-                let token = $child.as_token().unwrap();
-                $self.token(token);
-                if let Some(rowan::NodeOrToken::Token(token)) = $iter.peek()
-                    && token.kind() == WHITESPACE
-                {
-                    $self.token(token);
-                }
-            }
-            _ => {}
-        }
-    };
-    ($ast_item:ident, $self:ident, |$node:ident, $token:ident $(,$next:ident)?| $($input:tt)*) => {
-        let mut iter = $ast_item.syntax().children_with_tokens().peekable();
-        while let Some(child) = iter.next() {
+    (
+        @match $iter:ident,
+        $self:ident,
+        $(@next: $next:ident, $(@prev: $prev:ident,)? )?
+        $child:ident,
+        $node:ident,
+        $token:ident,
+        { $($acc:tt)* },
+        $ast:ident($var:ident) if $cond:expr => $b:block $($tail:tt)* ) => {
             fmt! {
                 @match
-                iter,
+                $iter,
                 $self,
-                $(@next: $next,)?
-                child,
+                $(@next: $next, $(@prev: $prev,)? )?
+                $child,
                 $node,
                 $token,
-                { },
-                $($input)*
+                {
+                    $($acc)*
+                    $var if $cond => {
+                        let node = $child.as_node().cloned().unwrap();
+                        if let Some($node) = ast::$ast::cast(node) {
+                            $(
+                                #[allow(unused_variables)]
+                                let $next = $iter.peek();
+                            )?
+                            $b
+                        }
+                    },
+                },
+                $($tail)*
             }
-        }
+
+    };
+    (
+        @match $iter:ident,
+        $self:ident,
+        $(@next: $next:ident, $(@prev: $prev:ident,)? )?
+        $child:ident,
+        $node:ident,
+        $token:ident,
+        { $($acc:tt)* },
+        $ast:ident($kind:ident) => $b:block $($tail:tt)* ) => {
+            fmt! {
+                @match
+                $iter,
+                $self,
+                $(@next: $next, $(@prev: $prev,)? )?
+                $child,
+                $node,
+                $token,
+                {
+                    $($acc)*
+                    $kind => {
+                        #[allow(unused_variables)]
+                        let node = $child.as_node().cloned().unwrap();
+                        if let Some($node) = ast::$ast::cast(node) {
+                            $(
+                                #[allow(unused_variables)]
+                                let $next = $iter.peek();
+                            )?
+                            $b
+                        }
+                    },
+                },
+                $($tail)*
+            }
+
+    };
+    (
+        @match $iter:ident,
+        $self:ident,
+        $(@next: $next:ident, $(@prev: $prev:ident,)? )?
+        $child:ident,
+        $node:ident,
+        $token:ident,
+        { $($acc:tt)* },
+        $kind:ident => $b:block $($tail:tt)* ) => {
+            fmt! {
+                @match
+                $iter,
+                $self,
+                $(@next: $next, $(@prev: $prev,)? )?
+                $child,
+                $node,
+                $token,
+                {
+                    $($acc)*
+                    $kind => {
+                        #[allow(unused_variables)]
+                        let $token = $child.as_token().unwrap();
+                        $(
+                            #[allow(unused_variables)]
+                            let $next = $iter.peek();
+                        )?
+                        $b
+                    },
+                },
+                $($tail)*
+            }
+    };
+    (
+        @match $iter:ident,
+        $self:ident,
+        $(@next: $next:ident, $(@prev: $prev:ident,)? )?
+        $child:ident,
+        $node:ident,
+        $token:ident,
+        { $($acc:tt)* },
+        T![$tok:tt] => $b:block $($tail:tt)* ) => {
+            fmt! {
+                @match
+                $iter,
+                $self,
+                $(@next: $next, $(@prev: $prev,)? )?
+                $child,
+                $node,
+                $token,
+                {
+                    $($acc)*
+                    T![$tok] => {
+                        #[allow(unused_variables)]
+                        let $token = $child.as_token().unwrap();
+                        $(
+                            #[allow(unused_variables)]
+                            let $next = $iter.peek();
+                        )?
+                        $b
+                    },
+                },
+                $($tail)*
+            }
+    };
+    (
+        @match $iter:ident,
+        $self:ident,
+        $(@next: $next:ident, $(@prev: $prev:ident,)? )?
+        $child:ident,
+        $node:ident,
+        $token:ident,
+        { $($acc:tt)* },) => {
+            match $child.kind() {
+                $($acc)*
+                ERROR => {
+                    #[allow(unused_variables)]
+                    let token = $child.as_token().unwrap();
+                    $self.token(token);
+                    if let Some(rowan::NodeOrToken::Token(token)) = $iter.peek()
+                        && token.kind() == WHITESPACE
+                    {
+                        $self.token(token);
+                    }
+                }
+                COMMENT => {
+                    #[allow(unused_variables)]
+                    let token = $child.as_token().unwrap();
+                    $self.token(token);
+                    if let Some(rowan::NodeOrToken::Token(token)) = $iter.peek()
+                        && token.kind() == WHITESPACE
+                    {
+                        $self.token(token);
+                    }
+                }
+                _ => {}
+            }
+    };
+    (
+        $ast_item:ident,
+        $self:ident,
+        |
+            $node:ident,
+            $token:ident
+            $(,$next:ident $(,$prev:ident)?)? |
+        $($input:tt)*) => {
+            let mut iter = $ast_item.syntax().children_with_tokens().peekable();
+            $(
+                $(
+                    #[allow(unused_variables)]
+                    let mut $prev: Option<ast::NodeOrToken> = None;
+                )?
+            )?
+            #[allow(unused_assignments)]
+            while let Some(child) = iter.next() {
+                fmt! {
+                    @match
+                    iter,
+                    $self,
+                    $(@next: $next, $(@prev: $prev,)? )?
+                    child,
+                    $node,
+                    $token,
+                    { },
+                    $($input)*
+                }
+                $(
+                    $(
+                        $prev = Some(child.clone());
+                    )?
+                )?
+            }
     };
 }
 
@@ -164,31 +232,123 @@ impl Context {
 
     fn struct_item(&mut self, struct_item: ast::StructItem) {
         fmt! {
-            struct_item, self, |node, token|
+            struct_item, self, |node, token, next, prev|
             T![struct] => {
                 self.token_space(token);
             }
             Name(NAME) => {
                 self.name(node);
+                if let Some(rowan::NodeOrToken::Node(n)) = next
+                    && n.kind() == PARENT {
+                        continue;
+                }
                 self.space();
+            }
+            T![" "] => {
+                if let Some(rowan::NodeOrToken::Node(n)) = next
+                    && n.kind() == PARENT
+                    && let Some(rowan::NodeOrToken::Node(prev)) = prev
+                    && prev.kind() == NAME {
+                        self.output.remove(self.output.len()-1);
+                }
             }
             Generics(GENERICS) => {
                 self.generics(node);
+                self.space();
             }
             Parent(PARENT) => {
                 self.parent(node)
             }
+            T!["{"] => {
+                self.token(token);
+                self.acc_ident();
+                self.new_line();
+            }
+            StructElem(elem) if elem.is_elem() => {
+                self.struct_elem(node);
+            }
+            T![,] => {
+                self.token(token);
+                self.new_line();
+            }
+            T!["}"] => {
+                self.dec_ident();
+                self.new_line();
+                self.token(token);
+                self.new_line();
+                self.new_line();
+            }
         }
     }
+
+    fn struct_elem(&mut self, elem: ast::StructElem) {
+        match elem {
+            StructElem::Field(field) => self.field(field),
+            StructElem::FnItem(fn_item) => self.fn_item(fn_item),
+        }
+    }
+
+    fn field(&mut self, field: ast::Field) {
+        fmt! {
+            field, self, |node, token|
+            Name(NAME) => {
+                self.name(node)
+            }
+            T![:] => {
+                self.token_space(token);
+            }
+            ItemTypeExpr(expr) if expr.is_item_type_expr() => {
+                self.item_type_expr(node);
+            }
+            T![=] => {
+                self.token_space(token);
+            }
+            Expr(expr) if expr.is_expr() => {
+                self.expr(node);
+            }
+        }
+    }
+
+    fn item_type_expr(&mut self, type_expr: ast::ItemTypeExpr) {
+        match type_expr {
+            ItemTypeExpr::StructItemType(struct_item_type) => {
+                fmt! {
+                    struct_item_type, self, |node, token|
+                    StructItem(STRUCT_ITEM) =>  {
+                        self.struct_item(node);
+                    }
+                }
+            }
+            ItemTypeExpr::EnumItemType(enum_item_type) => {
+                fmt! {
+                    enum_item_type, self, |node, token|
+                    EnumItem(ENUM_ITEM) =>  {
+                        self.enum_item(node);
+                    }
+                }
+            }
+            ItemTypeExpr::ItemType(item_type) => {
+                fmt! {
+                    item_type, self, |node, token|
+                    TypeExpr(expr) if expr.is_type_expr() => {
+                        self.type_expr(node);
+                    }
+                }
+            }
+        }
+    }
+
+    fn enum_item(&mut self, enum_item: ast::EnumItem) {}
 
     fn parent(&mut self, parent: ast::Parent) {
         fmt! {
             parent, self, |node, token|
             T![:] => {
-                self.token(token);
+                self.token_space(token);
             }
             Name(NAME) => {
                 self.name(node);
+                self.space();
             }
         }
     }
@@ -216,6 +376,7 @@ impl Context {
             }
             BlockExpr(BLOCK_EXPR) => {
                 self.expr(ast::Expr::BlockExpr(node));
+                self.new_line();
             }
         }
     }
@@ -368,13 +529,14 @@ impl Context {
             block_expr, self, |node, token|
             T!["{"] => {
                 self.token(token);
-                self.new_line();
                 self.acc_ident();
+                self.new_line();
             }
             T!["}"] => {
                 self.dec_ident();
                 self.new_line();
                 self.token(token);
+                self.new_line();
             }
         }
     }
