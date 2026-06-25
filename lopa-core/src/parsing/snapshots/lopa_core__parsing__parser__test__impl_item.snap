@@ -27,9 +27,9 @@ IMPL_ITEM: 0..104
       IDENT: 41..50 "debug_fmt"
     PARAM_LIST: 50..70 
       L_PAREN: 50..51 "("
-      PARAM: 51..56 
+      PARAM: 51..55 
         SELF_KW: 51..55 "self"
-        COMMA: 55..56 ","
+      COMMA: 55..56 ","
       WHITESPACE: 56..57 
       PARAM: 57..69 
         NAME_PAT: 57..58 

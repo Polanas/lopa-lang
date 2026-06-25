@@ -1,88 +1,83 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"struct MyStruct: Parent1, Parent2 {\n                    foo: Foo,\n                    bar: Bar,\n                    fn test(self) -> FooBar {\n                        self.foo + self.bar\n                    }\n                }\n                \",\n|p| p.struct_item())"
+expression: "parse(\"struct MyStruct: Parent{\n                    foo: Foo,\n                    bar: Bar,\n                    fn test(self) -> FooBar {\n                        self.foo + self.bar\n                    }\n                }\n                \",\n|p| p.struct_item())"
 ---
-STRUCT_ITEM: 0..225 
+STRUCT_ITEM: 0..214 
   STRUCT_KW: 0..6 "struct"
   WHITESPACE: 6..7 
   NAME: 7..15 
     IDENT: 7..15 "MyStruct"
-  COLON: 15..16 ":"
-  WHITESPACE: 16..17 
-  PARENTS_LIST: 17..33 
-    NAME: 17..24 
-      IDENT: 17..24 "Parent1"
-    COMMA: 24..25 ","
-    WHITESPACE: 25..26 
-    NAME: 26..33 
-      IDENT: 26..33 "Parent2"
-  WHITESPACE: 33..34 
-  L_BRACE: 34..35 "{"
-  WHITESPACE: 35..56 
-  FIELD: 56..64 
-    NAME: 56..59 
-      IDENT: 56..59 "foo"
-    COLON: 59..60 ":"
-    WHITESPACE: 60..61 
-    ITEM_TYPE: 61..64 
-      PATH_TYPE: 61..64 
-        PATH: 61..64 
-          PATH_SEGMENT: 61..64 
-            IDENT: 61..64 "Foo"
-  COMMA: 64..65 ","
-  WHITESPACE: 65..86 
-  FIELD: 86..94 
-    NAME: 86..89 
-      IDENT: 86..89 "bar"
-    COLON: 89..90 ":"
-    WHITESPACE: 90..91 
-    ITEM_TYPE: 91..94 
-      PATH_TYPE: 91..94 
-        PATH: 91..94 
-          PATH_SEGMENT: 91..94 
-            IDENT: 91..94 "Bar"
-  COMMA: 94..95 ","
-  WHITESPACE: 95..116 
-  FN_ITEM: 116..207 
-    FN_KW: 116..118 "fn"
+  PARENT: 15..23 
+    COLON: 15..16 ":"
+    WHITESPACE: 16..17 
+    NAME: 17..23 
+      IDENT: 17..23 "Parent"
+  L_BRACE: 23..24 "{"
+  WHITESPACE: 24..45 
+  FIELD: 45..53 
+    NAME: 45..48 
+      IDENT: 45..48 "foo"
+    COLON: 48..49 ":"
+    WHITESPACE: 49..50 
+    ITEM_TYPE: 50..53 
+      PATH_TYPE: 50..53 
+        PATH: 50..53 
+          PATH_SEGMENT: 50..53 
+            IDENT: 50..53 "Foo"
+  COMMA: 53..54 ","
+  WHITESPACE: 54..75 
+  FIELD: 75..83 
+    NAME: 75..78 
+      IDENT: 75..78 "bar"
+    COLON: 78..79 ":"
+    WHITESPACE: 79..80 
+    ITEM_TYPE: 80..83 
+      PATH_TYPE: 80..83 
+        PATH: 80..83 
+          PATH_SEGMENT: 80..83 
+            IDENT: 80..83 "Bar"
+  COMMA: 83..84 ","
+  WHITESPACE: 84..105 
+  FN_ITEM: 105..196 
+    FN_KW: 105..107 "fn"
+    WHITESPACE: 107..108 
+    NAME: 108..112 
+      IDENT: 108..112 "test"
+    PARAM_LIST: 112..118 
+      L_PAREN: 112..113 "("
+      PARAM: 113..117 
+        SELF_KW: 113..117 "self"
+      R_PAREN: 117..118 ")"
     WHITESPACE: 118..119 
-    NAME: 119..123 
-      IDENT: 119..123 "test"
-    PARAM_LIST: 123..129 
-      L_PAREN: 123..124 "("
-      PARAM: 124..128 
-        SELF_KW: 124..128 "self"
-      R_PAREN: 128..129 ")"
-    WHITESPACE: 129..130 
-    RETURN_TYPE: 130..139 
-      ARROW: 130..132 "->"
-      WHITESPACE: 132..133 
-      PATH_TYPE: 133..139 
-        PATH: 133..139 
-          PATH_SEGMENT: 133..139 
-            IDENT: 133..139 "FooBar"
-    WHITESPACE: 139..140 
-    BLOCK_EXPR: 140..207 
-      L_BRACE: 140..141 "{"
-      WHITESPACE: 141..166 
-      EXPR_STMT: 166..185 
-        BINARY_EXPR: 166..185 
+    RETURN_TYPE: 119..128 
+      ARROW: 119..121 "->"
+      WHITESPACE: 121..122 
+      PATH_TYPE: 122..128 
+        PATH: 122..128 
+          PATH_SEGMENT: 122..128 
+            IDENT: 122..128 "FooBar"
+    WHITESPACE: 128..129 
+    BLOCK_EXPR: 129..196 
+      L_BRACE: 129..130 "{"
+      WHITESPACE: 130..155 
+      EXPR_STMT: 155..174 
+        BINARY_EXPR: 155..174 
+          FIELD_EXPR: 155..163 
+            SELF_EXPR: 155..159 
+              SELF_KW: 155..159 "self"
+            DOT: 159..160 "."
+            NAME: 160..163 
+              IDENT: 160..163 "foo"
+          WHITESPACE: 163..164 
+          PLUS: 164..165 "+"
+          WHITESPACE: 165..166 
           FIELD_EXPR: 166..174 
             SELF_EXPR: 166..170 
               SELF_KW: 166..170 "self"
             DOT: 170..171 "."
             NAME: 171..174 
-              IDENT: 171..174 "foo"
-          WHITESPACE: 174..175 
-          PLUS: 175..176 "+"
-          WHITESPACE: 176..177 
-          FIELD_EXPR: 177..185 
-            SELF_EXPR: 177..181 
-              SELF_KW: 177..181 "self"
-            DOT: 181..182 "."
-            NAME: 182..185 
-              IDENT: 182..185 "bar"
-      WHITESPACE: 185..206 
-      R_BRACE: 206..207 "}"
-  WHITESPACE: 207..224 
-  R_BRACE: 224..225 "}"
+              IDENT: 171..174 "bar"
+      WHITESPACE: 174..195 
+      R_BRACE: 195..196 "}"
+  WHITESPACE: 196..213 
+  R_BRACE: 213..214 "}"

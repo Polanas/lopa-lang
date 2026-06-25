@@ -1,4 +1,4 @@
-use crate::parsing::lexer::Syntax::*;
+use crate::parsing::{ast::*, lexer::Syntax::*};
 use notify_rust::Notification;
 use rowan::{SyntaxElementChildren, SyntaxNode, ast::AstNode};
 
@@ -131,7 +131,7 @@ macro_rules! fmt {
             _ => {}
         }
     };
-    ($ast_item:ident, $self:ident, $($next:ident,)? |$node:ident, $token:ident| $($input:tt)*) => {
+    ($ast_item:ident, $self:ident, |$node:ident, $token:ident $(,$next:ident)?| $($input:tt)*) => {
         let mut iter = $ast_item.syntax().children_with_tokens().peekable();
         while let Some(child) = iter.next() {
             fmt! {
@@ -156,6 +156,25 @@ impl Context {
             FnItem(FN_ITEM) => {
                 self.fn_item(node);
             }
+            StructItem(STRUCT_ITEM) => {
+                self.struct_item(node);
+            }
+        }
+    }
+
+    fn struct_item(&mut self, struct_item: ast::StructItem) {
+        fmt! {
+            struct_item, self, |node, token|
+            T![struct] => {
+                self.token_space(token);
+            }
+            Name(NAME) => {
+                self.name(node);
+                self.space();
+            }
+            Generics(GENERICS) => {
+                self.generics(node);
+            }
         }
     }
 
@@ -168,14 +187,54 @@ impl Context {
             Name(NAME) => {
                 self.name(node);
             }
+            Generics(GENERICS) => {
+                self.generics(node);
+            }
             ParamList(PARAM_LIST) => {
                 self.param_list(node);
             }
             ReturnType(RETURN_TYPE) => {
                 self.output(node);
             }
+            T![;] => {
+                self.token(token);
+            }
             BlockExpr(BLOCK_EXPR) => {
                 self.expr(ast::Expr::BlockExpr(node));
+            }
+        }
+    }
+
+    fn generics(&mut self, generics: ast::Generics) {
+        fmt! {
+            generics, self, |node, token, next|
+            T![<] => {
+                self.token(token);
+            }
+            TypeParam(TYPE_PARAM) => {
+                fmt! {
+                    node, self, |node, token|
+                    Name(NAME) => {
+                        self.name(node);
+                    }
+                    T![:] => {
+                        self.token(token);
+                    }
+                    TypeExpr(bound) if bound.is_type_expr() => {
+                        self.type_expr(node);
+                    }
+                }
+
+            }
+            T![,] => {
+                if let Some(rowan::NodeOrToken::Token(t)) = next && t.kind() == T![")"] {
+                    self.token(token);
+                } else {
+                    self.token_space(token);
+                }
+            }
+            T![>] => {
+                self.token(token);
             }
         }
     }
@@ -184,7 +243,20 @@ impl Context {
         fmt! {
             output, self, |node, token|
             T![->] => {
-                self.token(token);
+                self.token_space(token);
+            }
+            TypeExpr(expr) if expr.is_type_expr() => {
+                self.type_expr(node);
+                self.space();
+            }
+        }
+    }
+
+    fn fn_type_output(&mut self, output: ast::ReturnType) {
+        fmt! {
+            output, self, |node, token|
+            T![->] => {
+                self.token_space(token);
             }
             TypeExpr(expr) if expr.is_type_expr() => {
                 self.type_expr(node);
@@ -194,25 +266,18 @@ impl Context {
 
     fn param_list(&mut self, param_list: ast::ParamList) {
         fmt! {
-            param_list, self, next, |node, token|
+            param_list, self, |node, token, next|
             T!["("] => {
                 self.token(token);
             }
-            T![" "] => {
-                if let Some(rowan::NodeOrToken::Token(token)) = next
-                    && token.kind() == T![")"] {
-                    self.output.remove(self.output.len()-1);
-                }
-
-            }
             FnParam(PARAM) => {
-                let has_comma = node.comma_token().is_some();
                 self.param(node);
-                if let Some(rowan::NodeOrToken::Token(token)) = next
-                    && token.kind() == T![")"]
-                    && has_comma
-                    && self.output.ends_with(' ') {
-                    self.output.remove(self.output.len()-1);
+            }
+            T![,] => {
+                if let Some(rowan::NodeOrToken::Token(t)) = next && t.kind() == T![")"] {
+                    self.token(token);
+                } else {
+                    self.token_space(token);
                 }
             }
             T![")"] => {
@@ -223,7 +288,7 @@ impl Context {
 
     fn param(&mut self, param: ast::FnParam) {
         fmt! {
-            param, self, next, |node, token|
+            param, self, |node, token, next|
             T![self] => {
                 self.token(token);
             }
@@ -241,9 +306,6 @@ impl Context {
             }
             Expr(expr) if expr.is_expr() => {
                 self.expr(node);
-            }
-            T![,] => {
-                self.token_space(token);
             }
         }
     }
@@ -304,28 +366,117 @@ impl Context {
 
     fn type_expr(&mut self, type_expr: ast::TypeExpr) {
         match type_expr {
-            ast::TypeExpr::DynType(dyn_type) => {}
+            ast::TypeExpr::DynType(dyn_type) => {
+                fmt! {
+                    dyn_type, self, |node, token|
+                    T![dyn] => {
+                        self.token_space(token);
+                    }
+                    Path(PATH) => {
+                        self.path(node);
+                    }
+                }
+            }
             ast::TypeExpr::PathType(path_type) => {
+                fmt! {
+                    path_type, self, |node, token|
+                }
                 self.path_type(path_type);
             }
-            ast::TypeExpr::NilableType(nilable_type) => {}
+            ast::TypeExpr::NilableType(nilable_type) => {
+                fmt! {
+                    nilable_type, self, |node, token|
+                    T![?] => {
+                        self.token(token)
+                    }
+                    TypeExpr(expr) if expr.is_type_expr() => {
+                        self.type_expr(node);
+                    }
+                }
+            }
             ast::TypeExpr::LitType(lit_type) => {
-                if let Some(path) = lit_type.path() {
-                    self.path_type(path);
+                fmt! {
+                    lit_type, self, |node, token|
+                    PathType(PATH_TYPE) => {
+                        self.path_type(node);
+                    }
                 }
             }
             ast::TypeExpr::AnyType(any_type) => {
-                if let Some(path) = any_type.path() {
-                    self.path_type(path);
+                fmt! {
+                    any_type, self, |node, token|
+                    PathType(PATH_TYPE) => {
+                        self.path_type(node);
+                    }
                 }
             }
             ast::TypeExpr::UnitType(unit_type) => {
-                if let Some(path) = unit_type.path() {
-                    self.path_type(path);
+                fmt! {
+                    unit_type, self, |node, token|
+                    T!["("] => {
+                        self.token(token);
+                    }
+                    T![")"] => {
+                        self.token(token);
+                    }
                 }
             }
-            ast::TypeExpr::FnType(fn_type) => {}
-            ast::TypeExpr::SelfType(self_type) => {}
+            ast::TypeExpr::FnType(fn_type) => {
+                fmt! {
+                    fn_type, self, |node, token|
+                    T![fn] => {
+                        self.token(token);
+                    }
+                    FnTypeParamList(FN_TYPE_PARAM_LIST) => {
+                        self.fn_type_params(node);
+                    }
+                    ReturnType(RETURN_TYPE) => {
+                        self.fn_type_output(node);
+                    }
+                }
+            }
+            ast::TypeExpr::SelfType(self_type) => {
+                fmt! {
+                    self_type, self, |node, token|
+                    T![Self] => {
+                        self.token(token);
+                    }
+                }
+            }
+        }
+    }
+
+    fn fn_type_params(&mut self, params: ast::FnTypeParamList) {
+        fmt! {
+            params, self, |node, token, next|
+            T!["("] => {
+                self.token(token);
+            }
+            FnTypeParam(FN_TYPE_PARAM) => {
+                fmt! {
+                    node, self, |node, token|
+                    Name(NAME) => {
+                        self.name(node);
+                    }
+                    T![:] => {
+                        self.token_space(token);
+                    }
+                    TypeExpr(expr) if expr.is_type_expr() => {
+                        self.type_expr(node);
+                    }
+                }
+
+            }
+            T![,] => {
+                if let Some(rowan::NodeOrToken::Token(t)) = next && t.kind() == T![")"] {
+                    self.token(token);
+                } else {
+                    self.token_space(token);
+                }
+            }
+            T![")"] => {
+                self.token_space(token);
+            }
         }
     }
 
@@ -354,9 +505,24 @@ impl Context {
         //TODO:generics
         fmt! {
             segment, self, |node, token|
+            GenericArgs(GENERIC_ARGUMENTS) => {
+                self.generic_args(node);
+            }
         }
         if let Some(ident) = segment.ident() {
             self.text(&ident);
+        }
+    }
+
+    fn generic_args(&mut self, args: ast::GenericArgs) {
+        fmt! {
+            args, self, |node, token|
+            TypeExpr(expr) if expr.is_type_expr() => {
+                self.type_expr(node);
+            }
+            T![,] => {
+                self.token(token);
+            }
         }
     }
 
@@ -370,8 +536,22 @@ impl Context {
                     }
                 }
             }
-            ast::Pattern::PathPattern(path_pattern) => {}
-            ast::Pattern::WildcardPattern(wildcard_pattern) => {}
+            ast::Pattern::PathPattern(path_pattern) => {
+                fmt! {
+                    path_pattern, self, |node, token|
+                    Path(PATH) => {
+                        self.path(node);
+                    }
+                }
+            }
+            ast::Pattern::WildcardPattern(wildcard_pattern) => {
+                fmt! {
+                    wildcard_pattern, self, |node, token|
+                    T![_] => {
+                        self.token(token);
+                    }
+                }
+            }
         }
     }
 

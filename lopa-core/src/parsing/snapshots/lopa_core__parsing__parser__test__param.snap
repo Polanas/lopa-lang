@@ -2,7 +2,7 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"param: type,\", |p| p.param())"
 ---
-PARAM: 0..12 
+PARAM: 0..11 
   NAME_PAT: 0..5 
     NAME: 0..5 
       IDENT: 0..5 "param"
@@ -12,4 +12,3 @@ PARAM: 0..12
     PATH: 7..11 
       PATH_SEGMENT: 7..11 
         IDENT: 7..11 "type"
-  COMMA: 11..12 ","

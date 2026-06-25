@@ -9,7 +9,7 @@ FN_ITEM: 0..41
     IDENT: 3..7 "test"
   PARAM_LIST: 7..26 
     L_PAREN: 7..8 "("
-    PARAM: 8..15 
+    PARAM: 8..14 
       NAME_PAT: 8..9 
         NAME: 8..9 
           IDENT: 8..9 "a"
@@ -20,11 +20,9 @@ FN_ITEM: 0..41
           PATH: 11..14 
             PATH_SEGMENT: 11..14 
               IDENT: 11..14 "int"
-      COMMA: 14..15 ","
+    COMMA: 14..15 ","
     WHITESPACE: 15..16 
     PARAM: 16..25 
-
-    verify_generics(db, ast_path.clone(), generic_args, generics);
       NAME_PAT: 16..17 
         NAME: 16..17 
           IDENT: 16..17 "b"

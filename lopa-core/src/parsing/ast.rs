@@ -433,13 +433,14 @@ structs! {
         struct_token: T![struct],
         name: Name,
         generics: Generics,
-        parents: Parents,
+        parents: Parent,
         left_brace_token: T!["{"],
         elements: [StructElem],
         right_brace_token: T!["}"],
     },
-    PARENTS_LIST = Parents {
-        parents: [Name],
+    PARENT = Parent {
+        colon_token: T![:],
+        name: Name,
     },
     FIELD = Field {
         name: Name,
@@ -527,7 +528,8 @@ structs! {
         path: PathType,
     },
     UNIT_TYPE = UnitType {
-        path: PathType,
+        left_paren_token: T!["("],
+        right_paren_token: T![")"],
     },
     LIT_TYPE = LitType {
         path: PathType,
@@ -559,6 +561,7 @@ structs! {
         name: Name,
         colon_token: T![:],
         ty: TypeExpr,
+        comma_token: T![,],
     },
     PATH_TYPE = PathType {
         value: Path,
@@ -568,7 +571,7 @@ structs! {
         path: Path,
     },
     SELF_TYPE = SelfType {
-        value: Path,
+        self_token: T![Self],
     },
     UNARY_EXPR = UnaryExpr {
         expr: Expr,

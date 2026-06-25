@@ -1,88 +1,84 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"enum MyEnum: Parent1, Parent2 {\n                    foo: Foo,\n                    bar: Bar,\n                    fn test(self) -> FooBar {\n                        self.foo + self.bar\n                    }\n        }\",\n|p| p.enum_item())"
+expression: "parse(\"enum MyEnum: Parent {\n                    foo: Foo,\n                    bar: Bar,\n                    fn test(self) -> FooBar {\n                        self.foo + self.bar\n                    }\n        }\",\n|p| p.enum_item())"
 ---
-ENUM_ITEM: 0..213 
+ENUM_ITEM: 0..203 
   ENUM_KW: 0..4 "enum"
   WHITESPACE: 4..5 
   NAME: 5..11 
     IDENT: 5..11 "MyEnum"
-  COLON: 11..12 ":"
-  WHITESPACE: 12..13 
-  PARENTS_LIST: 13..29 
-    NAME: 13..20 
-      IDENT: 13..20 "Parent1"
-    COMMA: 20..21 ","
-    WHITESPACE: 21..22 
-    NAME: 22..29 
-      IDENT: 22..29 "Parent2"
-  WHITESPACE: 29..30 
-  L_BRACE: 30..31 "{"
-  WHITESPACE: 31..52 
-  FIELD: 52..60 
-    NAME: 52..55 
-      IDENT: 52..55 "foo"
-    COLON: 55..56 ":"
-    WHITESPACE: 56..57 
-    ITEM_TYPE: 57..60 
-      PATH_TYPE: 57..60 
-        PATH: 57..60 
-          PATH_SEGMENT: 57..60 
-            IDENT: 57..60 "Foo"
-  COMMA: 60..61 ","
-  WHITESPACE: 61..82 
-  FIELD: 82..90 
-    NAME: 82..85 
-      IDENT: 82..85 "bar"
-    COLON: 85..86 ":"
-    WHITESPACE: 86..87 
-    ITEM_TYPE: 87..90 
-      PATH_TYPE: 87..90 
-        PATH: 87..90 
-          PATH_SEGMENT: 87..90 
-            IDENT: 87..90 "Bar"
-  COMMA: 90..91 ","
-  WHITESPACE: 91..112 
-  FN_ITEM: 112..203 
-    FN_KW: 112..114 "fn"
-    WHITESPACE: 114..115 
-    NAME: 115..119 
-      IDENT: 115..119 "test"
-    PARAM_LIST: 119..125 
-      L_PAREN: 119..120 "("
-      PARAM: 120..124 
-        SELF_KW: 120..124 "self"
-      R_PAREN: 124..125 ")"
+  PARENT: 11..19 
+    COLON: 11..12 ":"
+    WHITESPACE: 12..13 
+    NAME: 13..19 
+      IDENT: 13..19 "Parent"
+  WHITESPACE: 19..20 
+  L_BRACE: 20..21 "{"
+  WHITESPACE: 21..42 
+  FIELD: 42..50 
+    NAME: 42..45 
+      IDENT: 42..45 "foo"
+    COLON: 45..46 ":"
+    WHITESPACE: 46..47 
+    ITEM_TYPE: 47..50 
+      PATH_TYPE: 47..50 
+        PATH: 47..50 
+          PATH_SEGMENT: 47..50 
+            IDENT: 47..50 "Foo"
+  COMMA: 50..51 ","
+  WHITESPACE: 51..72 
+  FIELD: 72..80 
+    NAME: 72..75 
+      IDENT: 72..75 "bar"
+    COLON: 75..76 ":"
+    WHITESPACE: 76..77 
+    ITEM_TYPE: 77..80 
+      PATH_TYPE: 77..80 
+        PATH: 77..80 
+          PATH_SEGMENT: 77..80 
+            IDENT: 77..80 "Bar"
+  COMMA: 80..81 ","
+  WHITESPACE: 81..102 
+  FN_ITEM: 102..193 
+    FN_KW: 102..104 "fn"
+    WHITESPACE: 104..105 
+    NAME: 105..109 
+      IDENT: 105..109 "test"
+    PARAM_LIST: 109..115 
+      L_PAREN: 109..110 "("
+      PARAM: 110..114 
+        SELF_KW: 110..114 "self"
+      R_PAREN: 114..115 ")"
+    WHITESPACE: 115..116 
+    RETURN_TYPE: 116..125 
+      ARROW: 116..118 "->"
+      WHITESPACE: 118..119 
+      PATH_TYPE: 119..125 
+        PATH: 119..125 
+          PATH_SEGMENT: 119..125 
+            IDENT: 119..125 "FooBar"
     WHITESPACE: 125..126 
-    RETURN_TYPE: 126..135 
-      ARROW: 126..128 "->"
-      WHITESPACE: 128..129 
-      PATH_TYPE: 129..135 
-        PATH: 129..135 
-          PATH_SEGMENT: 129..135 
-            IDENT: 129..135 "FooBar"
-    WHITESPACE: 135..136 
-    BLOCK_EXPR: 136..203 
-      L_BRACE: 136..137 "{"
-      WHITESPACE: 137..162 
-      EXPR_STMT: 162..181 
-        BINARY_EXPR: 162..181 
-          FIELD_EXPR: 162..170 
-            SELF_EXPR: 162..166 
-              SELF_KW: 162..166 "self"
-            DOT: 166..167 "."
-            NAME: 167..170 
-              IDENT: 167..170 "foo"
-          WHITESPACE: 170..171 
-          PLUS: 171..172 "+"
-          WHITESPACE: 172..173 
-          FIELD_EXPR: 173..181 
-            SELF_EXPR: 173..177 
-              SELF_KW: 173..177 "self"
-            DOT: 177..178 "."
-            NAME: 178..181 
-              IDENT: 178..181 "bar"
-      WHITESPACE: 181..202 
-      R_BRACE: 202..203 "}"
-  WHITESPACE: 203..212 
-  R_BRACE: 212..213 "}"
+    BLOCK_EXPR: 126..193 
+      L_BRACE: 126..127 "{"
+      WHITESPACE: 127..152 
+      EXPR_STMT: 152..171 
+        BINARY_EXPR: 152..171 
+          FIELD_EXPR: 152..160 
+            SELF_EXPR: 152..156 
+              SELF_KW: 152..156 "self"
+            DOT: 156..157 "."
+            NAME: 157..160 
+              IDENT: 157..160 "foo"
+          WHITESPACE: 160..161 
+          PLUS: 161..162 "+"
+          WHITESPACE: 162..163 
+          FIELD_EXPR: 163..171 
+            SELF_EXPR: 163..167 
+              SELF_KW: 163..167 "self"
+            DOT: 167..168 "."
+            NAME: 168..171 
+              IDENT: 168..171 "bar"
+      WHITESPACE: 171..192 
+      R_BRACE: 192..193 "}"
+  WHITESPACE: 193..202 
+  R_BRACE: 202..203 "}"

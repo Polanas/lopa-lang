@@ -464,8 +464,8 @@ impl<'a> Parser<'a> {
             this.expect(T![enum]);
             this.name();
             this.generics();
-            if this.ate(T![:]) {
-                this.parents_list();
+            if this.at(T![:]) {
+                this.parent();
             }
             this.enum_elem_list();
         });
@@ -541,8 +541,8 @@ impl<'a> Parser<'a> {
             this.expect(T![struct]);
             this.name();
             this.generics();
-            if this.ate(T![:]) {
-                this.parents_list();
+            if this.at(T![:]) {
+                this.parent();
             }
             this.struct_elem_list();
         })
@@ -575,21 +575,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parents_list(&mut self) {
-        self.with(PARENTS_LIST, |this| {
-            while !this.at(T!["{"]) && !this.at(EOF) {
-                if this.at(IDENT) {
-                    this.name();
-                    if !this.at(T!["{"]) {
-                        this.expect(T![,]);
-                    }
-                } else {
-                    if this.at_any(ARG_LIST_RECOVERY) {
-                        break;
-                    }
-                    this.advance_with_error(SyntaxErrorKind::ExpectedParent);
-                }
-            }
+    fn parent(&mut self) {
+        self.with(PARENT, |this| {
+            this.expect(T![:]);
+            this.name();
         })
     }
 
@@ -641,6 +630,9 @@ impl<'a> Parser<'a> {
                 this.compiler_attrib_list();
                 if this.at_any(PATTERN_FIRST) || this.at(T![self]) {
                     this.param();
+                    if !this.at(T![")"]) {
+                        this.expect(T![,]);
+                    }
                 } else {
                     if this.at_any(PARAM_LIST_RECOVERY) {
                         break;
@@ -661,9 +653,6 @@ impl<'a> Parser<'a> {
                 if this.ate(T![=]) {
                     this.expr();
                 }
-            }
-            if !this.at(T![")"]) {
-                this.expect(T![,]);
             }
         })
     }
@@ -873,6 +862,9 @@ impl<'a> Parser<'a> {
             while !this.at(T![")"]) && !this.at(EOF) {
                 if this.at_any(TYPE_FIRST) || this.at(IDENT) {
                     this.fn_type_param();
+                    if !this.at(T![")"]) {
+                        this.expect(T![,]);
+                    }
                 } else {
                     if this.at_any(FN_TYPE_PARAM_LIST_RECOVERY) {
                         break;
@@ -891,9 +883,6 @@ impl<'a> Parser<'a> {
                 this.expect(T![:]);
             }
             this.type_expr();
-            if !this.at(T![")"]) {
-                this.expect(T![,]);
-            }
         })
     }
 
@@ -1238,15 +1227,15 @@ impl<'a> Parser<'a> {
             while !this.at(T![>]) && !this.eof() {
                 if this.at(IDENT) {
                     this.type_param();
+                    if !this.at(T![>]) {
+                        this.expect(T![,]);
+                    }
                 } else {
                     if this.at_any(GENERICS_RECOVERY) {
                         break;
                     } else {
                         this.advance_with_error(SyntaxErrorKind::ExpectedGeneric);
                     }
-                }
-                if !this.at(T![>]) {
-                    this.expect(T![,]);
                 }
             }
             this.expect(T![>]);
@@ -1644,7 +1633,7 @@ mod test {
     #[test]
     fn enum_item() {
         insta::assert_snapshot!(parse(
-            "enum MyEnum: Parent1, Parent2 {
+            "enum MyEnum: Parent {
                     foo: Foo,
                     bar: Bar,
                     fn test(self) -> FooBar {
@@ -1667,7 +1656,7 @@ mod test {
     fn struct_item() {
         insta::assert_snapshot!(parse("struct Vec2 {x: Y, y: Y }", |p| p.struct_item()));
         insta::assert_snapshot!(parse(
-            "struct MyStruct: Parent1, Parent2 {
+            "struct MyStruct: Parent{
                     foo: Foo,
                     bar: Bar,
                     fn test(self) -> FooBar {
@@ -1692,17 +1681,6 @@ mod test {
     fn numbers() {
         insta::assert_snapshot!(parse("10.10", |p| p.expr()));
         insta::assert_snapshot!(parse("1_000_000", |p| p.expr()));
-    }
-
-    #[test]
-    fn temp() {
-        println!(
-            "{}",
-            parse(
-                "fn test(a b c) {}",
-                |p| p.module()
-            )
-        );
     }
 
     #[test]
