@@ -464,9 +464,6 @@ impl<'a> Parser<'a> {
             this.expect(T![enum]);
             this.name();
             this.generics();
-            if this.at(T![:]) {
-                this.parent();
-            }
             this.enum_elem_list();
         });
     }
@@ -1633,7 +1630,7 @@ mod test {
     #[test]
     fn enum_item() {
         insta::assert_snapshot!(parse(
-            "enum MyEnum: Parent {
+            "enum MyEnum {
                     foo: Foo,
                     bar: Bar,
                     fn test(self) -> FooBar {
@@ -1656,7 +1653,7 @@ mod test {
     fn struct_item() {
         insta::assert_snapshot!(parse("struct Vec2 {x: Y, y: Y }", |p| p.struct_item()));
         insta::assert_snapshot!(parse(
-            "struct MyStruct: Parent{
+            "struct MyStruct: Parent {
                     foo: Foo,
                     bar: Bar,
                     fn test(self) -> FooBar {

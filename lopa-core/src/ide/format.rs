@@ -175,6 +175,21 @@ impl Context {
             Generics(GENERICS) => {
                 self.generics(node);
             }
+            Parent(PARENT) => {
+                self.parent(node)
+            }
+        }
+    }
+
+    fn parent(&mut self, parent: ast::Parent) {
+        fmt! {
+            parent, self, |node, token|
+            T![:] => {
+                self.token(token);
+            }
+            Name(NAME) => {
+                self.name(node);
+            }
         }
     }
 

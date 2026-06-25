@@ -433,7 +433,7 @@ structs! {
         struct_token: T![struct],
         name: Name,
         generics: Generics,
-        parents: Parent,
+        parent: Parent,
         left_brace_token: T!["{"],
         elements: [StructElem],
         right_brace_token: T!["}"],
