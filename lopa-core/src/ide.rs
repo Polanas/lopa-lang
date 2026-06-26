@@ -322,6 +322,7 @@ impl Analysis {
         self.db.trigger_cancellation();
 
         let contents = file.contents(&self.db).clone();
+        //TODO: doesnt this set file content twice in a row?
         file.set_contents(&mut self.db).to(contents);
     }
 }

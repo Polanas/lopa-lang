@@ -1,5 +1,8 @@
-use crate::parsing::{ast::*, lexer::Syntax::*};
-use notify_rust::Notification;
+use crate::{
+    def,
+    parsing::{ast::*, lexer::Syntax::*},
+};
+use notify_rust::{Notification, Timeout};
 use rowan::{SyntaxElementChildren, SyntaxNode, ast::AstNode};
 
 use crate::{
@@ -579,22 +582,31 @@ impl Context {
                 self.token(token);
             }
             BlockExpr(BLOCK_EXPR) => {
-            fmt! {
-                node, self, |node, token|
-                T!["{"] => {
-                    self.token(token);
-                    self.acc_ident();
-                    self.new_line();
-                }
-                T!["}"] => {
-                    self.dec_ident();
-                    self.new_line();
-                    self.token(token);
-                    if kind == FnItemKind::Global {
+                fmt! {
+                    node, self, |node, token|
+                    T!["{"] => {
+                        self.token(token);
+                        self.acc_ident();
+                    }
+                    Stmt(stmt) if stmt.is_stmt() => {
                         self.new_line();
+                        self.stmt(node);
+                    }
+                    T![" "] => {
+                        //TODO: account for comments
+                        for _ in 0..(token.text().chars().filter(|ch| *ch == '\n').count()-1) {
+                            self.new_line();
+                        };
+                    }
+                    T!["}"] => {
+                        self.dec_ident();
+                        self.new_line();
+                        self.token(token);
+                        if kind == FnItemKind::Global {
+                            self.new_line();
+                        }
                     }
                 }
-        }
                 if kind == FnItemKind::Global {
                     self.new_line();
                 }
@@ -731,7 +743,6 @@ impl Context {
             ast::Expr::ParenExpr(paren_expr) => {}
             ast::Expr::ReturnExpr(return_expr) => {}
             ast::Expr::LitExpr(lit_expr) => {}
-            ast::Expr::TryExpr(try_expr) => {}
             ast::Expr::IfExpr(if_expr) => {}
         }
     }
@@ -751,13 +762,63 @@ impl Context {
             T!["{"] => {
                 self.token(token);
                 self.acc_ident();
+            }
+            Stmt(stmt) if stmt.is_stmt() => {
                 self.new_line();
+                self.stmt(node);
             }
             T!["}"] => {
                 self.dec_ident();
                 self.new_line();
                 self.token(token);
                 self.new_line();
+            }
+        }
+    }
+
+    fn stmt(&mut self, stmt: ast::Stmt) {
+        match stmt {
+            Stmt::LetStmt(let_stmt) => self.let_stmt(let_stmt),
+            Stmt::ExprStmt(expr_stmt) => self.expr_stmt(expr_stmt),
+        }
+    }
+
+    fn let_stmt(&mut self, let_stmt: ast::LetStmt) {
+        fmt! {
+            let_stmt, self, |node, token|
+            T![let] => {
+                self.token_space(token);
+            }
+            Pattern(pat) if pat.is_pattern() => {
+                self.pattern(node);
+                self.space();
+            }
+            T![:] => {
+                self.token_space(token);
+            }
+            TypeExpr(expr) if expr.is_type_expr() => {
+                self.type_expr(node);
+            }
+            T![=] => {
+                self.token_space(token);
+            }
+            Expr(expr) if expr.is_expr() => {
+                self.expr(node);
+            }
+            T![;] => {
+                self.token(token);
+            }
+        }
+    }
+
+    fn expr_stmt(&mut self, expr_stmt: ast::ExprStmt) {
+        fmt! {
+            expr_stmt, self, |node, token|
+            Expr(expr) if expr.is_expr() => {
+                self.expr(node);
+            }
+            T![;] => {
+                self.token(token);
             }
         }
     }
@@ -841,6 +902,7 @@ impl Context {
                     }
                 }
             }
+            _ => todo!(),
         }
     }
 
@@ -960,12 +1022,6 @@ impl Context {
         self.text_opt(name.text().as_deref());
     }
 
-    fn with_acc_ident(&mut self, f: impl FnOnce(&mut Self)) {
-        self.acc_ident();
-        f(self);
-        self.dec_ident();
-    }
-
     fn dec_ident(&mut self) {
         if self.ident_level == 0 {
             return;
@@ -1035,5 +1091,9 @@ impl Context {
 pub fn format_file(db: &dyn salsa::Database, file: ide::File) -> String {
     let mut ctx = Context::default();
     ctx.format(ide::parse(db, file).file(db));
+    //TODO: only do if this is a newline
+    //THIS ACTUALLY HELPS WTF
+    ctx.output.remove(ctx.output.len() - 1);
+    ctx.output.remove(ctx.output.len() - 1);
     ctx.output
 }

@@ -10,7 +10,7 @@ use crate::{
 
 use super::lexer::Syntax::{self, *};
 use itertools::Itertools;
-use rowan::{GreenNode, GreenNodeBuilder, TextSize};
+use rowan::{Checkpoint, GreenNode, GreenNodeBuilder, TextSize};
 
 pub const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
@@ -470,7 +470,7 @@ impl<'a> Parser<'a> {
 
     fn enum_elem_list(&mut self) {
         self.expect(T!["{"]);
-        while !self.at(T!["}"]) && !self.at(EOF) {
+        while !self.at(T!["}"]) && !self.eof() {
             self.compiler_attrib_list();
             if self.at_any(ELEMENT_FIRST) {
                 self.enum_element();
@@ -547,7 +547,7 @@ impl<'a> Parser<'a> {
 
     fn struct_elem_list(&mut self) {
         self.expect(T!["{"]);
-        while !self.at(T!["}"]) && !self.at(EOF) {
+        while !self.at(T!["}"]) && !self.eof() {
             self.compiler_attrib_list();
             if self.at_any(ELEMENT_FIRST) {
                 self.struct_element();
@@ -589,7 +589,7 @@ impl<'a> Parser<'a> {
             }
 
             this.expect(T!["{"]);
-            while !this.at(T!["}"]) && !this.at(EOF) {
+            while !this.at(T!["}"]) && !this.eof() {
                 this.item();
             }
             this.expect(T!["}"]);
@@ -637,7 +637,7 @@ impl<'a> Parser<'a> {
                     this.advance_with_error(SyntaxErrorKind::ExpectedParameter);
                 }
             }
-            this.expect(T!(")"));
+            this.expect(T![")"]);
         })
     }
 
@@ -774,7 +774,7 @@ impl<'a> Parser<'a> {
                 return;
             }
 
-            while this.at_path_sep(0) && !this.at(EOF) {
+            while this.at_path_sep(0) && !this.eof() {
                 this.expect(T![:]);
                 this.expect(T![:]);
 
@@ -856,7 +856,7 @@ impl<'a> Parser<'a> {
     fn fn_type_param_list(&mut self) {
         self.with(FN_TYPE_PARAM_LIST, |this| {
             this.expect(T!["("]);
-            while !this.at(T![")"]) && !this.at(EOF) {
+            while !this.at(T![")"]) && !this.eof() {
                 if this.at_any(TYPE_FIRST) || this.at(IDENT) {
                     this.fn_type_param();
                     if !this.at(T![")"]) {
@@ -907,21 +907,6 @@ impl<'a> Parser<'a> {
         loop {
             let op = self.peek();
 
-            if let Some(postfix_bp) = op.postfix_bp() {
-                if postfix_bp < min_bp {
-                    break;
-                }
-                match op {
-                    T![?] => {
-                        self.with_at(TRY_EXPR, checkpoint, |this| {
-                            this.expect(op);
-                        });
-                    }
-                    _ => unreachable!(),
-                }
-                continue;
-            }
-
             let Some((left_bp, right_bp)) = op.infix_bp() else {
                 break;
             };
@@ -969,9 +954,9 @@ impl<'a> Parser<'a> {
             T!["{"] => {
                 self.block();
             }
-            // T![lua] => {
-            //     self.lua_block();
-            // }
+            T![lua] => {
+                self.lua_block();
+            }
             T![|] => {
                 self.closure_expr();
             }
@@ -1068,9 +1053,13 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
+    fn lua_block(&mut self) {
+        LuaParser::new(self).chunk();
+    }
+
     fn record_field_list(&mut self) {
         self.expect(T!["{"]);
-        while !self.at(T!["}"]) && !self.at(EOF) {
+        while !self.at(T!["}"]) && !self.eof() {
             if self.at(IDENT) {
                 self.record_field();
             } else {
@@ -1107,7 +1096,7 @@ impl<'a> Parser<'a> {
     fn closure_param_list(&mut self) {
         self.with(CLOSURE_PARAM_LIST, |this| {
             this.expect(T![|]);
-            while !this.at(T![|]) && !this.at(EOF) {
+            while !this.at(T![|]) && !this.eof() {
                 if this.at_any(PATTERN_FIRST) {
                     this.closure_param();
                 } else {
@@ -1158,9 +1147,12 @@ impl<'a> Parser<'a> {
 
     fn arg_list(&mut self) {
         self.expect(T!["("]);
-        while !self.at(T![")"]) && !self.at(EOF) {
+        while !self.at(T![")"]) && !self.eof() {
             if self.at_any(EXPR_FIRST) {
                 self.arg();
+                if !self.at(T![")"]) {
+                    self.expect(T![,]);
+                }
             } else {
                 if self.at_any(ARG_LIST_RECOVERY) {
                     break;
@@ -1187,9 +1179,6 @@ impl<'a> Parser<'a> {
             }
             if this.at_any(EXPR_FIRST) || !has_label {
                 this.expr();
-            }
-            if !this.at(T![")"]) {
-                this.expect(T![,]);
             }
         });
     }
@@ -1328,7 +1317,7 @@ impl<'a> Parser<'a> {
                 return;
             }
 
-            while !this.at(T![")"]) && !this.at(EOF) {
+            while !this.at(T![")"]) && !this.eof() {
                 if this.at_any(EXPR_FIRST) {
                     this.compiler_attrib_item();
                 } else {
@@ -1360,6 +1349,619 @@ impl<'a> Parser<'a> {
 
     fn name(&mut self) {
         self.with(NAME, |this| {
+            this.expect(IDENT);
+        })
+    }
+}
+
+pub struct LuaParser<'a, 'b> {
+    parser: &'b mut Parser<'a>,
+}
+
+impl<'a, 'b> LuaParser<'a, 'b> {
+    fn new(parser: &'b mut Parser<'a>) -> Self {
+        Self { parser }
+    }
+
+    fn with<R>(&mut self, syntax: Syntax, body: impl FnOnce(&mut Self) -> R) -> R {
+        self.parser.start_node(syntax);
+        let res = body(self);
+        self.parser.finish_node();
+        res
+    }
+
+    fn with_at<R>(
+        &mut self,
+        syntax: Syntax,
+        checkpoint: usize,
+        body: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        self.parser.start_node_at(checkpoint, syntax);
+        let res = body(self);
+        self.parser.finish_node();
+        res
+    }
+
+    fn error(&mut self, kind: SyntaxErrorKind) {
+        self.parser.error(kind);
+    }
+
+    fn expect(&mut self, token: Syntax) {
+        self.parser.expect(token);
+    }
+
+    fn expect_advance(&mut self, token: Syntax) {
+        if self.ate(token) {
+            return;
+        }
+
+        self.advance_with_err(SyntaxErrorKind::ExpectedToken(token));
+    }
+
+    fn at(&mut self, token: Syntax) -> bool {
+        self.parser.at(token)
+    }
+
+    fn eat(&mut self, token: Syntax) -> bool {
+        self.parser.eat(token)
+    }
+
+    fn ate(&mut self, token: Syntax) -> bool {
+        self.parser.ate(token)
+    }
+
+    fn eof(&self) -> bool {
+        self.parser.eof()
+    }
+
+    fn peek(&self) -> Syntax {
+        self.parser.peek()
+    }
+
+    fn checkpoint(&mut self) -> usize {
+        self.parser.checkpoint()
+    }
+
+    fn peek_text(&self) -> &str {
+        let span = self.nth_span(0);
+        &self.parser.input[span]
+    }
+
+    fn nth(&self, lookahead: usize) -> Syntax {
+        self.parser.nth(lookahead)
+    }
+
+    fn advance_with_err(&mut self, error: SyntaxErrorKind) {
+        self.parser.advance_with_error(error);
+    }
+
+    fn nth_span(&self, lookahead: usize) -> Range<usize> {
+        self.parser.nth_span(lookahead)
+    }
+
+    fn nth_text(&self, offset: usize) -> Option<&str> {
+        if self.nth(offset) == EOF {
+            return None;
+        }
+        let next_span = self.nth_span(offset);
+        Some(&self.parser.input[next_span])
+    }
+
+    fn expect_ident(&mut self, ident: &str) {
+        let next_span = self.parser.nth_span(0);
+        self.parser.expect(IDENT);
+
+        if &self.parser.input[next_span] != ident {
+            self.error(SyntaxErrorKind::Other(format!("expected {}", ident)));
+        }
+    }
+
+    fn expect_advance_ident(&mut self, ident: &str) {
+        let next_span = self.parser.nth_span(0);
+        if !self.parser.at(IDENT) {
+            self.error(SyntaxErrorKind::Other(format!("expected {}", ident)));
+            return;
+        }
+
+        self.parser.expect(IDENT);
+        if &self.parser.input[next_span] != ident {
+            self.error(SyntaxErrorKind::Other(format!("expected {}", ident)));
+        }
+    }
+
+    fn chunk(&mut self) {
+        self.with(LUA_CHUNK_EXPR, |this| {
+            this.expect(T![lua]);
+            this.expect(T!["{"]);
+
+            while !this.at(T!["}"]) && !this.eof() {
+                if this.stmt().is_none() {
+                    break;
+                }
+            }
+
+            this.expect(T!["}"]);
+        });
+    }
+
+    #[must_use]
+    fn stmt(&mut self) -> Option<()> {
+        match self.parser.peek() {
+            T![#] => {
+                if self.nth(1) == T![return] {
+                    self.hash_return_stmt();
+                    None
+                } else {
+                    self.stmt_expr();
+                    Some(())
+                }
+            }
+            T![return] => {
+                self.return_stmt();
+                Some(())
+            }
+            T![break] => {
+                self.break_stmt();
+                Some(())
+            }
+            T![while] => {
+                self.while_stmt();
+                Some(())
+            }
+            T![if] => {
+                self.if_stmt();
+                Some(())
+            }
+            T![for] => {
+                self.for_stmt();
+                Some(())
+            }
+            T![;] => {
+                self.expect(T![;]);
+                Some(())
+            }
+            IDENT => {
+                let Some(next) = self.nth_text(0) else {
+                    //TODO: test this branch
+                    self.advance_with_err(SyntaxErrorKind::ExpectedExpression);
+                    return Some(());
+                };
+
+                match next {
+                    "do" => self.with(LUA_BLOCK_STMT, |this| {
+                        this.expect_ident("do");
+                        this.block(|t| t == "end");
+                        this.expect_ident("end");
+                        Some(())
+                    }),
+                    "repeat" => {
+                        self.repeat_stmt();
+                        Some(())
+                    }
+                    "local" => {
+                        self.local_stmt();
+                        Some(())
+                    }
+                    "function" => {
+                        self.function_stmt();
+                        Some(())
+                    }
+                    _ => {
+                        self.stmt_expr();
+                        Some(())
+                    }
+                }
+            }
+            _ => {
+                self.stmt_expr();
+                Some(())
+            }
+        }
+    }
+
+    fn stmt_expr(&mut self) {
+        self.with(LUA_STMT_EXPR, |this| {
+            this.expr_multi();
+            if this.ate(T![=]) {
+                this.expr_multi();
+            }
+            this.expect(T![;]);
+        })
+    }
+
+    fn param_list(&mut self) {
+        self.with(LUA_PARAM_LIST, |this| {
+            this.expect(T!["("]);
+            while !this.at(T![")"]) && !this.eof() {
+                if this.at(IDENT) {
+                    this.param();
+                    if !this.at(T![")"]) {
+                        this.expect(T![,]);
+                    }
+                } else {
+                    this.advance_with_err(SyntaxErrorKind::ExpectedParameter);
+                    break;
+                }
+            }
+            this.expect(T![")"]);
+        });
+    }
+
+    fn param(&mut self) {
+        self.with(LUA_PARAM, |this| {
+            this.name();
+        })
+    }
+
+    fn hash_return_stmt(&mut self) {
+        self.with(LUA_HASH_RETURN_STMT, |this| {
+            this.expect(T![#]);
+            this.expect(T![return]);
+            this.expr_multi();
+            this.expect(T![;]);
+        });
+    }
+
+    fn return_stmt(&mut self) {
+        self.with(LUA_RETURN_STMT, |this| {
+            this.expect(T![return]);
+            this.expr_multi();
+            this.expect(T![;]);
+        })
+    }
+
+    fn break_stmt(&mut self) {
+        self.with(LUA_BREAK_STMT, |this| {
+            this.expect(T![break]);
+            this.expect(T![;]);
+        });
+    }
+
+    fn while_stmt(&mut self) {
+        self.with(LUA_WHILE_STMT, |this| {
+            this.expect(T![while]);
+            this.expr();
+            this.expect_ident("do");
+            this.block(|t| t == "end");
+            this.expect_ident("end");
+        });
+    }
+
+    fn if_stmt(&mut self) {
+        self.with(LUA_IF_STMT, |this| {
+            this.expect(T![if]);
+            this.expr();
+            this.expect_ident("then");
+            this.block(|t| t == "else" || t == "elseif" || t == "end");
+            if this.peek_text() == "end" {
+                this.expect_advance_ident("end");
+                return;
+            }
+            loop {
+                match this.peek_text() {
+                    "elseif" => this.with(LUA_ELSEIF, |this| {
+                        this.expect_ident("elseif");
+                        this.expr();
+                        this.expect_ident("then");
+                        this.block(|t| t == "else" || t == "elseif" || t == "end");
+                    }),
+                    "else" => {
+                        this.with(LUA_ELSE, |this| {
+                            this.expect_advance(T![else]);
+                            this.block(|t| t == "else" || t == "elseif" || t == "end");
+                        });
+                    }
+                    "end" => {
+                        this.expect_advance_ident("end");
+                        break;
+                    }
+                    _ => break,
+                }
+            }
+        })
+    }
+
+    fn for_stmt(&mut self) {
+        self.with(LUA_FOR_STMT, |this| {
+            if this.nth(2) == T![=] {
+                this.with(LUA_NUMERIC_FOR, |this| {
+                    this.expect(T![for]);
+                    this.name();
+                    this.expect(T![=]);
+
+                    this.expr();
+                    if this.ate(T![,]) {
+                        this.expr();
+                    }
+                    if this.ate(T![,]) {
+                        this.expr();
+                    }
+                    this.expect_ident("do");
+                    this.block(|t| t == "end");
+                    this.expect_ident("end");
+                });
+            } else {
+                this.with(LUA_GENERIC_FOR, |this| {
+                    this.expect(T![for]);
+                    this.name();
+                    while this.ate(T![,]) && !this.eof() {
+                        this.name();
+                    }
+                    this.expect(T![in]);
+                    this.expr();
+                    this.expect_ident("do");
+                    this.block(|t| t == "end");
+                    this.expect_ident("end");
+                })
+            }
+        });
+    }
+
+    fn repeat_stmt(&mut self) {
+        self.with(LUA_REPEAT_STMT, |this| {
+            this.expect_ident("repeat");
+            this.block(|t| t == "until");
+            this.expect_ident("until");
+            this.expr();
+        });
+    }
+
+    fn local_stmt(&mut self) {
+        self.with(LUA_LOCAL_STMT, |this| {
+            this.expect_ident("local");
+            this.name();
+            while this.ate(T![,]) && !this.eof() {
+                this.name();
+            }
+            this.expect(T![=]);
+            this.expr_multi();
+            this.expect(T![;]);
+        });
+    }
+
+    fn function_stmt(&mut self) {
+        self.with(LUA_FUNCTION_STMT, |this| {
+            this.expect_ident("function");
+            this.name();
+
+            if let token @ (T![.] | T![:]) = this.peek() {
+                this.expect(token);
+                this.name();
+            }
+            this.param_list();
+            this.block(|t| t == "end");
+            this.expect_ident("end");
+        });
+    }
+
+    fn expr_multi(&mut self) {
+        self.with(LUA_MULTI_EXPR, |this| {
+            this.expr();
+            if this.ate(T![,]) {
+                this.expr();
+                while this.ate(T![,]) && !this.eof() {
+                    this.expr();
+                }
+            }
+        });
+    }
+
+    fn index(&mut self) {
+        self.expect(T!["["]);
+        self.expr();
+        self.expect(T!["]"]);
+    }
+
+    fn arg_list(&mut self) {
+        self.with(LUA_ARG_LIST, |this| {
+            this.expect(T!["("]);
+            while !this.at(T![")"]) && !this.eof() {
+                this.arg();
+                if !this.at(T![")"]) {
+                    this.expect(T![,]);
+                }
+            }
+            this.expect(T![")"]);
+        })
+    }
+
+    fn arg(&mut self) {
+        self.with(LUA_ARG, |this| {
+            this.expr();
+        });
+    }
+
+    fn expr(&mut self) {
+        self.expr_bp(0);
+    }
+
+    fn expr_bp(&mut self, min_bp: u8) {
+        let checkpoint = self.checkpoint();
+        match Self::prefix_bp(self.peek()) {
+            Some(rbp) => self.with(LUA_UNARY_EXPR, |this| {
+                this.expect(this.peek());
+                this.expr_bp(rbp);
+            }),
+            None => {
+                if self.prefix_expr().is_none() {
+                    return;
+                }
+            }
+        }
+
+        loop {
+            let op = self.peek();
+
+            let Some((left_bp, right_bp)) = Self::infix_bp(op) else {
+                break;
+            };
+
+            if left_bp < min_bp {
+                break;
+            }
+
+            self.expect(op);
+
+            if self.at_expr() {
+                self.with_at(LUA_BINARY_EXPR, checkpoint, |this| {
+                    this.expr_bp(right_bp);
+                })
+            } else {
+                self.advance_with_err(SyntaxErrorKind::ExpectedExpression);
+            }
+        }
+    }
+
+    fn at_expr(&self) -> bool {
+        let token = self.peek();
+        matches!(
+            token,
+            T![nil]
+                | T![#]
+                | T![true]
+                | T![false]
+                | T![...]
+                | T![-]
+                | T![not]
+                | T!["{"]
+                | T!["("]
+                | FLOAT
+                | INT
+                | STRING
+                | SINGLE_STRING
+                | BRACKET_STRING
+                | IDENT
+        )
+    }
+
+    fn prefix_expr(&mut self) -> Option<()> {
+        let token = self.peek();
+        let checkpoint = self.checkpoint();
+        match token {
+            T![#] => {
+                self.hash_name();
+            }
+            IDENT
+            | INT
+            | FLOAT
+            | STRING
+            | SINGLE_STRING
+            | BRACKET_STRING
+            | TRUE_KW
+            | FALSE_KW
+            | NIL_KW
+            | T![...] => {
+                if self.peek_text() == "function" {
+                    self.with(LUA_FUNCTION_EXPR, |this| {
+                        this.expect_ident("function");
+                        this.param_list();
+                        this.block(|t| t == "end");
+                        this.expect_ident("end");
+                    });
+                } else {
+                    self.with(LUA_LIT_EXPR, |this| {
+                        this.ate(token);
+                    });
+                }
+            }
+            T!["{"] => {
+                self.with(LUA_TABLE_EXPR, |this| {
+                    this.expect(T!["{"]);
+                    while !this.at(T!["}"]) && !this.eof() {
+                        if this.nth(1) == T![=] {
+                            this.with(LUA_ELEM_ASSIGN, |this| {
+                                this.name();
+                                this.expect(T![=]);
+                                this.expr_bp(2);
+                            });
+                        } else if this.at(T!["["]) {
+                            this.with(LUA_ELEM_INDEX_ASSIGN, |this| {
+                                this.expect(T!["["]);
+                                this.expr();
+                                this.expect(T!["]"]);
+                                this.expect(T![=]);
+                                this.expr_bp(2);
+                            });
+                        } else {
+                            this.with(LUA_ELEM_EXPR, |this| {
+                                this.expr_bp(2);
+                            });
+                        }
+                        if !this.at(T!["}"]) {
+                            this.expect(T![,]);
+                        }
+                    }
+                    this.expect(T!["}"]);
+                });
+            }
+            _ => {
+                self.advance_with_err(SyntaxErrorKind::ExpectedExpression);
+                return None;
+            }
+        };
+        loop {
+            match self.peek() {
+                T!["("] => {
+                    self.with_at(LUA_CALL_EXPR, checkpoint, |this| this.arg_list());
+                }
+                T!["["] => {
+                    self.with_at(LUA_INDEX_EXPR, checkpoint, |this| this.index());
+                }
+                T![.] | T![:] => {
+                    self.with_at(LUA_FIELD_ACCESS_EXPR, checkpoint, |this| {
+                        this.expect(this.peek());
+                        this.name();
+                    });
+                }
+                _ => break,
+            }
+        }
+        Some(())
+    }
+
+    fn prefix_bp(syntax: Syntax) -> Option<u8> {
+        Some(match syntax {
+            T![not] => 13,
+            T![-] => 14,
+            _ => return None,
+        })
+    }
+
+    fn infix_bp(syntax: Syntax) -> Option<(u8, u8)> {
+        Some(match syntax {
+            T![or] => (1, 2),
+            T![and] => (3, 4),
+            T![<] | T![>] | T![<=] | T![>=] | T![==] | T![~=] => (5, 6),
+            T![..] => (8, 7),
+            T![+] | T![-] => (9, 10),
+            T![*] | T![/] | T![%] => (11, 12),
+            T![^] => (16, 15),
+            _ => return None,
+        })
+    }
+
+    fn block(&mut self, stop_condition: impl Fn(&str) -> bool) {
+        while self
+            .nth_text(0)
+            .map(|t| !stop_condition(t))
+            .unwrap_or(false)
+            && !self.eof()
+        {
+            if self.stmt().is_none() {
+                break;
+            }
+        }
+    }
+
+    fn hash_name(&mut self) {
+        self.with(LUA_HASH_NAME, |this| {
+            this.expect(T![#]);
+            this.name();
+        })
+    }
+
+    fn name(&mut self) {
+        self.with(LUA_NAME, |this| {
             this.expect(IDENT);
         })
     }
@@ -1682,90 +2284,123 @@ mod test {
 
     #[test]
     fn lua() {
-        // insta::assert_snapshot!(parse("lua {}", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse(
-        //     "lua { x = { [1] = 1, 2, 3, a=1,b=3, [3]=1 }; }",
-        //     |p| p.lua_block()
-        // ));
-        // insta::assert_snapshot!(parse(
-        //     "lua { function func(a,b,c) a = 1; b = 2; end }",
-        //     |p| p.lua_block()
-        // ));
-        // insta::assert_snapshot!(parse(
-        //     "lua { function test.func(a,b,c) a = 1; b = 2; end }",
-        //     |p| p.lua_block()
-        // ));
-        // insta::assert_snapshot!(parse(
-        //     "lua { function test:func(a,b,c) a = 1; b = 2; end }",
-        //     |p| p.lua_block()
-        // ));
-        // insta::assert_snapshot!(parse("lua { call(1)[1.5](2)[2.5](3); }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { local string = [[ hello there ]]; }", |p| p
-        //     .lua_block()));
-        // insta::assert_snapshot!(parse("lua { x = vec2.x.y; }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { x.y = 1; }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { print('1'); }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { x.y()().x.x().y[1][2](),x = 1,2; }", |p| p
-        //     .lua_block()));
-        // insta::assert_snapshot!(parse("lua { return 1,2,3; }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { break; }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { local a,b,c = 1, 'string', nil; }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { a,b = 1,2; }", |p| p.lua_block()));
-        // insta::assert_snapshot!(parse("lua { while true do print(); break; end  }", |p| p
-        //     .lua_block()));
-        // insta::assert_snapshot!(parse("lua { print(...); }", |p| {
-        //     p.lua_block();
-        // }));
-        // insta::assert_snapshot!(parse("lua { repeat print() until false }", |p| {
-        //     p.lua_block();
-        // }));
-        // insta::assert_snapshot!(parse(
-        //     "lua {
-        //         if true then
-        //             yan()
-        //         elseif false then
-        //             yay()
-        //         else
-        //             nay()
-        //         end
-        //     }",
-        //     |p| {
-        //         p.lua_block();
-        //     }
-        // ));
-        // insta::assert_snapshot!(parse(
-        //     "lua {
-        //         for i=1,2,3 do end
-        //     }",
-        //     |p| {
-        //         p.lua_block();
-        //     }
-        // ));
-        // insta::assert_snapshot!(parse(
-        //     "lua {
-        //         for i = 1,10 do end
-        //     }",
-        //     |p| {
-        //         p.lua_block();
-        //     }
-        // ));
-        // insta::assert_snapshot!(parse(
-        //     "lua {
-        //         for a,b,c,d in {} do end
-        //     }",
-        //     |p| {
-        //         p.lua_block();
-        //     }
-        // ));
-        // insta::assert_snapshot!(parse(
-        //     "lua {
-        //         local x = function() end;
-        //     }",
-        //     |p| {
-        //         p.lua_block();
-        //     }
-        // ));
-        // println!("------------------------------");
-        // insta::assert_snapshot!(parse("lua{1+2}", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua {}", |p| p.lua_block()));
+        insta::assert_snapshot!(parse(
+            "lua { x = { [1] = 1, 2, 3, a=1,b=3, [3]=1 }; }",
+            |p| p.lua_block()
+        ));
+        insta::assert_snapshot!(parse(
+            "lua { function func(a,b,c) a = 1; b = 2; end }",
+            |p| p.lua_block()
+        ));
+        insta::assert_snapshot!(parse(
+            "lua { function test.func(a,b,c) a = 1; b = 2; end }",
+            |p| p.lua_block()
+        ));
+        insta::assert_snapshot!(parse(
+            "lua { function test:func(a,b,c) a = 1; b = 2; end }",
+            |p| p.lua_block()
+        ));
+        insta::assert_snapshot!(parse("lua { local string = [[ hello there ]]; }", |p| p
+            .lua_block()));
+        insta::assert_snapshot!(parse("lua { call(1)[1.5](2)[2.5](3); }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { x = vec2.x.y().y; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { x.y = 1; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { print('1'); }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { x.y()().x.x().y[1][2](),x = 1,2; }", |p| p
+            .lua_block()));
+        insta::assert_snapshot!(parse("lua { return 1,2,3; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { #return 1,2,3; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { break; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { local a,b,c = 1, 'string', nil; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { a,b = 1,2; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { while true do print(); break; end  }", |p| p
+            .lua_block()));
+        insta::assert_snapshot!(parse("lua { repeat print(); until false }", |p| {
+            p.lua_block();
+        }));
+        insta::assert_snapshot!(parse("lua { print(...); }", |p| {
+            p.lua_block();
+        }));
+        insta::assert_snapshot!(parse(
+            "lua {
+                if true then
+                    yan();
+                elseif false then
+                    yay();
+                else
+                    nay();
+                end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                if true then
+                    yan();
+                elseif false then
+                    yay();
+                end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                if true then
+                    yan();
+                end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                for i=1,2,3 do end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                for i = 1,10 do end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                for a,b,c,d in {} do end
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                local x = function() end;
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse(
+            "lua {
+                local a = 1;
+                local b = 2;
+                #output = b;
+                print(value[#output]);
+            }",
+            |p| {
+                p.lua_block();
+            }
+        ));
+        insta::assert_snapshot!(parse("lua { local x = 1 ^ 2 ^ 3; }", |p| p.lua_block()));
     }
 }

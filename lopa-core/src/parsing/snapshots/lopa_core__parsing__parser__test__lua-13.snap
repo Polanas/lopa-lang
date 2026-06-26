@@ -1,0 +1,25 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua { #return 1,2,3; }\", |p| p.lua_block())"
+---
+LUA_CHUNK_EXPR: 0..22 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..6 
+  LUA_HASH_RETURN_STMT: 6..20 
+    HASH: 6..7 "#"
+    RETURN_KW: 7..13 "return"
+    WHITESPACE: 13..14 
+    LUA_MULTI_EXPR: 14..19 
+      LUA_LIT_EXPR: 14..15 
+        INT: 14..15 "1"
+      COMMA: 15..16 ","
+      LUA_LIT_EXPR: 16..17 
+        INT: 16..17 "2"
+      COMMA: 17..18 ","
+      LUA_LIT_EXPR: 18..19 
+        INT: 18..19 "3"
+    SEMI: 19..20 ";"
+  WHITESPACE: 20..21 
+  R_BRACE: 21..22 "}"

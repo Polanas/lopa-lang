@@ -1,14 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use itertools::Itertools;
 use rowan::ast::AstNode;
 use salsa::{Accumulator, Database};
 
 use crate::{
-    def::{
-        ir::{self, BareFn, Function, Type},
-        resolver, scope,
-    },
+    def::ir,
     ide::{
         self,
         diagnostics::{self, Diagnostic, DiagnosticKind},
@@ -261,7 +257,6 @@ impl<'db> LowerCtx<'db> {
         ))
     }
 }
-
 
 #[salsa::tracked]
 pub fn module_parent(db: &dyn salsa::Database, file: ide::File) -> Option<ide::File> {

@@ -4,7 +4,7 @@ use crate::{
         lower::{self, impl_blocks},
         scope,
     },
-    ide::{self, File, base::FileRange, diagnostics, impl_map, parse},
+    ide::{self, base::FileRange, diagnostics, impl_map, parse, File},
     ty::infer,
 };
 use notify_rust::Notification;
@@ -61,6 +61,7 @@ pub enum DiagnosticKind {
 }
 
 //TODO: figure out why this doesnt work and accumulated diagostics arent returned (it runs every time?)
+//DIAGNOSTICS SHOULD *NOT* DEPEND ON FILES, BUT ON IR
 #[salsa::tracked]
 pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
@@ -87,9 +88,27 @@ pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic>
             .cloned(),
     );
     let ir = lower::module_items(db, file);
+    diagnostics.extend(ir_diagnostics(db, ir));
     let module_scope = scope::module_scope(db, file);
     //avoiding accumulators as they don't work with cycle_result (in `resolve_path`)
     diagnostics.extend(module_scope.diagnostics().to_vec());
+    for impl_block in lower::impl_blocks(db, file).iter() {
+        diagnostics.extend(
+            ir::impl_block_diagnostics_acc::accumulated::<Diagnostic>(db, *impl_block)
+                .into_iter()
+                .cloned(),
+        );
+    }
+
+    diagnostics
+}
+
+#[salsa::tracked]
+fn ir_diagnostics<'db>(
+    db: &'db dyn salsa::Database,
+    ir: lower::ModuleItemData<'db>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = vec![];
     for enum_item in ir.enums(db) {
         diagnostics.extend(
             def::ir::enum_diagnostics_acc::accumulated::<Diagnostic>(db, *enum_item)
@@ -111,13 +130,5 @@ pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic>
                 .cloned(),
         );
     }
-    for impl_block in lower::impl_blocks(db, file).iter() {
-        diagnostics.extend(
-            ir::impl_block_diagnostics_acc::accumulated::<Diagnostic>(db, *impl_block)
-                .into_iter()
-                .cloned(),
-        );
-    }
-
     diagnostics
 }

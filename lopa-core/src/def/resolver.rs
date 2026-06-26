@@ -206,6 +206,7 @@ pub fn resolve_type_expr<'db>(
             };
             resolve_type_path(db, file, path, generics, self_ty)
         }
+        ast::TypeExpr::ParenType(paren_type) => todo!(),
     }
 }
 

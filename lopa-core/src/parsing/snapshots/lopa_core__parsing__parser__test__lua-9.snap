@@ -1,0 +1,26 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua { x.y = 1; }\", |p| p.lua_block())"
+---
+LUA_CHUNK_EXPR: 0..16 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..6 
+  LUA_STMT_EXPR: 6..14 
+    LUA_MULTI_EXPR: 6..9 
+      LUA_FIELD_ACCESS_EXPR: 6..9 
+        LUA_LIT_EXPR: 6..7 
+          IDENT: 6..7 "x"
+        DOT: 7..8 "."
+        LUA_NAME: 8..9 
+          IDENT: 8..9 "y"
+    WHITESPACE: 9..10 
+    EQ: 10..11 "="
+    WHITESPACE: 11..12 
+    LUA_MULTI_EXPR: 12..13 
+      LUA_LIT_EXPR: 12..13 
+        INT: 12..13 "1"
+    SEMI: 13..14 ";"
+  WHITESPACE: 14..15 
+  R_BRACE: 15..16 "}"

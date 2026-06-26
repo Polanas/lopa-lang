@@ -8,14 +8,14 @@ CALL_EXPR: 0..42
       PATH_SEGMENT: 0..4 
         IDENT: 0..4 "sort"
   L_PAREN: 4..5 "("
-  ARG: 5..11 
+  ARG: 5..10 
     PATH_EXPR: 5..10 
       PATH: 5..10 
         PATH_SEGMENT: 5..10 
           IDENT: 5..10 "array"
-    COMMA: 10..11 ","
+  COMMA: 10..11 ","
   WHITESPACE: 11..12 
-  ARG: 12..25 
+  ARG: 12..24 
     NAME: 12..14 
       IDENT: 12..14 "by"
     COLON: 14..15 ":"
@@ -24,7 +24,7 @@ CALL_EXPR: 0..42
       PATH: 16..24 
         PATH_SEGMENT: 16..24 
           IDENT: 16..24 "callback"
-    COMMA: 24..25 ","
+  COMMA: 24..25 ","
   WHITESPACE: 25..26 
   ARG: 26..41 
     NAME: 26..40 

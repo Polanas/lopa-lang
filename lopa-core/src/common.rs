@@ -9,6 +9,15 @@ pub enum LitKind {
     Nil,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::Update)]
+pub enum LuaLitKind {
+    Float,
+    Int,
+    String,
+    Bool,
+    Nil,
+}
+
 impl LitKind {
     pub fn as_str(&self) -> &str {
         match self {

@@ -299,6 +299,25 @@ pub enum BinaryOpKind {
     ShrAssign,
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub enum LuaBinaryOpKind {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Or,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+    NotEqual,
+    Equal,
+    And,
+    Concat,
+    Exp,
+}
+
 impl BinaryOpKind {
     pub fn is_arithmetic(&self) -> bool {
         matches!(
@@ -378,7 +397,7 @@ structs! {
         mod_token: T![mod],
         name: Name,
         semi: T![;],
-        items: [FnItem],
+        items: [Item],
     },
     IMPL_ITEM = ImplItem {
         impl_token: T![impl],
@@ -494,12 +513,10 @@ structs! {
         type_expr: TypeExpr,
         eq_token: T![=],
         default_value: Expr,
-        comma_token: T![,],
     },
     EXPR_STMT = ExprStmt {
         expr: Expr,
         semi_token: T![;],
-        right_paren_token: T![")"],
     },
     LET_STMT = LetStmt {
         let_token: T![let],
@@ -561,7 +578,6 @@ structs! {
         name: Name,
         colon_token: T![:],
         ty: TypeExpr,
-        comma_token: T![,],
     },
     PATH_TYPE = PathType {
         value: Path,
@@ -569,6 +585,11 @@ structs! {
     DYN_TYPE = DynType {
         dyn_keyword: T![dyn],
         path: Path,
+    },
+    PAREN_TYPE = ParenType {
+        left_paren_token: T!["("],
+        type_expr: TypeExpr,
+        right_paren_token: T![")"],
     },
     SELF_TYPE = SelfType {
         self_token: T![Self],
@@ -754,10 +775,6 @@ structs! {
         colon_token: T![:],
         expr: Expr,
     },
-    TRY_EXPR = TryExpr {
-        expr: Expr,
-        mark_token: T![?],
-    },
     LIT_EXPR = LitExpr {
         pub fn token(&self) -> Option<SyntaxToken> {
             self.0.children_with_tokens().find_map(NodeOrToken::into_token)
@@ -814,26 +831,262 @@ structs! {
             self.ident().map(|t| Ustr::from(t.text()))
         }
     },
-    LUA_BLOCK_EXPR = LuaBlockExpr {
+    LUA_CHUNK_EXPR = LuaChunkExpr {
+        lua_keyword: T![lua],
+        left_brace_token: T!["{"],
         stmts: [LuaStmt],
+        right_brace_token: T!["}"],
     },
     LUA_RETURN_STMT = LuaReturnStmt {
-
+        return_keyword: T![return],
+        expr: LuaExprMulti,
+        semi: T![;],
     },
     LUA_WHILE_STMT = LuaWhileStmt {
-
+        while_keyword: T![while],
+        cond: LuaExpr,
+        do_keyword: T![ident],
+        body: [LuaStmt],
+        end_keyword[1]: T![ident],
     },
     LUA_IF_STMT = LuaIfStmt {
-
+        if_keyword: T![if],
+        then_keyword: T![ident],
+        stmts: [LuaStmt],
+        elseif_blocks: [LuaElseIf],
+        else_block: LuaElse,
+        end_keyword[1]: T![ident],
     },
-    LUA_BREAK_STMT = LuaBreakStmt {},
-    LUA_ASSIGN_STMT = LuaAssignStmt {},
-    LUA_CONTINUE_STMT = LuaContinueStmt {},
-    LUA_FOR_STMT = LuaForStmt {},
-    LUA_REPEAT_STMT = LuaRepeatStmt{},
-    LUA_FUNCTION_STMT = LuaFunctionStmt{},
-    LUA_BLOCK_STMT = LuaBlockStmt {},
-    LUA_LOCAL_STMT = LuaLocalStmt {},
+    LUA_BREAK_STMT = LuaBreakStmt {
+        break_keyword: T![break],
+        semi: T![;],
+    },
+    LUA_STMT_EXPR = LuaAssignStmt {
+        lhs: LuaExprMulti,
+        eq_token: T![=],
+        rhs[1]: LuaExprMulti,
+        semi: T![;],
+    },
+    //TODO: remove this, luajit doesnt support continue
+    LUA_CONTINUE_STMT = LuaContinueStmt {
+        continue_keyword: T![break],
+        semi: T![;],
+    },
+    LUA_FOR_STMT = LuaForStmt {
+        lua_generic_for: LuaGenericFor,
+        lua_numeric_for: LuaNumericFor,
+    },
+    LUA_REPEAT_STMT = LuaRepeatStmt {
+        repeat_keyword: T![ident],
+        stmts: [Stmt],
+        until_keyword[1]: T![ident],
+    },
+    LUA_FUNCTION_STMT = LuaFunctionStmt {
+        function_keyword: T![ident],
+        name: LuaName,
+        dot_token: T![.],
+        colon_token: T![:],
+        field_name[1]: LuaName,
+        param_list: LuaParamList,
+        body: [LuaStmt],
+        end_keyword[1]: T![ident],
+    },
+    LUA_BLOCK_STMT = LuaBlockStmt {
+        do_keyword: T![ident],
+        stmts: [LuaStmt],
+        end_keyword[1]: T![ident],
+    },
+    LUA_LOCAL_STMT = LuaLocalStmt {
+        local_keyword: T![ident],
+        names: LuaName,
+        eq_token: T![=],
+        expr_multi: LuaExprMulti,
+        semi: T![;],
+    },
+
+    LUA_GENERIC_FOR = LuaGenericFor {
+        for_keyword: T![for],
+        names: [LuaName],
+        in_keyword: T![in],
+        expr: Expr,
+        do_keyword: T![ident],
+        stmts: [LuaStmt],
+        end_keyword[1]: T![ident],
+    },
+    LUA_NUMERIC_FOR = LuaNumericFor {
+        for_keyword: T![for],
+        name: LuaName,
+        eq_token: T![=],
+        expr_first: LuaExpr,
+        expr_second[1]: LuaExpr,
+        expr_third[2]: LuaExpr,
+        do_keyword: T![ident],
+        stmts: [LuaStmt],
+        end_keyword[1]: T![ident],
+    },
+    LUA_ELSEIF = LuaElseIf {
+        elseif_keywod: T![ident],
+        cond: LuaExpr,
+        then_keywod[1]: T![ident],
+        stmts: [LuaStmt],
+    },
+    LUA_ELSE = LuaElse {
+        else_keyword: T![else],
+        stmts: [LuaStmt],
+    },
+    LUA_ARG_LIST = LuaArgList {
+        left_paren_token: T!["("],
+        args: [LuaArg],
+        right_paren_token: T![")"],
+    },
+    LUA_ARG = LuaArg {
+        expr: LuaExpr,
+    },
+    LUA_PARAM_LIST = LuaParamList {
+        left_paren_token: T!["("],
+        params: [LuaParam],
+        right_paren_token: T![")"],
+    },
+    LUA_PARAM = LuaParam {
+        name: LuaName,
+    },
+
+    LUA_MULTI_EXPR = LuaExprMulti {
+        exprs: [LuaExpr],
+    },
+    LUA_LIT_EXPR = LuaLitExpr {
+        pub fn token(&self) -> Option<SyntaxToken> {
+            self.0.children_with_tokens().find_map(NodeOrToken::into_token)
+        }
+
+        pub fn text(&self) -> Option<Ustr> {
+            self.token().map(|t| t.text().into())
+        }
+
+        pub fn kind(&self) -> Option<LitKind> {
+            Some(match self.token()?.kind() {
+                T![nil] => LitKind::Nil,
+                Syntax::INT => LitKind::Int,
+                Syntax::FLOAT => LitKind::Float,
+                Syntax::STRING | Syntax::SINGLE_STRING | Syntax::BRACKET_STRING => LitKind::String,
+                Syntax::TRUE_KW | Syntax::FALSE_KW => LitKind::Bool,
+                _ => return None,
+            })
+        }
+    },
+    LUA_INDEX_EXPR = LuaIndexExpr {
+        base: LuaExpr,
+        left_bracket_token: T!["["],
+        index[1]: LuaExpr,
+        right_bracket_token: T!["]"],
+    },
+    LUA_CALL_EXPR = LuaCallExpr {
+        func: Expr,
+        args: LuaArgList,
+    },
+    LUA_UNARY_EXPR = LuaUnaryExpr {
+        expr: LuaExpr,
+
+        pub fn op_token(&self) -> Option<SyntaxToken> {
+            self.op_details().map(|t| t.0)
+        }
+
+        pub fn op_kind(&self) -> Option<UnaryOpKind> {
+            self.op_details().map(|t| t.1)
+        }
+
+        pub fn op_details(&self) -> Option<(SyntaxToken, UnaryOpKind)> {
+            self.syntax().children_with_tokens().find_map(|c| {
+                let token = c.into_token()?;
+                let op = match token.kind() {
+                    T![-] => UnaryOpKind::Neg,
+                    T![not] => UnaryOpKind::Not,
+                    _ => return None,
+                };
+                Some((token, op))
+            })
+        }
+    },
+    LUA_BINARY_EXPR = LuaBinaryExpr {
+        lhs: LuaExpr,
+        rhs[1]: LuaExpr,
+
+        pub fn op_token(&self) -> Option<SyntaxToken> {
+            self.op_details().map(|t| t.0)
+        }
+
+        pub fn op_kind(&self) -> Option<LuaBinaryOpKind> {
+            self.op_details().map(|t| t.1)
+        }
+
+        pub fn op_details(&self) -> Option<(SyntaxToken, LuaBinaryOpKind)> {
+            self.syntax().children_with_tokens().find_map(|c| {
+                let token = c.into_token()?;
+                let op = match token.kind() {
+                    T![+] => LuaBinaryOpKind::Add,
+                    T![*] => LuaBinaryOpKind::Mul,
+                    T![/] => LuaBinaryOpKind::Div,
+                    T![%] => LuaBinaryOpKind::Rem,
+                    T![or] => LuaBinaryOpKind::Or,
+                    T![-] => LuaBinaryOpKind::Sub,
+                    T![>] => LuaBinaryOpKind::Greater,
+                    T![>=] => LuaBinaryOpKind::GreaterEqual,
+                    T![<] => LuaBinaryOpKind::Less,
+                    T![<=] => LuaBinaryOpKind::LessEqual,
+                    T![!=] => LuaBinaryOpKind::NotEqual,
+                    T![==] => LuaBinaryOpKind::Equal,
+                    T![and] => LuaBinaryOpKind::And,
+                    T![..] => LuaBinaryOpKind::Concat,
+                    T![^] => LuaBinaryOpKind::Exp,
+                    _ => return None,
+                };
+                Some((token, op))
+            })
+        }
+    },
+    LUA_TABLE_EXPR = LuaTableExpr {
+        left_brace_token: T!["{"],
+        elems: [LuaTableElem],
+        right_brace_token: T!["}"],
+    },
+    LUA_FIELD_ACCESS_EXPR = LuaFieldAccessExpr {
+        dot_token: T![.],
+        colon_token: T![:],
+        name: LuaName,
+    },
+    LUA_FUNCTION_EXPR = LuaFunctionExpr {
+        function_keyword: T![ident],
+        param_list: LuaParamList,
+        body: [LuaStmt],
+        end_keyword[1]: T![ident],
+    },
+
+    LUA_ELEM_EXPR = LuaElemExpr {
+        expr: LuaExpr,
+    },
+    LUA_ELEM_ASSIGN = LuaElemAssign {
+        name: LuaName,
+        eq_token: T![=],
+        expr: LuaExpr,
+    },
+    LUA_ELEM_INDEX_ASSIGN = LuaElemIndexAssign {
+        left_bracket_token: T!["["],
+        base: Expr,
+        right_bracket_token: T!["]"],
+        index[1]: Expr,
+    },
+
+    LUA_HASH_NAME = LuaHashName {
+        hash_token: T![#],
+        name: LuaName,
+    },
+    LUA_NAME = LuaName {
+        ident: T![ident],
+
+        pub fn text(&self) -> Option<Ustr> {
+            self.ident().map(|t| Ustr::from(t.text()))
+        }
+    },
 }
 
 enums! {
@@ -868,7 +1121,6 @@ enums! {
         ParenExpr,
         ReturnExpr,
         LitExpr,
-        TryExpr,
         IfExpr,
     },
     UseTree {
@@ -902,6 +1154,7 @@ enums! {
     },
     TypeExpr {
         DynType,
+        ParenType,
         PathType,
         NilableType,
         LitType,
@@ -922,6 +1175,21 @@ enums! {
         LuaBlockStmt,
         LuaFunctionStmt,
         LuaLocalStmt
+    },
+    LuaExpr {
+        LuaLitExpr,
+        LuaIndexExpr,
+        LuaCallExpr,
+        LuaUnaryExpr,
+        LuaBinaryExpr,
+        LuaTableExpr,
+        LuaFieldAccessExpr,
+        LuaFunctionExpr,
+    },
+    LuaTableElem {
+        LuaElemAssign,
+        LuaElemIndexAssign,
+        LuaElemExpr,
     }
 }
 
@@ -931,7 +1199,7 @@ mod test {
 
     use crate::parsing::{
         ast::{
-            self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaBlockExpr, ParenExpr,
+            self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaChunkExpr, ParenExpr,
             SafeFieldExpr, StructItem, SyntaxNode, SyntaxToken, UseItem, UseTree,
         },
         parser::Lang,
@@ -1123,21 +1391,4 @@ mod test {
             .syntax()
             .should_eq("@first");
     }
-
-    // #[test]
-    // fn lua_if_stmt() {
-    //     let block = parse::<LuaBlockExpr>(
-    //         "fn main() {
-    //         lua {
-    //             if true then end
-    //         }
-    //     }",
-    //     );
-    //     block
-    //         .stmts()
-    //         .next()
-    //         .unwrap()
-    //         .syntax()
-    //         .should_eq("if true then end");
-    // }
 }

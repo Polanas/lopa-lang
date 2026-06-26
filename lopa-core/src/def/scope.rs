@@ -4,9 +4,7 @@ use std::{
 };
 
 use la_arena::{Arena, ArenaMap, Idx};
-use notify_rust::Notification;
 use rowan::ast::AstNode;
-use salsa::Accumulator;
 use ustr::Ustr;
 
 use crate::{

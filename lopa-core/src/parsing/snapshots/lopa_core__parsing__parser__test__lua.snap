@@ -1,0 +1,9 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua {}\", |p| p.lua_block())"
+---
+LUA_CHUNK_EXPR: 0..6 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  R_BRACE: 5..6 "}"

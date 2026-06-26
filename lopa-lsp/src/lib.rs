@@ -12,6 +12,7 @@ use itertools::Itertools;
 use lopa_core::ide::base::VfsPath;
 use lopa_core::ide::{Analysis, File, SourceRoot};
 use lopa_core::vfs::Vfs;
+use notify_rust::{Notification, Timeout};
 use salsa::{Database, Setter as _};
 use tokio::task::{self, AbortHandle};
 use tower_lsp_server::jsonrpc::Result;
@@ -145,6 +146,9 @@ impl LanguageServer for Backend {
         ))
     }
 
+    //TODO: figure out why diagnostics dont update after formatting
+    //did_change gets triggered twice?
+    //the second trigger removes the last newline
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         Ok(Some(vec![handler::format(
             State {
@@ -208,11 +212,37 @@ impl LanguageServer for Backend {
             let Some(file) = vfs.file_by_uri(uri) else {
                 return;
             };
+            // Notification::new()
+            //     .body(&format!(
+            //         "before: {}",
+            //         vfs.contents[&file]
+            //             .read()
+            //             .unwrap()
+            //             .to_string()
+            //             .replace(" ", "\\s")
+            //             .replace("\n", "\\n")
+            //     ))
+            //     .timeout(Timeout::from(1_000_000))
+            //     .show()
+            //     .unwrap();
             for change in params.content_changes.iter() {
                 let range = change.range.map(|r| convert::from_range(&vfs, file, r));
                 vfs.change_file_content(file, &change.text, range);
             }
             self.analysis.lock().unwrap().apply_change(file);
+            // Notification::new()
+            //     .body(&format!(
+            //         "after: {}",
+            //         vfs.contents[&file]
+            //             .read()
+            //             .unwrap()
+            //             .to_string()
+            //             .replace(" ", "\\s")
+            //             .replace("\n", "\\n")
+            //     ))
+            //     .timeout(Timeout::from(1_000_000))
+            //     .show()
+            //     .unwrap();
         }
         let uris = self
             .opened_files

@@ -1,0 +1,30 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua {\n                if true then\n                    yan();\n                end\n            }\",\n|p| { p.lua_block(); })"
+---
+LUA_CHUNK_EXPR: 0..95 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..22 
+  LUA_IF_STMT: 22..81 
+    IF_KW: 22..24 "if"
+    WHITESPACE: 24..25 
+    LUA_LIT_EXPR: 25..29 
+      TRUE_KW: 25..29 "true"
+    WHITESPACE: 29..30 
+    IDENT: 30..34 "then"
+    WHITESPACE: 34..55 
+    LUA_STMT_EXPR: 55..61 
+      LUA_MULTI_EXPR: 55..60 
+        LUA_CALL_EXPR: 55..60 
+          LUA_LIT_EXPR: 55..58 
+            IDENT: 55..58 "yan"
+          LUA_ARG_LIST: 58..60 
+            L_PAREN: 58..59 "("
+            R_PAREN: 59..60 ")"
+      SEMI: 60..61 ";"
+    WHITESPACE: 61..78 
+    IDENT: 78..81 "end"
+  WHITESPACE: 81..94 
+  R_BRACE: 94..95 "}"

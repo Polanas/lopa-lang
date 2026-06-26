@@ -248,11 +248,6 @@ impl<'db> BodyLowerCtx<'db> {
                 ptr,
             ),
             ast::Expr::UnitExpr(_) => self.alloc_expr(Expr::Unit, ptr),
-            ast::Expr::TryExpr(try_expr) => {
-                // let expr = self.lower_expr_opt(try_expr.expr());
-                //TODO: implement try expr
-                self.missing_expr(ptr)
-            }
             ast::Expr::FieldExpr(field_expr) => {
                 let Some(name) = field_expr.name().and_then(|n| n.text()) else {
                     return self.missing_expr(ptr);

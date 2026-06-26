@@ -1,0 +1,23 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua { print(...); }\", |p| { p.lua_block(); })"
+---
+LUA_CHUNK_EXPR: 0..19 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..6 
+  LUA_STMT_EXPR: 6..17 
+    LUA_MULTI_EXPR: 6..16 
+      LUA_CALL_EXPR: 6..16 
+        LUA_LIT_EXPR: 6..11 
+          IDENT: 6..11 "print"
+        LUA_ARG_LIST: 11..16 
+          L_PAREN: 11..12 "("
+          LUA_ARG: 12..15 
+            LUA_LIT_EXPR: 12..15 
+              DOT3: 12..15 "..."
+          R_PAREN: 15..16 ")"
+    SEMI: 16..17 ";"
+  WHITESPACE: 17..18 
+  R_BRACE: 18..19 "}"

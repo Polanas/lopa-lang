@@ -1,0 +1,70 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"lua {\n                local a = 1;\n                local b = 2;\n                #output = b;\n                print(value[#output]);\n            }\",\n|p| { p.lua_block(); })"
+---
+LUA_CHUNK_EXPR: 0..145 
+  LUA_KW: 0..3 "lua"
+  WHITESPACE: 3..4 
+  L_BRACE: 4..5 "{"
+  WHITESPACE: 5..22 
+  LUA_LOCAL_STMT: 22..34 
+    IDENT: 22..27 "local"
+    WHITESPACE: 27..28 
+    LUA_NAME: 28..29 
+      IDENT: 28..29 "a"
+    WHITESPACE: 29..30 
+    EQ: 30..31 "="
+    WHITESPACE: 31..32 
+    LUA_MULTI_EXPR: 32..33 
+      LUA_LIT_EXPR: 32..33 
+        INT: 32..33 "1"
+    SEMI: 33..34 ";"
+  WHITESPACE: 34..51 
+  LUA_LOCAL_STMT: 51..63 
+    IDENT: 51..56 "local"
+    WHITESPACE: 56..57 
+    LUA_NAME: 57..58 
+      IDENT: 57..58 "b"
+    WHITESPACE: 58..59 
+    EQ: 59..60 "="
+    WHITESPACE: 60..61 
+    LUA_MULTI_EXPR: 61..62 
+      LUA_LIT_EXPR: 61..62 
+        INT: 61..62 "2"
+    SEMI: 62..63 ";"
+  WHITESPACE: 63..80 
+  LUA_STMT_EXPR: 80..92 
+    LUA_MULTI_EXPR: 80..87 
+      LUA_HASH_NAME: 80..87 
+        HASH: 80..81 "#"
+        LUA_NAME: 81..87 
+          IDENT: 81..87 "output"
+    WHITESPACE: 87..88 
+    EQ: 88..89 "="
+    WHITESPACE: 89..90 
+    LUA_MULTI_EXPR: 90..91 
+      LUA_LIT_EXPR: 90..91 
+        IDENT: 90..91 "b"
+    SEMI: 91..92 ";"
+  WHITESPACE: 92..109 
+  LUA_STMT_EXPR: 109..131 
+    LUA_MULTI_EXPR: 109..130 
+      LUA_CALL_EXPR: 109..130 
+        LUA_LIT_EXPR: 109..114 
+          IDENT: 109..114 "print"
+        LUA_ARG_LIST: 114..130 
+          L_PAREN: 114..115 "("
+          LUA_ARG: 115..129 
+            LUA_INDEX_EXPR: 115..129 
+              LUA_LIT_EXPR: 115..120 
+                IDENT: 115..120 "value"
+              L_BRACKET: 120..121 "["
+              LUA_HASH_NAME: 121..128 
+                HASH: 121..122 "#"
+                LUA_NAME: 122..128 
+                  IDENT: 122..128 "output"
+              R_BRACKET: 128..129 "]"
+          R_PAREN: 129..130 ")"
+    SEMI: 130..131 ";"
+  WHITESPACE: 131..144 
+  R_BRACE: 144..145 "}"

@@ -97,6 +97,7 @@ macro_rules! T {
     [*=] => { $crate::parsing::lexer::Syntax::STAR_EQ};
     [%] => { $crate::parsing::lexer::Syntax::PERCENT};
     [#] => { $crate::parsing::lexer::Syntax::HASH};
+    [^] => { $crate::parsing::lexer::Syntax::CARET};
     [@] => { $crate::parsing::lexer::Syntax::AT};
     [%=] => { $crate::parsing::lexer::Syntax::PERCENT_EQ};
     [->] => { $crate::parsing::lexer::Syntax::ARROW};
@@ -117,6 +118,7 @@ macro_rules! T {
     [is] => { $crate::parsing::lexer::Syntax::IS_KW};
     [!is] => { $crate::parsing::lexer::Syntax::IS_NOT_KW};
     [is_not] => { $crate::parsing::lexer::Syntax::IS_NOT_KW};
+    [not] => { $crate::parsing::lexer::Syntax::NOT_KW};
     [or] => { $crate::parsing::lexer::Syntax::OR_KW};
     [return] => { $crate::parsing::lexer::Syntax::RETURN_KW};
     [if] => { $crate::parsing::lexer::Syntax::IF_KW};
@@ -268,6 +270,9 @@ def! {
     #[token("#")]
     HASH = ["#"],
 
+    #[token("^")]
+    CARET = ["^"],
+
     #[token("@")]
     AT = ["@"],
 
@@ -315,6 +320,9 @@ def! {
 
     #[token("is")]
     IS_KW = ["is"],
+
+    #[token("not")]
+    NOT_KW = ["not"],
 
     #[token("!is")]
     IS_NOT_KW = ["!is"],
@@ -457,10 +465,9 @@ def! {
     RETURN_EXPR,
     IF_EXPR,
     BLOCK_EXPR,
-    LUA_BLOCK_EXPR,
+    LUA_CHUNK_EXPR,
     BINARY_EXPR,
     UNARY_EXPR,
-    TRY_EXPR,
     CONTINUE_EXPR,
     BREAK_EXPR,
     CLOSURE_EXPR,
@@ -477,42 +484,48 @@ def! {
     LIT_PAT,
     WILDCARD_PAT @PAT_LAST,
 
-    LUA_BREAK_EXPR,
-    LUA_LIT_EXPR,
-    LUA_FIELD_INDEX_EXPR,
-    LUA_FIELD_CALL_EXPR,
+    COMPILER_ATTRIB_LIST,
+    COMPILER_ATTRIB,
+    COMPILER_ATTRIB_ITEM,
+    
+    LUA_LIT_EXPR @LUA_EXPR_FIRST,
     LUA_INDEX_EXPR,
     LUA_CALL_EXPR,
     LUA_UNARY_EXPR,
     LUA_BINARY_EXPR,
-    LUA_STMT_EXPR,
     LUA_MULTI_EXPR,
     LUA_TABLE_EXPR,
     LUA_FIELD_ACCESS_EXPR,
-    LUA_FUNCTION_EXPR,
+    LUA_FUNCTION_EXPR @LUA_EXPR_LAST,
 
-    COMPILER_ATTRIB_LIST,
-    COMPILER_ATTRIB,
-    COMPILER_ATTRIB_ITEM,
+    LUA_ELEM_ASSIGN @LUA_ELEM_FIRST,
+    LUA_ELEM_INDEX_ASSIGN,
+    LUA_ELEM_EXPR @LUA_ELEM_LAST,
 
     LUA_ARG_LIST,
     LUA_ARG,
     LUA_PARAM_LIST,
     LUA_PARAM,
     LUA_NAME,
+    LUA_HASH_NAME,
+    LUA_NUMERIC_FOR,
+    LUA_GENERIC_FOR,
 
     LUA_FUNCTION_STMT @LUA_STMT_FIRST,
     LUA_CONTINUE_STMT,
     LUA_BREAK_STMT,
     LUA_RETURN_STMT,
+    LUA_HASH_RETURN_STMT,
     LUA_BLOCK_STMT,
-    LUA_ASSIGN_STMT,
+    LUA_STMT_EXPR,
     LUA_WHILE_STMT,
     LUA_IF_STMT,
-    LUA_ELSEIF_STMT,
     LUA_FOR_STMT,
     LUA_LOCAL_STMT,
     LUA_REPEAT_STMT @LUA_STMT_LAST,
+
+    LUA_ELSE,
+    LUA_ELSEIF,
 }
 
 #[derive(Clone)]
@@ -571,13 +584,6 @@ impl Syntax {
         })
     }
 
-    pub fn postfix_bp(self) -> Option<u8> {
-        Some(match self {
-            T![?] => 17,
-            _ => return None,
-        })
-    }
-
     pub fn is_whitespace(self) -> bool {
         (Self::WHITESPACE_FIRST as u16..=Self::WHITESPACE_LAST as u16).contains(&(self as u16))
     }
@@ -624,6 +630,14 @@ impl Syntax {
 
     pub fn is_lua_stmt(self) -> bool {
         (Self::LUA_STMT_FIRST as u16..=Self::LUA_STMT_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_lua_expr(self) -> bool {
+        (Self::LUA_EXPR_FIRST as u16..=Self::LUA_EXPR_LAST as u16).contains(&(self as u16))
+    }
+
+    pub fn is_lua_elem(self) -> bool {
+        (Self::LUA_ELEM_FIRST as u16..=Self::LUA_ELEM_LAST as u16).contains(&(self as u16))
     }
 }
 
