@@ -1,16 +1,15 @@
 use std::{cell::Cell, iter::Peekable, ops::Range};
 
-use crate::{
-    ide::TextRange,
-    parsing::{
-        lexer::{self, LexToken, Lexer},
-        token_set::TokenSet,
-    },
-};
+use itertools::Itertools as _;
 
-use super::lexer::Syntax::{self, *};
-use itertools::Itertools;
-use rowan::{Checkpoint, GreenNode, GreenNodeBuilder, TextSize};
+use super::lexer;
+use crate::parsing::{
+    lexer::{
+        LexToken, Lexer,
+        Syntax::{self, *},
+    },
+    token_set::TokenSet,
+};
 
 pub const EXPR_FIRST: TokenSet = TokenSet::new(&[
     IDENT,
@@ -59,7 +58,7 @@ const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
 const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
 const GENERICS_RECOVERY: TokenSet = TokenSet::new(&[T!["{"], T![>]]).union(ITEM_FIRST);
 
-pub fn parse(input: &str) -> (GreenNode, Vec<ParseError>) {
+pub fn parse(input: &str) -> (Tree, Vec<ParseError>) {
     let mut p = Parser::new(input);
     p.module();
     p.build_tree()
@@ -127,17 +126,16 @@ impl std::fmt::Display for SyntaxErrorKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParseError {
-    pub range: TextRange,
+    pub range: Range<usize>,
     pub kind: SyntaxErrorKind,
 }
 
 impl ParseError {
-    pub fn new(range: TextRange, kin: SyntaxErrorKind) -> Self {
+    pub fn new(range: Range<usize>, kin: SyntaxErrorKind) -> Self {
         Self { range, kind: kin }
     }
 }
 
-//TODO: figure out what's wrong with the parser.
 struct Parser<'a> {
     tokens: Vec<LexToken<'a>>,
     pos: usize,
@@ -145,7 +143,7 @@ struct Parser<'a> {
     events: Vec<Event>,
     errors: Vec<ParseError>,
     input: &'a str,
-    tokens_raw: Peekable<lexer::Lexer<'a>>,
+    tokens_raw: Peekable<Lexer<'a>>,
 }
 
 impl<'a> Parser<'a> {
@@ -165,66 +163,10 @@ impl<'a> Parser<'a> {
             tokens_raw: tokens_raw.peekable(),
         }
     }
-}
 
-struct Builder<'a> {
-    builder: GreenNodeBuilder<'static>,
-    tokens_raw: Peekable<lexer::Lexer<'a>>,
-    errors: Vec<ParseError>,
-}
-
-impl<'a> Builder<'a> {
-    fn skip_whitespace(&mut self) {
-        while self
-            .tokens_raw
-            .peek()
-            .map(|t| t.token.is_whitespace())
-            .unwrap_or_default()
-        {
-            let next = self.tokens_raw.next().unwrap();
-            if next.token.is_whitespace() {
-                self.builder.token(next.token.into(), next.text);
-            }
-        }
-    }
-
-    fn build_tree(mut self, events: &[Event]) -> (GreenNode, Vec<ParseError>) {
-        let mut events_iter = events.iter().peekable();
-        while let Some(event) = events_iter.next() {
-            match event {
-                Event::Open { node } => {
-                    //we don't want to insert tokens before the first node (fixes a crash on
-                    //builder.finish()
-                    if node != &MODULE {
-                        self.skip_whitespace();
-                    }
-                    self.builder.start_node((*node).into());
-                }
-                Event::Close => {
-                    self.builder.finish_node();
-                }
-                Event::Advance { token } => {
-                    self.skip_whitespace();
-                    let Some(next) = self.tokens_raw.next() else {
-                        continue;
-                    };
-                    self.builder.token((*token).into(), next.text);
-
-                    if !matches!(events_iter.peek(), Some(Event::Close)) {
-                        self.skip_whitespace();
-                    }
-                }
-                Event::Checkpoint => {}
-            }
-        }
-        (self.builder.finish(), self.errors)
-    }
-}
-
-impl<'a> Parser<'a> {
-    fn build_tree(self) -> (GreenNode, Vec<ParseError>) {
+    fn build_tree(self) -> (Tree, Vec<ParseError>) {
         Builder {
-            builder: GreenNodeBuilder::new(),
+            builder: syntree::Builder::new(),
             tokens_raw: self.tokens_raw,
             errors: self.errors,
         }
@@ -271,8 +213,8 @@ impl<'a> Parser<'a> {
         let range = self
             .tokens
             .get(self.pos)
-            .map(|&LexToken { range, .. }| range)
-            .unwrap_or_else(|| TextRange::empty(TextSize::from(self.input.len() as u32)));
+            .map(|LexToken { range, .. }| range.clone())
+            .unwrap_or_else(|| self.input.len() - 1..(self.input.len() - 1));
         self.errors.push(ParseError { range, kind });
     }
 
@@ -330,12 +272,10 @@ impl<'a> Parser<'a> {
     fn nth_span(&self, lookahead: usize) -> Range<usize> {
         self.tokens
             .get(self.pos + lookahead)
-            .map(|t| u32::from(t.range.start())..u32::from(t.range.end()))
-            .map(|r| (r.start as usize)..r.end as usize)
+            .map(|t| t.range.clone())
             .unwrap_or_else(|| {
                 let len = self.input.len();
-
-                len..len
+                (len - 1)..(len - 1)
             })
     }
 
@@ -348,6 +288,69 @@ impl<'a> Parser<'a> {
         self.fuel = 1024.into();
         self.events.push(Event::Advance { token });
         self.pos += 1;
+    }
+}
+
+pub(super) type Tree = syntree::Tree<u16, syntree::FlavorDefault>;
+pub(super) type Node<'a> = syntree::Node<'a, u16, syntree::FlavorDefault>;
+pub(super) type NodeId = syntree::pointer::PointerUsize;
+pub(super) type Children<'a> = syntree::node::Children<'a, u16, syntree::FlavorDefault>;
+
+struct Builder<'a> {
+    builder: syntree::Builder<u16>,
+    tokens_raw: Peekable<lexer::Lexer<'a>>,
+    errors: Vec<ParseError>,
+}
+
+impl<'a> Builder<'a> {
+    fn skip_whitespace(&mut self) {
+        while self
+            .tokens_raw
+            .peek()
+            .map(|t| t.token.is_whitespace())
+            .unwrap_or_default()
+        {
+            let next = self.tokens_raw.next().unwrap();
+            if next.token.is_whitespace() {
+                self.builder
+                    .token(next.token.into(), next.text.len())
+                    .unwrap();
+            }
+        }
+    }
+
+    fn build_tree(mut self, events: &[Event]) -> (Tree, Vec<ParseError>) {
+        let mut events_iter = events.iter().peekable();
+        while let Some(event) = events_iter.next() {
+            match event {
+                Event::Open { node } => {
+                    //we don't want to insert tokens before the first node (fixes a crash on
+                    //builder.finish()
+                    if node != &MODULE {
+                        self.skip_whitespace();
+                    }
+                    self.builder.open((*node).into()).unwrap();
+                }
+                Event::Close => {
+                    self.builder.close().unwrap();
+                }
+                Event::Advance { token } => {
+                    self.skip_whitespace();
+                    let Some(next) = self.tokens_raw.next() else {
+                        continue;
+                    };
+                    self.builder
+                        .token((*token).into(), next.text.len())
+                        .unwrap();
+
+                    if !matches!(events_iter.peek(), Some(Event::Close)) {
+                        self.skip_whitespace();
+                    }
+                }
+                Event::Checkpoint => {}
+            }
+        }
+        (self.builder.build().unwrap(), self.errors)
     }
 }
 
@@ -512,9 +515,7 @@ impl<'a> Parser<'a> {
             this.generics();
             this.type_expr();
             if this.ate(T![for]) {
-                this.with(IMPL_STRUCT_TYPE, |this| {
-                    this.type_expr();
-                });
+                this.type_expr();
             }
             this.expect(T!["{"]);
 
@@ -575,7 +576,7 @@ impl<'a> Parser<'a> {
     fn parent(&mut self) {
         self.with(PARENT, |this| {
             this.expect(T![:]);
-            this.name();
+            this.type_path();
         })
     }
 
@@ -740,8 +741,25 @@ impl<'a> Parser<'a> {
                     });
                     if !can_be_lit {
                         match &self.input[next_span] {
-                            "int" | "float" | "string" | "bool" => {
-                                self.with_at(LIT_TYPE, checkpoint, |_| {})
+                            "int" => {
+                                self.with_at(LIT_TYPE_INT, checkpoint, |this| {
+                                    this.with_at(LIT_TYPE, checkpoint, |_| {});
+                                });
+                            }
+                            "float" => {
+                                self.with_at(LIT_TYPE_FLOAT, checkpoint, |this| {
+                                    this.with_at(LIT_TYPE, checkpoint, |_| {});
+                                });
+                            }
+                            "bool" => {
+                                self.with_at(LIT_TYPE_BOOL, checkpoint, |this| {
+                                    this.with_at(LIT_TYPE, checkpoint, |_| {});
+                                });
+                            }
+                            "string" => {
+                                self.with_at(LIT_TYPE_STRING, checkpoint, |this| {
+                                    this.with_at(LIT_TYPE, checkpoint, |_| {});
+                                });
                             }
                             "any" => self.with_at(ANY_TYPE, checkpoint, |_| {}),
                             _ => {}
@@ -1967,52 +1985,31 @@ impl<'a, 'b> LuaParser<'a, 'b> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Lang {}
-impl rowan::Language for Lang {
-    type Kind = Syntax;
-
-    fn kind_from_raw(raw: rowan::SyntaxKind) -> Self::Kind {
-        unsafe { std::mem::transmute::<u16, Syntax>(raw.0) }
-    }
-
-    fn kind_to_raw(kind: Self::Kind) -> rowan::SyntaxKind {
-        kind.into()
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use crate::parsing::{
-        ast::SyntaxNode,
-        lexer::Syntax,
-        parser::{Lang, Parser, PathKind},
-    };
+    use crate::parsing::ast::NodeExt;
 
-    use rowan::{GreenNodeBuilder, NodeOrToken, SyntaxKind, SyntaxToken};
+    use super::{Parser, PathKind, Syntax};
 
-    fn parse_rec(
-        child: NodeOrToken<SyntaxNode, SyntaxToken<Lang>>,
-        result: &mut String,
-        depth: usize,
-    ) {
+    fn parse_rec(source: &str, child: super::Node<'_>, result: &mut String, depth: usize) {
         (0..depth).for_each(|_| result.push_str("  "));
         result.push_str(&format!(
             "{:?}: {}..{}{}",
             child.kind(),
-            u32::from(child.text_range().start()),
-            u32::from(child.text_range().end()),
-            match &child {
-                NodeOrToken::Token(t) if t.kind() != Syntax::WHITESPACE =>
-                    format!(" \"{}\"", t.text()),
-                _ => String::from(" "),
+            child.range().start,
+            child.range().end,
+            if child.is_empty() && child.value() != Syntax::WHITESPACE.into() {
+                format!(" \"{}\"", &source[child.range()])
+            } else {
+                String::from(" ")
             }
         ));
         result.push('\n');
-        if let NodeOrToken::Node(node) = child {
-            for child in node.children_with_tokens() {
-                parse_rec(child, result, depth + 1);
-            }
+        if child.is_empty() {
+            return;
+        }
+        for child in child.children() {
+            parse_rec(source, child, result, depth + 1);
         }
     }
 
@@ -2020,11 +2017,10 @@ mod test {
     fn try_parse(source: &str, f: impl FnOnce(&mut Parser)) -> (String, Vec<super::ParseError>) {
         let mut parser = Parser::new(source);
         f(&mut parser);
-        let (node, errors) = parser.build_tree();
-        let node = SyntaxNode::new_root(node);
+        let (tree, errors) = parser.build_tree();
         let mut result = String::new();
 
-        parse_rec(NodeOrToken::Node(node), &mut result, 0);
+        parse_rec(source, tree.first().unwrap(), &mut result, 0);
         println!("{result}");
         (result, errors)
     }
@@ -2035,9 +2031,7 @@ mod test {
         if !errs.is_empty() {
             let mut output = String::new();
             for err in errs {
-                let range =
-                    (u32::from(err.range.start()) as usize)..(u32::from(err.range.end()) as usize);
-                output.push_str(&format!("{:?}, token: {}", err.kind, &source[range]));
+                output.push_str(&format!("{:?}, token: {}", err.kind, &source[err.range]));
                 output.push('\n');
             }
             panic!("{output}");

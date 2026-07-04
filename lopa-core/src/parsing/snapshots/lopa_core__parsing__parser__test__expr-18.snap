@@ -12,16 +12,18 @@ AS_EXPR: 0..20
       AS_KW: 4..6 "as"
       WHITESPACE: 6..7 
       LIT_TYPE: 7..12 
-        PATH_TYPE: 7..12 
-          PATH: 7..12 
-            PATH_SEGMENT: 7..12 
-              IDENT: 7..12 "float"
+        LIT_TYPE_FLOAT: 7..12 
+          PATH_TYPE: 7..12 
+            PATH: 7..12 
+              PATH_SEGMENT: 7..12 
+                IDENT: 7..12 "float"
     R_PAREN: 12..13 ")"
   WHITESPACE: 13..14 
   AS_KW: 14..16 "as"
   WHITESPACE: 16..17 
   LIT_TYPE: 17..20 
-    PATH_TYPE: 17..20 
-      PATH: 17..20 
-        PATH_SEGMENT: 17..20 
-          IDENT: 17..20 "int"
+    LIT_TYPE_INT: 17..20 
+      PATH_TYPE: 17..20 
+        PATH: 17..20 
+          PATH_SEGMENT: 17..20 
+            IDENT: 17..20 "int"

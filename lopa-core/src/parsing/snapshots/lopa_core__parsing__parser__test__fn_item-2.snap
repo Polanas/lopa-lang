@@ -23,10 +23,11 @@ FN_ITEM: 0..69
       COLON: 31..32 ":"
       WHITESPACE: 32..33 
       LIT_TYPE: 33..39 
-        PATH_TYPE: 33..39 
-          PATH: 33..39 
-            PATH_SEGMENT: 33..39 
-              IDENT: 33..39 "string"
+        LIT_TYPE_STRING: 33..39 
+          PATH_TYPE: 33..39 
+            PATH: 33..39 
+              PATH_SEGMENT: 33..39 
+                IDENT: 33..39 "string"
       WHITESPACE: 39..40 
       EQ: 40..41 "="
       WHITESPACE: 41..42 

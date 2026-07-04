@@ -1,6 +1,6 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"super\", |p| p.path_segment(PathSegmentKind::Expr))"
+expression: "parse(\"super\", |p| p.path_segment(PathKind::Expr))"
 ---
 PATH_SEGMENT: 0..5 
   SUPER_KW: 0..5 "super"

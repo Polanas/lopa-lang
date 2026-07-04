@@ -1,336 +1,199 @@
-pub mod base;
-pub mod diagnostics;
-pub mod format;
+mod diagnostics;
 
-use rowan::GreenNode;
-use rowan::ast::AstNode as _;
-use salsa::{Accumulator, Database, Setter};
-use ustr::Ustr;
+pub use diagnostics::{
+    Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
+};
 
-use crate::def::ir::{Function, ImplItem, Struct, Type};
-use crate::def::lower::{self, impl_blocks};
-use crate::def::{self, ir};
-use crate::ide::base::VfsPath;
-use crate::ide::diagnostics::Diagnostic;
-use crate::parsing::ast::{self, SyntaxNode};
-use crate::parsing::parser::{self};
-use crate::ustr_hash::UstrIndexMap;
-use std::fmt::Display;
-use std::ops::Range;
-use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use itertools::Itertools;
+use notify_rust::{Notification, Timeout};
+use salsa::Accumulator;
 
-pub struct FileContent {
-    value: String,
-    line_starts: Vec<usize>,
-    dirty: bool,
+use crate::{
+    common::Symbol,
+    def::{self, ast_map, hir},
+    parsing::{self, AstNode},
+};
+use std::{path::PathBuf, sync::Arc};
+
+#[salsa::input(debug)]
+pub struct Root {
+    #[returns(ref)]
+    pub files: Vec<File>,
+    #[returns(ref)]
+    pub root_dir: PathBuf,
 }
 
-impl Display for FileContent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
+#[derive(Clone, Debug, PartialEq, salsa::Update)]
+pub struct ModuleTree<'db> {
+    pub parents: indexmap::IndexMap<hir::Module<'db>, hir::Module<'db>>,
+    pub children: indexmap::IndexMap<hir::Module<'db>, Vec<hir::Module<'db>>>,
+    pub modules_by_files: indexmap::IndexMap<File, hir::Module<'db>>,
 }
 
-fn line_starts(contents: &str) -> Vec<usize> {
-    let mut it = contents.bytes();
-    let mut line_starts = vec![0];
-    let mut count = 0;
-    while let Some(byte) = it.next() {
-        match byte {
-            b'\n' | b'\r' => {
-                if byte == b'\r' {
-                    //skip \n
-                    it.next();
-                    count += 1;
-                }
-                line_starts.push(count + 1);
+#[salsa::tracked]
+impl<'db> Root {
+    #[salsa::tracked]
+    pub fn root_file(self, db: &'db dyn salsa::Database) -> Option<File> {
+        let mut root_file_path = self.root_dir(db).clone();
+        root_file_path.push("src");
+        root_file_path.push("main.lopa");
+        for file in self.files(db) {
+            if file.path(db) == root_file_path {
+                return Some(*file);
             }
-            _ => {}
         }
-        count += 1;
-    }
-    line_starts
-}
-
-impl FileContent {
-    pub fn new(contents: String) -> Self {
-        Self {
-            line_starts: line_starts(contents.as_str()),
-            value: contents,
-            dirty: false,
-        }
+        None
     }
 
-    fn try_recompute(&mut self) {
-        if self.dirty {
-            self.line_starts = line_starts(self.value.as_str());
-            self.dirty = false;
-        }
+    #[salsa::tracked]
+    pub fn root_module(self, db: &'db dyn salsa::Database) -> Option<hir::Module<'db>> {
+        let root_file = self.root_file(db)?;
+        let items = def::items(db, root_file);
+        Some(hir::Module::new(
+            db,
+            Symbol::new(db, "root"),
+            hir::ModuleKind::Definition(items),
+            root_file,
+        ))
     }
 
-    pub fn as_str(&self) -> &str {
-        self.value.as_str()
+    #[salsa::tracked(returns(ref))]
+    pub fn files_by_names(self, db: &'db dyn salsa::Database) -> indexmap::IndexMap<PathBuf, File> {
+        self.files(db)
+            .iter()
+            .map(|file| (file.path(db).clone(), *file))
+            .collect::<_>()
     }
-
-    pub fn len(&self) -> usize {
-        self.value.as_str().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn insert(&mut self, offset: usize, text: &str) {
-        self.value.insert_str(offset, text);
-        self.dirty = true;
-    }
-
-    pub fn delete(&mut self, range: Range<usize>) {
-        self.value.replace_range(range, "");
-        self.dirty = true;
-    }
-
-    pub fn replace(&mut self, range: Range<usize>, text: &str) {
-        self.value.replace_range(range, text);
-        self.dirty = true;
-    }
-
-    pub fn line_col_by_pos(&mut self, pos: u32) -> (u32, u32) {
-        let pos = pos as usize;
-        self.try_recompute();
-        let line = self
-            .line_starts
-            .partition_point(|&i| i <= pos)
-            .saturating_sub(1);
-        let col = pos - self.line_starts[line];
-        (line as _, col as _)
-    }
-
-    pub fn pos_by_line_col(&mut self, line: u32, col: u32) -> u32 {
-        let (line, col) = (line as usize, col as usize);
-        self.try_recompute();
-        let pos = self.line_starts.get(line).copied().unwrap_or(0);
-        (pos + col) as u32
+    pub fn module_tree(self, db: &'db dyn salsa::Database) -> &Option<ModuleTree<'db>> {
+        module_tree(db, self)
     }
 }
 
-#[salsa::input]
-#[derive(Debug)]
+#[salsa::input(debug)]
 pub struct File {
     #[returns(ref)]
-    pub contents: Arc<RwLock<FileContent>>,
-    #[returns(ref)]
-    pub path: VfsPath,
-    pub source_root: SourceRoot,
-}
-
-//TODO: rewrite most tracked functions as methods
-
-// #[salsa::tracked]
-// impl<'db> File {
-//     #[salsa::tracked]
-//     pub fn parse(self, db: &'db dyn salsa::Database) -> Parse<'db> {
-//     }
-// }
-
-#[salsa::tracked]
-pub fn is_root_file(db: &dyn salsa::Database, file: File) -> bool {
-    module_name(db, file) == "root"
-}
-
-#[salsa::tracked]
-pub fn module_path(db: &dyn salsa::Database, file: File) -> ir::Path {
-    let mut path = ir::Path(vec![module_name(db, file)]);
-    let mut current = file;
-    while let Some(parent) = lower::module_parent(db, current) {
-        path.0.insert(0, module_name(db, parent));
-        current = parent;
-    }
-    path
-}
-
-#[salsa::tracked]
-pub fn module_name(db: &dyn salsa::Database, file: File) -> Ustr {
-    let name = file
-        .path(db)
-        .0
-        .file_stem()
-        .unwrap()
-        .to_string_lossy()
-        .to_string()
-        .into();
-    if name == "main" {
-        Ustr::from("root")
-    } else {
-        name
-    }
-}
-
-#[salsa::input]
-#[derive(Debug)]
-pub struct SourceRoot {
-    pub files: Option<Vec<File>>,
+    pub contents: Arc<str>,
     pub path: PathBuf,
-}
-
-#[salsa::tracked]
-pub fn root_module(db: &dyn salsa::Database, root: SourceRoot) -> Option<File> {
-    root.files(db)?
-        .iter()
-        .find(|file| is_root_file(db, **file))
-        .cloned()
-}
-
-impl SourceRoot {
-    pub fn clear(&self, db: &mut dyn salsa::Database) {
-        self.set_files(db).to(Some(vec![]));
-    }
-
-    pub fn push_file(&self, db: &mut dyn salsa::Database, file: File) {
-        let Some(mut files) = self.set_files(db).to(None) else {
-            return;
-        };
-        files.push(file);
-        self.set_files(db).to(Some(files));
-    }
-}
-
-#[salsa::tracked]
-pub struct Parse<'db> {
-    pub node: GreenNode,
-    #[returns(ref)]
-    pub errors: Vec<parser::ParseError>,
-}
-
-impl Parse<'_> {
-    pub fn syntax_node(&self, db: &dyn salsa::Database) -> ast::SyntaxNode {
-        SyntaxNode::new_root(self.node(db).clone())
-    }
-
-    pub fn file(&self, db: &dyn salsa::Database) -> ast::File {
-        ast::File::cast(self.syntax_node(db)).unwrap()
-    }
-}
-
-#[salsa::tracked]
-pub fn parse<'db>(db: &'db dyn salsa::Database, file: File) -> Parse<'db> {
-    let contents = file.contents(db).read().unwrap();
-    let parse = parser::parse(contents.as_str());
-
-    Parse::new(db, parse.0, parse.1)
-}
-
-#[salsa::tracked]
-pub fn body_with_source_map<'db>(
-    db: &'db dyn salsa::Database,
-    func: Function<'db>,
-) -> (
-    Arc<def::body::Body<'db>>,
-    Arc<def::body::BodySourceMap<'db>>,
-) {
-    let (body, body_source_map) = def::body::lower(db, func);
-    (Arc::new(body), Arc::new(body_source_map))
+    pub root: Root,
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn body<'db>(db: &'db dyn salsa::Database, func: Function<'db>) -> Arc<def::body::Body<'db>> {
-    body_with_source_map(db, func).0.clone()
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn source_map<'db>(
-    db: &'db dyn salsa::Database,
-    func: Function<'db>,
-) -> Arc<def::body::BodySourceMap<'db>> {
-    body_with_source_map(db, func).1.clone()
-}
-
-#[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Hash)]
-pub enum Implementee<'db> {
-    Type(ir::Type<'db>),
-    Itself,
-}
-
-#[derive(salsa::Update, Debug, PartialEq, Eq, Clone, Hash)]
-pub struct ImplKey<'db> {
-    //the type that items are implemented ON
-    pub implementor: ir::Type<'db>,
-    //the type that items are implemented FROM (acts as an interface)
-    pub implementee: Implementee<'db>,
-}
-
-type ImplMap<'db> = indexmap::IndexMap<ImplKey<'db>, UstrIndexMap<ImplItem<'db>>>;
-
-#[salsa::tracked(returns(ref))]
-pub fn impl_map(db: &dyn salsa::Database, root: SourceRoot) -> ImplMap<'_> {
-    let mut impls: ImplMap = Default::default();
-    for &file in root.files(db).unwrap().iter() {
-        let impl_blocks = impl_blocks(db, file);
-        for block in impl_blocks.iter() {
-            let implementor = block.owner(db).clone();
-            let implementee = block
-                .implementee(db)
-                .as_ref()
-                .cloned()
-                .map(Implementee::Type)
-                .unwrap_or_else(|| Implementee::Itself);
-            let items = impls
-                .entry(ImplKey {
-                    implementor,
-                    implementee,
-                })
-                .or_default();
-            for func in block.functions(db) {
-                items.insert(func.name(db).into(), ImplItem::Function(*func));
+pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<ModuleTree<'db>> {
+    let files_by_names = root.files_by_names(db);
+    fn traverse_module<'db>(
+        db: &'db dyn salsa::Database,
+        module: hir::Module<'db>,
+        module_dir_path: PathBuf,
+        tree: &mut ModuleTree<'db>,
+        files_by_names: &indexmap::IndexMap<PathBuf, File>,
+    ) {
+        match module.kind(db) {
+            hir::ModuleKind::Declaration(ast_ptr) => {
+                let mut file_path = module_dir_path;
+                let mod_name = module.name(db).value(db);
+                file_path.push(format!("{}.lopa", mod_name));
+                if let Some(file) = files_by_names.get(&file_path) {
+                    tree.modules_by_files.insert(*file, module);
+                } else {
+                    Diagnostic {
+                        message: format!("unresolved module: `{}`", mod_name),
+                        location: DiagnosticLocation::Module(*ast_ptr),
+                        kind: DiagnosticKind::ModuleError,
+                    }
+                    .accumulate(db);
+                }
+            }
+            hir::ModuleKind::Definition(items) => {
+                let mut children = vec![];
+                for item in items.iter() {
+                    if let hir::Item::Module(child) = item {
+                        children.push(*child);
+                        tree.parents.insert(*child, module);
+                        traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
+                    }
+                }
+                tree.children.insert(module, children);
             }
         }
     }
+    let mut tree = ModuleTree {
+        parents: Default::default(),
+        children: Default::default(),
+        modules_by_files: Default::default(),
+    };
+    let root_module = root.root_module(db)?;
+    let mut root_dir = root.root_dir(db).clone();
+    root_dir.push("src");
 
-    impls
+    traverse_module(db, root_module, root_dir, &mut tree, files_by_names);
+
+    Some(tree)
 }
 
-#[salsa::db]
-#[derive(Default)]
-pub struct RootDatabase {
-    storage: salsa::Storage<Self>,
+#[salsa::tracked]
+pub fn module_diagnostics(db: &dyn salsa::Database, root: Root) -> Vec<Diagnostic> {
+    let mut diagnostics = vec![];
+    diagnostics.extend(
+        module_tree::accumulated::<Diagnostic>(db, root)
+            .into_iter()
+            .cloned(),
+    );
+    diagnostics
 }
 
-#[salsa::db]
-impl salsa::Database for RootDatabase {}
-
-pub struct Analysis {
-    pub db: RootDatabase,
-}
-
-impl Analysis {
-    pub fn new() -> Self {
-        let db = RootDatabase::default();
-        Self { db }
+#[salsa::tracked]
+impl<'db> File {
+    #[salsa::tracked]
+    pub fn parse(self, db: &'db dyn salsa::Database) -> parsing::Parse<'db> {
+        let (tree, errors) = parsing::parse(self.contents(db));
+        parsing::Parse::new(db, tree, errors)
     }
 
-    pub fn format(&self, file: File) -> String {
-        format::format_file(&self.db, file)
-    }
-
-    pub fn diagnostics(&self, file: File) -> Vec<Diagnostic> {
-        diagnostics::file_diagnostics(&self.db, file)
-    }
-
-    pub fn apply_change(&mut self, file: File) {
-        //cancel any ongoing analysis
-        self.db.trigger_cancellation();
-
-        let contents = file.contents(&self.db).clone();
-        //TODO: doesnt this set file content twice in a row?
-        file.set_contents(&mut self.db).to(contents);
-    }
-}
-
-impl Default for Analysis {
-    fn default() -> Self {
-        Self::new()
+    #[salsa::tracked]
+    pub fn diagnostics(self, db: &dyn salsa::Database) -> Vec<Diagnostic> {
+        let mut diagnostics = vec![];
+        let parse = self.parse(db);
+        diagnostics.extend(parse.errors(db).clone().into_iter().map(|e| Diagnostic {
+            message: e.kind.to_string(),
+            location: DiagnosticLocation::Range(e.range.clone()),
+            kind: DiagnosticKind::SyntaxError,
+        }));
+        diagnostics.extend(
+            module_diagnostics::accumulated::<Diagnostic>(db, self.root(db))
+                .into_iter()
+                .cloned(),
+        );
+        diagnostics
     }
 }
 
-pub type TextRange = rowan::TextRange;
+#[salsa::tracked]
+impl<'db> File {
+    #[salsa::tracked]
+    pub fn rendered_diagnostics(self, db: &'db dyn salsa::Database) -> Vec<RenderedDiagnostic> {
+        let parse = self.parse(db);
+        let tree = parse.tree(db);
+        let ast_map = def::ast_map(db, self);
+        let diagnostics = self.diagnostics(db);
+        diagnostics
+            .into_iter()
+            .filter_map(|d| match d.location {
+                DiagnosticLocation::Module(ast_ptr) => {
+                    let module_id = ast_map[ast_ptr];
+                    let module_node = tree.get(module_id).and_then(parsing::ModItem::cast)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: module_node.syntax().range(),
+                        kind: d.kind,
+                    })
+                }
+                DiagnosticLocation::Param { fn_item, param_num } => None,
+                DiagnosticLocation::Range(range) => Some(RenderedDiagnostic {
+                    message: d.message,
+                    range,
+                    kind: d.kind,
+                }),
+            })
+            .collect_vec()
+    }
+}

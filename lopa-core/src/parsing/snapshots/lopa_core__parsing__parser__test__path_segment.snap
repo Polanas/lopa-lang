@@ -1,6 +1,6 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"A\", |p| p.path_segment(PathSegmentKind::Expr))"
+expression: "parse(\"A\", |p| p.path_segment(PathKind::Expr))"
 ---
 PATH_SEGMENT: 0..1 
   IDENT: 0..1 "A"

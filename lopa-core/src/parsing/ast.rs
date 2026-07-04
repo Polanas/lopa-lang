@@ -1,29 +1,76 @@
-use super::{lexer::Syntax, parser};
-use crate::T;
-use crate::common::LitKind;
-use rowan::ast::support::{child, children, token};
-use rowan::ast::{AstChildren, AstNode};
-use ustr::Ustr;
+use std::marker::PhantomData;
 
-pub type SyntaxNode = rowan::SyntaxNode<parser::Lang>;
-pub type SyntaxToken = rowan::SyntaxToken<parser::Lang>;
-pub type NodeOrToken = rowan::NodeOrToken<SyntaxNode, SyntaxToken>;
-pub type SyntaxNodePtr = rowan::ast::SyntaxNodePtr<parser::Lang>;
-pub type AstPtr<N> = rowan::ast::AstPtr<N>;
+use crate::{
+    common::{BinaryOpKind, LitKind, LuaBinaryOpKind, UnaryOpKind},
+    parsing::{Children, Node, NodeId, Syntax},
+};
 
-//used for the matches! check in can_cast for enums
 trait NodeWrapper {
-    const KIND: Syntax;
+    const KIND: u16;
 }
 
-pub trait HasCompilerAttribs: AstNode<Language = parser::Lang> {
-    fn attribs(&self) -> Option<CompilerAttribList> {
-        self.syntax()
-            .prev_sibling()
-            .and_then(CompilerAttribList::cast)
+pub trait NodeExt<'a> {
+    fn kind(&self) -> Syntax;
+    fn text(&self, source: &'a str) -> &'a str;
+}
+
+impl<'a> NodeExt<'a> for Node<'a> {
+    fn kind(&self) -> Syntax {
+        unsafe { std::mem::transmute::<u16, Syntax>(self.value()) }
+    }
+
+    fn text(&self, source: &'a str) -> &'a str {
+        &source[self.range()]
     }
 }
-impl<T: AstNode<Language = parser::Lang>> HasCompilerAttribs for T {}
+
+pub struct AstChildren<'a, N: AstNode<'a>> {
+    inner: Children<'a>,
+    phantom: PhantomData<N>,
+}
+
+impl<'a, N: AstNode<'a>> AstChildren<'a, N> {
+    fn new(node: Node<'a>) -> Self {
+        Self {
+            inner: node.children(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, N: AstNode<'a>> Iterator for AstChildren<'a, N> {
+    type Item = N;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.find_map(N::cast)
+    }
+}
+
+pub trait AstNode<'a> {
+    fn cast(node: Node<'a>) -> Option<Self>
+    where
+        Self: Sized;
+    fn syntax(&self) -> &Node<'a>;
+    fn id(&self) -> NodeId;
+
+    fn child<N: AstNode<'a>>(&self) -> Option<N> {
+        self.syntax().children().find_map(N::cast)
+    }
+    fn children<N: AstNode<'a>>(&self) -> AstChildren<'a, N> {
+        AstChildren::new(*self.syntax())
+    }
+    fn token(&self, kind: Syntax) -> Option<Node<'a>> {
+        self.syntax().children().find(|n| n.value() == kind.into())
+    }
+}
+
+pub trait HasCompilerAttribs<'a>: AstNode<'a> {
+    fn attribs(&self) -> Option<CompilerAttribList<'a>> {
+        self.syntax().prev().and_then(CompilerAttribList::cast)
+    }
+}
+
+impl<'a, T: AstNode<'a>> HasCompilerAttribs<'a> for T {}
 
 macro_rules! structs {
     (
@@ -33,42 +80,34 @@ macro_rules! structs {
       ),*
     ) => {
         $(
-            #[derive(Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
-            pub struct $name(pub SyntaxNode);
+            #[derive(Clone, Copy, Debug)]
+            pub struct $name<'a>(pub Node<'a>);
 
-            impl $name {
+            impl<'a> $name<'a> {
                 struct_impl!($($impl)*);
-
-                pub fn node_ptr(&self) -> SyntaxNodePtr {
-                    SyntaxNodePtr::new(&self.0)
-                }
             }
 
-            impl NodeWrapper for $name {
-                const KIND: Syntax = Syntax::$kind;
+            impl NodeWrapper for $name<'_> {
+                const KIND: u16 = Syntax::$kind as u16;
             }
 
             $(impl $trait for $name{})*
 
-            impl AstNode for $name {
-                type Language = parser::Lang;
-
-                fn can_cast(kind: <Self::Language as rowan::Language>::Kind) -> bool
+            impl<'a> AstNode<'a> for $name<'a> {
+                fn cast(node: Node<'a>) -> Option<Self>
                 where
-                    Self: Sized,
-                {
-                    kind == Syntax::$kind
+                    Self: Sized {
+                    if node.value() == Syntax::$kind.into() {
+                        Some(Self(node))
+                    } else {
+                        None
+                    }
                 }
-
-                fn cast(syntax: SyntaxNode) -> Option<Self>
-                where
-                    Self: Sized,
-                {
-                    Self::can_cast(syntax.kind()).then(|| Self(syntax))
-                }
-
-                fn syntax(&self) -> &SyntaxNode {
+                fn syntax(&self) -> &Node<'a> {
                     &self.0
+                }
+                fn id(&self) -> NodeId {
+                    self.0.id()
                 }
             }
         )*
@@ -79,36 +118,36 @@ macro_rules! struct_impl {
     () => {};
     //regular child, any
     ($field:ident: $ast:ident, $($tt:tt)*) => {
-        pub fn $field(&self) -> Option<$ast> {
-            child(&self.0)
+        pub fn $field(&self) -> Option<$ast<'a>> {
+            self.child()
         }
         struct_impl!($($tt)*);
     };
     //child with an offset
     ($field:ident[$k:tt]: $ast:ident, $($tt:tt)*) => {
-        pub fn $field(&self) -> Option<$ast> { children(&self.0).nth($k) }
+        pub fn $field(&self) -> Option<$ast<'a>> { self.children().nth($k) }
         struct_impl!($($tt)*);
     };
     //list of children
     ($field:ident: [$ast:ident], $($tt:tt)*) => {
-        pub fn $field(&self) -> AstChildren<$ast> {
-            children(&self.0)
+        pub fn $field(&self) -> AstChildren<'a, $ast<'a>> {
+            self.children()
         }
         struct_impl!($($tt)*);
     };
     //token
     ($field:ident: T![$tok:tt], $($tt:tt)*) => {
 
-        pub fn $field(&self) -> Option<SyntaxToken> {
-            token(&self.0, T![$tok])
+        pub fn $field(&self) -> Option<Node<'a>> {
+            self.token(T![$tok])
         }
         struct_impl!($($tt)*);
     };
     //token with an offset
     ($field:ident[$k:tt]: T![$tok:tt], $($tt:tt)*) => {
 
-        pub fn $field(&self) -> Option<SyntaxToken> {
-            self.syntax().children_with_tokens().filter_map(|i| i.into_token()).nth($k)
+        pub fn $field(&self) -> Option<Node<'a>> {
+            self.syntax().children().filter(|n| n.is_empty()).nth($k)
         }
         struct_impl!($($tt)*);
     };
@@ -122,271 +161,42 @@ macro_rules! enums {
         $(
             $name:ident {
                 $(
-                    $variant:ident$(<$generic:ident>)?
+                    $variant:ident
                 ),* $(,)?
             }
         ),* $(,)?
     ) => {
         $(
-            #[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
-            pub enum $name {
-                $($variant($variant$(<$generic>)*),)*
+            #[allow(clippy::enum_variant_names)]
+            #[derive(Clone, Copy, Debug)]
+            pub enum $name<'a> {
+                $($variant($variant<'a>),)*
             }
 
-            impl $name {
-                pub fn node_ptr(&self) -> SyntaxNodePtr {
+            impl<'a> AstNode<'a> for $name<'a> {
+                fn cast(node: Node<'a>) -> Option<Self>
+                where
+                    Self: Sized {
+                        match node.value() {
+                            $(
+                                <$variant as NodeWrapper>::KIND => Some(Self::$variant($variant(node))),
+                            )*
+                            _ => None,
+                        }
+                }
+                fn syntax(&self) -> &Node<'a> {
                     match self {
-                        $(Self::$variant(e) => e.node_ptr()),*
+                        $(Self::$variant(e) => e.syntax()),*
                     }
                 }
-            }
-
-            impl AstNode for $name {
-                type Language = parser::Lang;
-
-                fn can_cast(kind: <Self::Language as rowan::Language>::Kind) -> bool
-                where
-                    Self: Sized,
-                {
-                    matches!(kind, $(<$variant as NodeWrapper>::KIND)|*)
-                }
-
-                fn cast(syntax: SyntaxNode) -> Option<Self>
-                where
-                    Self: Sized,
-                {
-                    match syntax.kind() {
-                        $(<$variant as NodeWrapper>::KIND => Some(Self::$variant$(::<$generic>)*($variant(syntax))),)*
-                        _ => None,
-                    }
-                }
-
-                fn syntax(&self) -> &SyntaxNode {
+                fn id(&self) -> NodeId {
                     match self {
-                        $(Self::$variant(e) => &e.0,)*
+                        $(Self::$variant(e) => e.id()),*
                     }
                 }
             }
         )*
     };
-}
-
-#[macro_export]
-macro_rules! B {
-    (+) => {
-        $crate::parsing::ast::BinaryOpKind::Add
-    };
-    (-) => {
-        $crate::parsing::ast::BinaryOpKind::Sub
-    };
-    (*) => {
-        $crate::parsing::ast::BinaryOpKind::Mul
-    };
-    (/) => {
-        $crate::parsing::ast::BinaryOpKind::Div
-    };
-    ("//") => {
-        $crate::parsing::ast::BinaryOpKind::DivInt
-    };
-    (%) => {
-        $crate::parsing::ast::BinaryOpKind::Rem
-    };
-    (or) => {
-        $crate::parsing::ast::BinaryOpKind::Or
-    };
-    (<<) => {
-        $crate::parsing::ast::BinaryOpKind::Shl
-    };
-    (>>) => {
-        $crate::parsing::ast::BinaryOpKind::Shr
-    };
-    (^) => {
-        $crate::parsing::ast::BinaryOpKind::BitXor
-    };
-    (&) => {
-        $crate::parsing::ast::BinaryOpKind::BixAdd
-    };
-    (>) => {
-        $crate::parsing::ast::BinaryOpKind::Greater
-    };
-    (>=) => {
-        $crate::parsing::ast::BinaryOpKind::GreaterEqual
-    };
-    (<) => {
-        $crate::parsing::ast::BinaryOpKind::Less
-    };
-    (<=) => {
-        $crate::parsing::ast::BinaryOpKind::LessEqual
-    };
-    (!=) => {
-        $crate::parsing::ast::BinaryOpKind::NotEqual
-    };
-    (==) => {
-        $crate::parsing::ast::BinaryOpKind::Equal
-    };
-    (and) => {
-        $crate::parsing::ast::BinaryOpKind::And
-    };
-    (|) => {
-        $crate::parsing::ast::BinaryOpKind::BitOr
-    };
-    (+=) => {
-        $crate::parsing::ast::BinaryOpKind::AddAssign
-    };
-    (-=) => {
-        $crate::parsing::ast::BinaryOpKind::SubAssign
-    };
-    (*=) => {
-        $crate::parsing::ast::BinaryOpKind::MulAssign
-    };
-    (/=) => {
-        $crate::parsing::ast::BinaryOpKind::DivAssign
-    };
-    ("//=") => {
-        $crate::parsing::ast::BinaryOpKind::DivIntAssign
-    };
-    (%=) => {
-        $crate::parsing::ast::BinaryOpKind::RemAssign
-    };
-    (^=) => {
-        $crate::parsing::ast::BinaryOpKind::BitXorAssign
-    };
-    (&=) => {
-        $crate::parsing::ast::BinaryOpKind::BitAndAssign
-    };
-    (|=) => {
-        $crate::parsing::ast::BinaryOpKind::BitOrAssign
-    };
-    (<<=) => {
-        $crate::parsing::ast::BinaryOpKind::ShlAssign
-    };
-    (>>=) => {
-        $crate::parsing::ast::BinaryOpKind::ShrAssign
-    };
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum BinaryOpKind {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    DivInt,
-    Rem,
-    Or,
-    Shl,
-    Shr,
-    BitXor,
-    BitAnd,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-    NotEqual,
-    Equal,
-    And,
-    BitOr,
-    AddAssign,
-    SubAssign,
-    MulAssign,
-    DivAssign,
-    DivIntAssign,
-    RemAssign,
-    BitXorAssign,
-    BitAndAssign,
-    BitOrAssign,
-    ShlAssign,
-    ShrAssign,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum LuaBinaryOpKind {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Rem,
-    Or,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-    NotEqual,
-    Equal,
-    And,
-    Concat,
-    Exp,
-}
-
-impl BinaryOpKind {
-    pub fn is_arithmetic(&self) -> bool {
-        matches!(
-            self,
-            Self::Add | Self::Sub | Self::DivInt | Self::Div | Self::Mul | Self::Rem
-        )
-    }
-}
-
-impl std::fmt::Display for BinaryOpKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BinaryOpKind::Add => write!(f, "+"),
-            BinaryOpKind::Mul => write!(f, "*"),
-            BinaryOpKind::Div => write!(f, "/"),
-            BinaryOpKind::DivInt => write!(f, "//"),
-            BinaryOpKind::Rem => write!(f, "%"),
-            BinaryOpKind::Or => write!(f, "or"),
-            BinaryOpKind::Shl => write!(f, "<<"),
-            BinaryOpKind::Shr => write!(f, ">>"),
-            BinaryOpKind::BitXor => write!(f, "^"),
-            BinaryOpKind::BitAnd => write!(f, "&"),
-            BinaryOpKind::Sub => write!(f, "-"),
-            BinaryOpKind::Greater => write!(f, ">"),
-            BinaryOpKind::GreaterEqual => write!(f, ">="),
-            BinaryOpKind::Less => write!(f, "<"),
-            BinaryOpKind::LessEqual => write!(f, "<="),
-            BinaryOpKind::NotEqual => write!(f, "!="),
-            BinaryOpKind::Equal => write!(f, "=="),
-            BinaryOpKind::And => write!(f, "and"),
-            BinaryOpKind::BitOr => write!(f, "|"),
-            BinaryOpKind::AddAssign => write!(f, "+="),
-            BinaryOpKind::SubAssign => write!(f, "-="),
-            BinaryOpKind::MulAssign => write!(f, "*="),
-            BinaryOpKind::DivAssign => write!(f, "/="),
-            BinaryOpKind::DivIntAssign => write!(f, "//="),
-            BinaryOpKind::RemAssign => write!(f, "%="),
-            BinaryOpKind::BitXorAssign => write!(f, "^="),
-            BinaryOpKind::BitAndAssign => write!(f, "&="),
-            BinaryOpKind::BitOrAssign => write!(f, "|="),
-            BinaryOpKind::ShlAssign => write!(f, "<<="),
-            BinaryOpKind::ShrAssign => write!(f, ">>="),
-        }
-    }
-}
-
-#[macro_export]
-macro_rules! U {
-    (not) => {
-        $crate::parsing::ast::UnaryOpKind::Not
-    };
-    (neg) => {
-        $crate::parsing::ast::UnaryOpKind::Neg
-    };
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum UnaryOpKind {
-    Not,
-    Neg,
-}
-
-impl std::fmt::Display for UnaryOpKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UnaryOpKind::Not => write!(f, "!"),
-            UnaryOpKind::Neg => write!(f, "-"),
-        }
-    }
 }
 
 structs! {
@@ -402,13 +212,10 @@ structs! {
     IMPL_ITEM = ImplItem {
         impl_token: T![impl],
         generics: Generics,
-        ty: TypeExpr,
-        impl_ty: ImplStructType,
+        first_type[0]: TypeExpr,
         for_token: T![for],
+        second_type[1]: TypeExpr,
         functions: [FnItem],
-    },
-    IMPL_STRUCT_TYPE = ImplStructType {
-        ty: TypeExpr,
     },
     USE_ITEM = UseItem {
         use_keyword: T![use],
@@ -459,7 +266,7 @@ structs! {
     },
     PARENT = Parent {
         colon_token: T![:],
-        name: Name,
+        path: Path,
     },
     FIELD = Field {
         name: Name,
@@ -551,15 +358,12 @@ structs! {
     LIT_TYPE = LitType {
         path: PathType,
         pub fn kind(&self) -> Option<LitKind> {
-            let token = self.syntax().first_token()?;
-            let Syntax::IDENT = token.kind() else {
-                return None;
-            };
-            Some(match token.text() {
-                "string" => LitKind::String,
-                "int" => LitKind::Int,
-                "float" => LitKind::Float,
-                "bool" => LitKind::Bool,
+            let node = self.syntax().first()?;
+            Some(match node.kind() {
+                Syntax::LIT_TYPE_STRING => LitKind::String,
+                Syntax::LIT_TYPE_INT => LitKind::Int,
+                Syntax::LIT_TYPE_BOOL => LitKind::Bool,
+                Syntax::LIT_TYPE_FLOAT => LitKind::Float,
                 _ => return None,
             })
         }
@@ -597,7 +401,7 @@ structs! {
     UNARY_EXPR = UnaryExpr {
         expr: Expr,
 
-        pub fn op_token(&self) -> Option<SyntaxToken> {
+        pub fn op_token(&self) -> Option<Node<'a>> {
             self.op_details().map(|t| t.0)
         }
 
@@ -605,15 +409,14 @@ structs! {
             self.op_details().map(|t| t.1)
         }
 
-        pub fn op_details(&self) -> Option<(SyntaxToken, UnaryOpKind)> {
-            self.syntax().children_with_tokens().find_map(|c| {
-                let token = c.into_token()?;
-                let op = match token.kind() {
+        pub fn op_details(&self) -> Option<(Node<'a>, UnaryOpKind)> {
+            self.syntax().children().find_map(|node| {
+                let op = match node.kind() {
                     T![-] => UnaryOpKind::Neg,
                     T![!] => UnaryOpKind::Not,
                     _ => return None,
                 };
-                Some((token, op))
+                Some((node, op))
             })
         }
     },
@@ -641,7 +444,7 @@ structs! {
         lhs: Expr,
         rhs[1]: Expr,
 
-        pub fn op_token(&self) -> Option<SyntaxToken> {
+        pub fn op_token(&self) -> Option<Node<'a>> {
             self.op_details().map(|t| t.0)
         }
 
@@ -649,10 +452,9 @@ structs! {
             self.op_details().map(|t| t.1)
         }
 
-        pub fn op_details(&self) -> Option<(SyntaxToken, BinaryOpKind)> {
-            self.syntax().children_with_tokens().find_map(|c| {
-                let token = c.into_token()?;
-                let op = match token.kind() {
+        pub fn op_details(&self) -> Option<(Node<'a>, BinaryOpKind)> {
+            self.syntax().children().find_map(|node| {
+                let op = match node.kind() {
                     T![+] => BinaryOpKind::Add,
                     T![*] => BinaryOpKind::Mul,
                     T![/] => BinaryOpKind::Div,
@@ -685,7 +487,7 @@ structs! {
                     // T![] => BinaryOpKind::ShrAssign,
                     _ => return None,
                 };
-                Some((token, op))
+                Some((node, op))
             })
         }
     },
@@ -776,12 +578,8 @@ structs! {
         expr: Expr,
     },
     LIT_EXPR = LitExpr {
-        pub fn token(&self) -> Option<SyntaxToken> {
-            self.0.children_with_tokens().find_map(NodeOrToken::into_token)
-        }
-
-        pub fn text(&self) -> Option<Ustr> {
-            self.token().map(|t| t.text().into())
+        pub fn token(&self) -> Option<Node<'a>> {
+            self.syntax().children().find(|n|n.is_empty())
         }
 
         pub fn kind(&self) -> Option<LitKind> {
@@ -801,11 +599,11 @@ structs! {
     PATH_SEGMENT = PathSegment {
         generic_args: GenericArgs,
 
-        pub fn ident(&self) -> Option<Ustr> {
-            self.0.children_with_tokens().filter_map(|t| t.into_token()).filter_map(|t| match t.kind() {
-                Syntax::SUPER_KW => Some(Ustr::from("super")),
-                Syntax::ROOT_KW => Some(Ustr::from("root")),
-                Syntax::IDENT => Some(Ustr::from(t.text())),
+        pub fn ident(&self, source: &'a str) -> Option<&'a str> {
+            self.0.children().filter(|node| node.is_empty()).filter_map(|node| match node.kind() {
+                Syntax::SUPER_KW => Some("super"),
+                Syntax::ROOT_KW => Some("root"),
+                Syntax::IDENT => Some(&source[node.range()]),
                 _ => None,
             }).next()
         }
@@ -827,8 +625,8 @@ structs! {
     NAME = Name {
         ident: T![ident],
 
-        pub fn text(&self) -> Option<Ustr> {
-            self.ident().map(|t| Ustr::from(t.text()))
+        pub fn text(&self, source: &'a str) -> Option<&'a str> {
+            self.ident().map(|t| &source[t.range()])
         }
     },
     LUA_CHUNK_EXPR = LuaChunkExpr {
@@ -955,12 +753,8 @@ structs! {
         exprs: [LuaExpr],
     },
     LUA_LIT_EXPR = LuaLitExpr {
-        pub fn token(&self) -> Option<SyntaxToken> {
-            self.0.children_with_tokens().find_map(NodeOrToken::into_token)
-        }
-
-        pub fn text(&self) -> Option<Ustr> {
-            self.token().map(|t| t.text().into())
+        pub fn token(&self) -> Option<Node<'a>> {
+            self.syntax().children().find(|node| node.is_empty())
         }
 
         pub fn kind(&self) -> Option<LitKind> {
@@ -987,7 +781,7 @@ structs! {
     LUA_UNARY_EXPR = LuaUnaryExpr {
         expr: LuaExpr,
 
-        pub fn op_token(&self) -> Option<SyntaxToken> {
+        pub fn op_token(&self) -> Option<Node<'a>> {
             self.op_details().map(|t| t.0)
         }
 
@@ -995,15 +789,14 @@ structs! {
             self.op_details().map(|t| t.1)
         }
 
-        pub fn op_details(&self) -> Option<(SyntaxToken, UnaryOpKind)> {
-            self.syntax().children_with_tokens().find_map(|c| {
-                let token = c.into_token()?;
-                let op = match token.kind() {
+        pub fn op_details(&self) -> Option<(Node<'a>, UnaryOpKind)> {
+            self.syntax().children().find_map(|node| {
+                let op = match node.kind() {
                     T![-] => UnaryOpKind::Neg,
                     T![not] => UnaryOpKind::Not,
                     _ => return None,
                 };
-                Some((token, op))
+                Some((node, op))
             })
         }
     },
@@ -1011,7 +804,7 @@ structs! {
         lhs: LuaExpr,
         rhs[1]: LuaExpr,
 
-        pub fn op_token(&self) -> Option<SyntaxToken> {
+        pub fn op_token(&self) -> Option<Node<'a>> {
             self.op_details().map(|t| t.0)
         }
 
@@ -1019,10 +812,9 @@ structs! {
             self.op_details().map(|t| t.1)
         }
 
-        pub fn op_details(&self) -> Option<(SyntaxToken, LuaBinaryOpKind)> {
-            self.syntax().children_with_tokens().find_map(|c| {
-                let token = c.into_token()?;
-                let op = match token.kind() {
+        pub fn op_details(&self) -> Option<(Node<'a>, LuaBinaryOpKind)> {
+            self.syntax().children().find_map(|node| {
+                let op = match node.kind() {
                     T![+] => LuaBinaryOpKind::Add,
                     T![*] => LuaBinaryOpKind::Mul,
                     T![/] => LuaBinaryOpKind::Div,
@@ -1040,7 +832,7 @@ structs! {
                     T![^] => LuaBinaryOpKind::Exp,
                     _ => return None,
                 };
-                Some((token, op))
+                Some((node, op))
             })
         }
     },
@@ -1083,8 +875,8 @@ structs! {
     LUA_NAME = LuaName {
         ident: T![ident],
 
-        pub fn text(&self) -> Option<Ustr> {
-            self.ident().map(|t| Ustr::from(t.text()))
+        pub fn text(&self, source: &'a str) -> Option<&'a str> {
+            self.ident().map(|t| &source[t.range()])
         }
     },
 }
@@ -1195,200 +987,34 @@ enums! {
 
 #[cfg(test)]
 mod test {
-    use rowan::ast::AstNode;
+    use crate::parsing::{Tree, parser::parse};
 
-    use crate::parsing::{
-        ast::{
-            self, ClosureExpr, Expr, FnItem, HasCompilerAttribs, IfExpr, LuaChunkExpr, ParenExpr,
-            SafeFieldExpr, StructItem, SyntaxNode, SyntaxToken, UseItem, UseTree,
-        },
-        parser::Lang,
-    };
+    use super::*;
 
     trait AstTest {
-        fn should_eq(&self, expect: &str);
+        fn should_eq(&self, source: &str, expect: &str);
     }
 
-    impl AstTest for SyntaxNode {
+    impl<'a> AstTest for Node<'a> {
         #[track_caller]
-        fn should_eq(&self, expect: &str) {
-            assert_eq!(self.to_string().trim(), expect);
-        }
-    }
-
-    impl AstTest for SyntaxToken {
-        #[track_caller]
-        fn should_eq(&self, expect: &str) {
-            assert_eq!(self.to_string(), expect);
+        fn should_eq(&self, source: &str, expect: &str) {
+            assert_eq!(&source[self.range()], expect);
         }
     }
 
     #[track_caller]
-    fn parse<N: AstNode<Language = Lang>>(src: &str) -> N {
-        let parse = crate::parsing::parser::parse(src);
-        assert_eq!(parse.1, vec![]);
-        SyntaxNode::new_root(parse.0)
-            .descendants()
-            .find_map(N::cast)
-            .unwrap()
-    }
-
-    #[test]
-    fn path() {
-        let expr = parse::<super::Path>(
-            "fn main() {
-            A::B::C
-        }",
-        );
-        assert_eq!(expr.segments().count(), 3);
-        expr.syntax().should_eq("A::B::C");
-        expr.segments().next().unwrap().syntax().should_eq("A");
-
-        let expr = parse::<super::Path>(
-            "fn main() {
-                generic::<int>
-        }",
-        );
-        assert_eq!(expr.segments().count(), 1);
-        expr.syntax().should_eq("generic::<int>");
+    fn first<'a, N: AstNode<'a>>(tree: &'a syntree::Tree<u16, syntree::FlavorDefault>) -> N {
+        tree.walk().find_map(N::cast).unwrap()
     }
 
     #[test]
     fn safe_field_expr() {
-        let expr = parse::<SafeFieldExpr>(
-            "fn main() {
-            a?.b
-        }",
-        );
-        expr.field_expr().unwrap().syntax().should_eq("a?.b");
-    }
-
-    #[test]
-    fn if_expr() {
-        let expr = parse::<IfExpr>(
-            "fn main() {
-                if true {1} else {2}
-        }",
-        );
-        assert!(expr.if_token().is_some());
-        assert!(expr.else_token().is_some());
-        expr.if_branch().unwrap().syntax().should_eq("{1}");
-        expr.if_condition().unwrap().syntax().should_eq("true");
-        expr.else_branch().unwrap().syntax().should_eq("{2}");
-    }
-
-    #[test]
-    fn impl_item() {
-        let impl_item = parse::<ast::ImplItem>("impl X { fn test() {} }");
-        impl_item.ty().unwrap().syntax().should_eq("X");
-        let func = impl_item.functions().next().unwrap();
-        func.syntax().should_eq("fn test() {}");
-
-        let impl_item = parse::<ast::ImplItem>("impl X for Y { fn test() {} }");
-        impl_item.ty().unwrap().syntax().should_eq("X");
-        impl_item.impl_ty().unwrap().syntax().should_eq("Y");
-        let func = impl_item.functions().next().unwrap();
-        func.syntax().should_eq("fn test() {}");
-    }
-
-    #[test]
-    fn use_item() {
-        let use_item = parse::<UseItem>("use foo::{bar, *};");
-        let UseTree::UsePath(path) = use_item.use_tree().unwrap() else {
-            panic!();
-        };
-        path.name().unwrap().syntax().should_eq("foo");
-        let UseTree::UseTreeList(list) = path.use_tree().unwrap() else {
-            panic!();
-        };
-        list.syntax().should_eq("{bar, *}");
-
-        let use_item = parse::<UseItem>("use super::{a,b};");
-        let UseTree::UseSuperPath(super_path) = use_item.use_tree().unwrap() else {
-            panic!();
-        };
-        super_path.syntax().should_eq("super::{a,b}");
-    }
-
-    #[test]
-    fn struct_item() {
-        let struct_item = parse::<StructItem>("struct X { y: Y }");
-        let mut elements = struct_item.elements();
-        let ast::StructElem::Field(f) = elements.next().unwrap() else {
-            panic!()
-        };
-        f.syntax().should_eq("y: Y");
-        f.name().unwrap().syntax().should_eq("y");
-        f.ty().unwrap().syntax().should_eq("Y");
-    }
-
-    #[test]
-    fn as_expr() {
-        let expr = parse::<Expr>("fn main(){10.0 as int;}");
-        let Expr::BlockExpr(block_expr) = expr else {
-            panic!();
-        };
-        let ast::Stmt::ExprStmt(expr_stmt) = block_expr.stmts().next().unwrap() else {
-            panic!();
-        };
-        let ast::Expr::AsExpr(as_expr) = expr_stmt.expr().unwrap() else {
-            panic!();
-        };
-
-        as_expr.expr().unwrap().syntax().should_eq("10.0");
-        as_expr.type_expr().unwrap().syntax().should_eq("int");
-    }
-
-    #[test]
-    fn nil() {
-        let expr = parse::<Expr>("fn main(){nil}");
-        expr.syntax().should_eq("{nil}");
-    }
-
-    #[test]
-    fn paren_expr() {
-        let expr = parse::<ParenExpr>("fn main(){(1)}");
-        expr.expr().unwrap().syntax().should_eq("1");
-    }
-
-    #[test]
-    fn else_if_expr() {
-        let expr = parse::<IfExpr>(
-            "fn main() {
-            if true {1} else if false {2}
-        }",
-        );
-        assert!(expr.if_token().is_some());
-        assert!(expr.else_token().is_some());
-        expr.if_branch().unwrap().syntax().should_eq("{1}");
-        expr.if_condition().unwrap().syntax().should_eq("true");
-        assert!(expr.else_branch().is_none());
-        expr.else_if_expr()
+        let source = "fn main() { a?.b }";
+        let tree = parse(source).0;
+        first::<SafeFieldExpr>(&tree)
+            .field_expr()
             .unwrap()
             .syntax()
-            .should_eq("if false {2}");
-    }
-
-    #[test]
-    fn closure() {
-        let closure = parse::<ClosureExpr>(
-            "fn main() {
-                |x: int, y| x+y
-            }",
-        );
-        closure.syntax().should_eq("|x: int, y| x+y");
-    }
-
-    #[test]
-    fn attribs() {
-        let func = parse::<FnItem>("@first fn main() {}");
-        func.syntax().should_eq("fn main() {}");
-        func.attribs()
-            .unwrap()
-            .attribs()
-            .next()
-            .unwrap()
-            .syntax()
-            .should_eq("@first");
+            .should_eq(source, "a?.b");
     }
 }

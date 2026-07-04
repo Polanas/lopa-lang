@@ -1,6 +1,6 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"1+1;\", |p| p.stmt_expr())"
+expression: "parse(\"1+1;\", |p| { p.stmt_expr() })"
 ---
 EXPR_STMT: 0..4 
   BINARY_EXPR: 0..3 

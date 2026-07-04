@@ -1,14 +1,39 @@
-use crate::{
-    def::{
-        self, ir,
-        lower::{self, impl_blocks},
-        scope,
+use std::ops::Range;
+
+use crate::{def::AstId, parsing};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[allow(clippy::enum_variant_names)]
+pub enum DiagnosticKind {
+    SyntaxError,
+    TypeError,
+    ModuleError,
+}
+
+#[derive(Clone, PartialEq, Debug, Eq, Hash)]
+pub enum DiagnosticLocation {
+    Module(AstId<parsing::ModItem<'static>>),
+    Param {
+        fn_item: AstId<parsing::FnItem<'static>>,
+        param_num: usize,
     },
-    ide::{self, base::FileRange, diagnostics, impl_map, parse, File},
-    ty::infer,
-};
-use notify_rust::Notification;
-use rowan::{TextRange, TextSize};
+    Range(Range<usize>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[salsa::accumulator]
+pub struct Diagnostic {
+    pub message: String,
+    pub location: DiagnosticLocation,
+    pub kind: DiagnosticKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RenderedDiagnostic {
+    pub message: String,
+    pub range: Range<usize>,
+    pub kind: DiagnosticKind,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Severity {
@@ -17,25 +42,7 @@ pub enum Severity {
     Info,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[salsa::accumulator]
-pub struct Diagnostic {
-    pub message: String,
-    pub range: TextRange,
-    pub kind: DiagnosticKind,
-    pub notes: Vec<(FileRange, String)>,
-}
-
-impl Diagnostic {
-    pub fn new(range: TextRange, kind: DiagnosticKind, message: String) -> Self {
-        Self {
-            range,
-            kind,
-            message,
-            notes: Default::default(),
-        }
-    }
-
+impl RenderedDiagnostic {
     pub fn severity(&self) -> Severity {
         match &self.kind {
             DiagnosticKind::SyntaxError => Severity::Error,
@@ -51,84 +58,4 @@ impl Diagnostic {
             DiagnosticKind::ModuleError => "module_error",
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DiagnosticKind {
-    SyntaxError,
-    TypeError,
-    ModuleError,
-}
-
-//TODO: figure out why this doesnt work and accumulated diagostics arent returned (it runs every time?)
-//DIAGNOSTICS SHOULD *NOT* DEPEND ON FILES, BUT ON IR
-#[salsa::tracked]
-pub fn file_diagnostics(db: &dyn salsa::Database, file: File) -> Vec<Diagnostic> {
-    let mut diagnostics = vec![];
-
-    let parse = parse(db, file);
-    diagnostics.extend(
-        parse
-            .errors(db)
-            .clone()
-            .into_iter()
-            .map(|e| Diagnostic::new(e.range, DiagnosticKind::SyntaxError, e.kind.to_string())),
-    );
-
-    diagnostics.extend(scope::resolve_imports(db, file));
-    diagnostics.extend(
-        //avoiding accumulators as they don't work with cycle_result (in `resolve_path`)
-        ide::impl_map::accumulated::<Diagnostic>(db, file.source_root(db))
-            .into_iter()
-            .cloned(),
-    );
-    diagnostics.extend(
-        scope::module_scope_with_source_map::accumulated::<Diagnostic>(db, file)
-            .into_iter()
-            .cloned(),
-    );
-    let ir = lower::module_items(db, file);
-    diagnostics.extend(ir_diagnostics(db, ir));
-    let module_scope = scope::module_scope(db, file);
-    //avoiding accumulators as they don't work with cycle_result (in `resolve_path`)
-    diagnostics.extend(module_scope.diagnostics().to_vec());
-    for impl_block in lower::impl_blocks(db, file).iter() {
-        diagnostics.extend(
-            ir::impl_block_diagnostics_acc::accumulated::<Diagnostic>(db, *impl_block)
-                .into_iter()
-                .cloned(),
-        );
-    }
-
-    diagnostics
-}
-
-#[salsa::tracked]
-fn ir_diagnostics<'db>(
-    db: &'db dyn salsa::Database,
-    ir: lower::ModuleItemData<'db>,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = vec![];
-    for enum_item in ir.enums(db) {
-        diagnostics.extend(
-            def::ir::enum_diagnostics_acc::accumulated::<Diagnostic>(db, *enum_item)
-                .into_iter()
-                .cloned(),
-        );
-    }
-    for struct_item in ir.structs(db) {
-        diagnostics.extend(
-            def::ir::struct_diagnostics_acc::accumulated::<Diagnostic>(db, *struct_item)
-                .into_iter()
-                .cloned(),
-        );
-    }
-    for func in ir.functions(db) {
-        diagnostics.extend(
-            infer::infer_function::accumulated::<Diagnostic>(db, *func)
-                .into_iter()
-                .cloned(),
-        );
-    }
-    diagnostics
 }

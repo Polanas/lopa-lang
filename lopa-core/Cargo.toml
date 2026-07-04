@@ -2,25 +2,20 @@
 name = "lopa-core"
 version = "0.1.0"
 edition = "2024"
-workspace = "../"
 
 [dependencies]
 logos.workspace = true
-rowan.workspace = true
-anyhow.workspace = true
 salsa.workspace = true
-derive_more.workspace = true
-strum.workspace = true
-strum_macros.workspace = true
+anyhow.workspace = true
 itertools.workspace = true
-ustr.workspace = true
 indexmap.workspace = true
-bimap.workspace = true
-dashmap.workspace = true
+
+syntree = { path = "../syntree" }
 la-arena = { path = "../la-arena" }
 notify-rust = "4.13.1"
 identity-hash = "0.1.0"
-paste = "1.0.15"
+bimap = "0.6.3"
+hashbrown = "0.17.1"
 
 [dev-dependencies]
 insta.workspace = true

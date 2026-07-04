@@ -29,10 +29,11 @@ FN_ITEM: 0..37
       COLON: 27..28 ":"
       WHITESPACE: 28..29 
       LIT_TYPE: 29..32 
-        PATH_TYPE: 29..32 
-          PATH: 29..32 
-            PATH_SEGMENT: 29..32 
-              IDENT: 29..32 "int"
+        LIT_TYPE_INT: 29..32 
+          PATH_TYPE: 29..32 
+            PATH: 29..32 
+              PATH_SEGMENT: 29..32 
+                IDENT: 29..32 "int"
     R_PAREN: 32..33 ")"
   WHITESPACE: 33..34 
   BLOCK_EXPR: 34..37 

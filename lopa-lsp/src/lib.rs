@@ -1,34 +1,31 @@
-pub mod base;
-pub mod convert;
-pub mod handler;
-pub mod uri_ext;
-pub mod vfs_ext;
+mod convert;
+mod vfs_ext;
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, RwLock},
+};
 
 use dashmap::DashMap;
-use itertools::Itertools;
-use lopa_core::ide::base::VfsPath;
-use lopa_core::ide::{Analysis, File, SourceRoot};
-use lopa_core::vfs::Vfs;
-use notify_rust::{Notification, Timeout};
-use salsa::{Database, Setter as _};
+use itertools::Itertools as _;
+use lopa_core::{analysis::Analysis, ide::Root, vfs::Vfs};
+use notify_rust::{Notification, NotificationId};
+use salsa::Setter;
 use tokio::task::{self, AbortHandle};
-use tower_lsp_server::jsonrpc::Result;
-use tower_lsp_server::ls_types::*;
-use tower_lsp_server::{Client, LanguageServer};
+use tower_lsp_server::{Client, LanguageServer, jsonrpc::Result, ls_types::*};
 
-use crate::uri_ext::UrlExt as _;
-use crate::vfs_ext::VfsExt;
-
-pub struct Settings {}
+use crate::vfs_ext::VfsExt as _;
 
 pub struct Backend {
-    pub analysis: Arc<Mutex<Analysis>>,
     pub client: Client,
-    pub vfs: Arc<RwLock<Vfs>>,
     pub opened_files: DashMap<Uri, FileData>,
+    pub vfs: Arc<RwLock<Vfs>>,
+    pub analysis: Arc<Mutex<Analysis>>,
+}
+
+#[derive(Default)]
+pub struct FileData {
+    diagnostics_task: Option<AbortHandle>,
 }
 
 impl Backend {
@@ -40,11 +37,6 @@ impl Backend {
             opened_files: Default::default(),
         }
     }
-}
-
-#[derive(Default)]
-pub struct FileData {
-    diagnostics_task: Option<AbortHandle>,
 }
 
 impl LanguageServer for Backend {
@@ -137,213 +129,93 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
-    async fn workspace_diagnostic(
-        &self,
-        params: WorkspaceDiagnosticParams,
-    ) -> Result<WorkspaceDiagnosticReportResult> {
-        Ok(WorkspaceDiagnosticReportResult::Report(
-            WorkspaceDiagnosticReport { items: vec![] },
-        ))
-    }
-
-    //TODO: figure out why diagnostics dont update after formatting
-    //did_change gets triggered twice?
-    //the second trigger removes the last newline
-    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-        Ok(Some(vec![handler::format(
-            State {
-                analysis: self.analysis.clone(),
-                vfs: self.vfs.clone(),
-            },
-            &params.text_document.uri,
-        )]))
-    }
-
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        let uri = params.text_document.uri;
-        {
-            self.analysis.lock().unwrap().db.trigger_cancellation();
-            let uris = self
-                .opened_files
-                .iter()
-                .map(|o| o.key().clone())
-                .collect_vec();
-            for uri in uris {
-                self.spawn_update_diagnostics(uri.clone());
-            }
-        }
-        // {
-        //     let mut vfs = self.vfs.write().unwrap();
-        //     let vfs_path = uri.to_vfs_path().unwrap();
-        //     if let Some(root) = Self::find_package_root(Path::new(vfs_path.0.as_path())) {
-        //         self.scan_files(root.as_path(), &mut vfs);
-        //     }
-        // }
-    }
-
-    async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let mut vfs = self.vfs.write().unwrap();
-        let uri = params.text_document.uri;
-        let vfs_path = uri.to_vfs_path().unwrap();
-
-        self.opened_files.insert(uri.clone(), FileData::default());
-        if let Some(root) = Self::find_package_root(Path::new(vfs_path.0.as_path())) {
-            if vfs.source_root().is_none() {
-                let source_root = SourceRoot::new(
-                    &self.analysis.lock().unwrap().db,
-                    Some(vec![]),
-                    root.clone(),
-                );
-                vfs.set_source_root(source_root);
-            }
-            vfs.insert_file(
-                vfs_path,
-                params.text_document.text,
-                &mut self.analysis.lock().unwrap().db,
-            );
-            self.scan_files(root.as_path(), &mut vfs);
-        }
-    }
-
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {}
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = &params.text_document.uri;
         {
             let mut vfs = self.vfs.write().unwrap();
-            let uri = &params.text_document.uri;
+            let mut analysis = self.analysis.lock().unwrap();
+
             let Some(file) = vfs.file_by_uri(uri) else {
                 return;
             };
-            // Notification::new()
-            //     .body(&format!(
-            //         "before: {}",
-            //         vfs.contents[&file]
-            //             .read()
-            //             .unwrap()
-            //             .to_string()
-            //             .replace(" ", "\\s")
-            //             .replace("\n", "\\n")
-            //     ))
-            //     .timeout(Timeout::from(1_000_000))
-            //     .show()
-            //     .unwrap();
+
             for change in params.content_changes.iter() {
                 let range = change.range.map(|r| convert::from_range(&vfs, file, r));
-                vfs.change_file_content(file, &change.text, range);
+                vfs.change_content(&mut analysis.db, file, &change.text, range);
             }
-            self.analysis.lock().unwrap().apply_change(file);
-            // Notification::new()
-            //     .body(&format!(
-            //         "after: {}",
-            //         vfs.contents[&file]
-            //             .read()
-            //             .unwrap()
-            //             .to_string()
-            //             .replace(" ", "\\s")
-            //             .replace("\n", "\\n")
-            //     ))
-            //     .timeout(Timeout::from(1_000_000))
-            //     .show()
-            //     .unwrap();
         }
+
         let uris = self
             .opened_files
             .iter()
             .map(|o| o.key().clone())
             .collect_vec();
-        for uri in uris {
-            self.spawn_update_diagnostics(uri.clone());
+        self.spawn_update_diagnostics(uri.clone());
+    }
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let mut vfs = self.vfs.write().unwrap();
+        let uri = params.text_document.uri;
+        let path = uri.to_file_path().unwrap();
+
+        self.opened_files.insert(uri.clone(), FileData::default());
+        if let Some(root_dir) = Self::find_root(&path) {
+            if vfs.root().is_none() {
+                let root = Root::new(
+                    &self.analysis.lock().unwrap().db,
+                    Default::default(),
+                    root_dir.clone(),
+                );
+                vfs.set_root(root);
+            }
+            vfs.insert_file(
+                path.to_path_buf(),
+                params.text_document.text,
+                &mut self.analysis.lock().unwrap().db,
+            );
+            self.scan_files(root_dir.as_path(), &mut vfs);
         }
     }
-
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.opened_files.remove(&params.text_document.uri);
-        let vfs = self.vfs.write().unwrap();
-        if let Some(path) = params.text_document.uri.to_vfs_path()
-            && let Some(source_root) = vfs.source_root()
-        {
-            let mut analysis = self.analysis.lock().unwrap();
-            let mut files = source_root.set_files(&mut analysis.db).to(None).unwrap();
-            files.retain_mut(|f| f.path(&analysis.db).0.as_path() != path.0.as_path());
-            source_root.set_files(&mut analysis.db).to(Some(files));
-        }
-    }
-
-    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
-        for file_event in &params.changes {
-            if self.opened_files.contains_key(&file_event.uri) {
-                continue;
-            }
-            let Some(path) = file_event.uri.to_file_path() else {
-                continue;
-            };
-
-            if matches!(
-                file_event.typ,
-                FileChangeType::CREATED | FileChangeType::CHANGED
-            ) {
-                match std::fs::read_to_string(path) {
-                    Ok(content) => {
-                        self.vfs
-                            .write()
-                            .unwrap()
-                            .set_path_content(file_event.uri.to_vfs_path().unwrap(), content);
-                    }
-                    Err(e) => {
-                        panic!("{e}");
-                        //TODO: add proper logging
-                    }
-                }
-            }
-            if file_event.typ == FileChangeType::DELETED {
-                self.vfs.write().unwrap().remove_uri(&file_event.uri);
-            }
-        }
-    }
-
-    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let position = params.text_document_position_params.position;
-        Ok(Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String(String::from("hover1"))),
-            range: None,
-        }))
-    }
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {}
 }
 
 impl Backend {
     fn scan_files(&self, root: &Path, vfs: &mut Vfs) {
-        vfs.source_root()
-            .unwrap()
-            .clear(&mut self.analysis.lock().unwrap().db);
+        let mut analysis = self.analysis.lock().unwrap();
+        let db = &mut analysis.db;
+        let mut files = vec![];
         for entry in walkdir::WalkDir::new(root.join("src"))
             .into_iter()
             .flatten()
             .filter(|e| e.path().is_file())
             .filter(|e| e.path().extension().map(|e| e == "lopa").unwrap_or(false))
         {
-            let vfs_path = VfsPath(entry.path().to_path_buf());
-            let uri = Uri::from_vfs_path(&vfs_path);
+            let path = entry.path().to_path_buf();
+            let uri = Uri::from_file_path(&path).unwrap();
             if self.opened_files.contains_key(&uri) {
-                let file = vfs.file_by_path(&vfs_path).unwrap();
-                vfs.source_root()
-                    .unwrap()
-                    .push_file(&mut self.analysis.lock().unwrap().db, file);
+                let file = vfs.file_by_path(&path).unwrap();
+                files.push(file);
                 continue;
             }
             let Ok(contents) = std::fs::read_to_string(entry.path()) else {
                 continue;
             };
-            let file = if let Some(file) = vfs.file_by_path(&vfs_path) {
-                vfs.change_file_content(file, &contents, None);
+            let file = if let Some(file) = vfs.file_by_path(&path) {
+                vfs.change_content(db, file, &contents, None);
                 file
             } else {
-                vfs.insert_file(vfs_path, contents, &mut self.analysis.lock().unwrap().db)
+                if let Some(file) = vfs.insert_file(path, contents, db) {
+                    file
+                } else {
+                    panic!("no source root"); //FIXME: handle this better
+                }
             };
-            vfs.source_root()
-                .unwrap()
-                .push_file(&mut self.analysis.lock().unwrap().db, file);
+            files.push(file);
         }
+        vfs.root().unwrap().set_files(db).to(files);
     }
 
-    fn find_package_root(path: &Path) -> Option<PathBuf> {
+    fn find_root(path: &Path) -> Option<PathBuf> {
         let mut current = path.to_path_buf();
         while let Some(root) = current.parent() {
             if !&root.join("lopa.toml").is_file() {
@@ -360,14 +232,21 @@ impl Backend {
         }
         None
     }
-
     fn spawn_update_diagnostics(&self, uri: Uri) {
         let (analysis, vfs) = (self.analysis.clone(), self.vfs.clone());
         let uri_clone = uri.clone();
         let task = task::spawn_blocking(move || {
-            let state = State { analysis, vfs };
-
-            salsa::Cancelled::catch(|| handler::diagnostics(state, &uri_clone)).unwrap_or_default()
+            salsa::Cancelled::catch(|| {
+                let analysis = analysis.lock().unwrap();
+                let vfs = vfs.read().unwrap();
+                let (file, content) = {
+                    let file = vfs.file_by_uri(&uri_clone).expect("TODO: handle");
+                    (file, vfs.content_by_file(file))
+                };
+                let diagnostics = analysis.diagnostics(file);
+                convert::to_lsp_diagnostics(content, diagnostics)
+            })
+            .unwrap_or_default()
         });
         let Some(mut file) = self.opened_files.get_mut(&uri) else {
             task.abort();
@@ -389,9 +268,4 @@ impl Backend {
             }
         });
     }
-}
-
-pub struct State {
-    pub analysis: Arc<Mutex<Analysis>>,
-    pub vfs: Arc<RwLock<Vfs>>,
 }

@@ -16,10 +16,11 @@ CALL_EXPR: 0..22
         GENERIC_ARGUMENTS: 10..15 
           LT: 10..11 "<"
           LIT_TYPE: 11..14 
-            PATH_TYPE: 11..14 
-              PATH: 11..14 
-                PATH_SEGMENT: 11..14 
-                  IDENT: 11..14 "int"
+            LIT_TYPE_INT: 11..14 
+              PATH_TYPE: 11..14 
+                PATH: 11..14 
+                  PATH_SEGMENT: 11..14 
+                    IDENT: 11..14 "int"
           GT: 14..15 ">"
       COLON: 15..16 ":"
       COLON: 16..17 ":"

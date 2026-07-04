@@ -16,10 +16,11 @@ FN_ITEM: 0..41
       COLON: 9..10 ":"
       WHITESPACE: 10..11 
       LIT_TYPE: 11..14 
-        PATH_TYPE: 11..14 
-          PATH: 11..14 
-            PATH_SEGMENT: 11..14 
-              IDENT: 11..14 "int"
+        LIT_TYPE_INT: 11..14 
+          PATH_TYPE: 11..14 
+            PATH: 11..14 
+              PATH_SEGMENT: 11..14 
+                IDENT: 11..14 "int"
     COMMA: 14..15 ","
     WHITESPACE: 15..16 
     PARAM: 16..25 
@@ -29,18 +30,20 @@ FN_ITEM: 0..41
       COLON: 17..18 ":"
       WHITESPACE: 18..19 
       LIT_TYPE: 19..25 
-        PATH_TYPE: 19..25 
-          PATH: 19..25 
-            PATH_SEGMENT: 19..25 
-              IDENT: 19..25 "string"
+        LIT_TYPE_STRING: 19..25 
+          PATH_TYPE: 19..25 
+            PATH: 19..25 
+              PATH_SEGMENT: 19..25 
+                IDENT: 19..25 "string"
     R_PAREN: 25..26 ")"
   RETURN_TYPE: 26..31 
     ARROW: 26..28 "->"
     LIT_TYPE: 28..31 
-      PATH_TYPE: 28..31 
-        PATH: 28..31 
-          PATH_SEGMENT: 28..31 
-            IDENT: 28..31 "int"
+      LIT_TYPE_INT: 28..31 
+        PATH_TYPE: 28..31 
+          PATH: 28..31 
+            PATH_SEGMENT: 28..31 
+              IDENT: 28..31 "int"
   WHITESPACE: 31..32 
   BLOCK_EXPR: 32..41 
     L_BRACE: 32..33 "{"

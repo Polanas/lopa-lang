@@ -1,0 +1,37 @@
+[package]
+name = "syntree"
+version = "0.18.0"
+authors = ["John-John Tedro <udoprog@tedro.se>"]
+edition = "2021"
+rust-version = "1.81"
+description = "A memory efficient syntax tree for language developers."
+documentation = "https://docs.rs/syntree"
+readme = "README.md"
+homepage = "https://github.com/udoprog/syntree"
+repository = "https://github.com/udoprog/syntree"
+license = "MIT OR Apache-2.0"
+keywords = ["language", "syntax-tree"]
+categories = ["parsing"]
+
+# Avoid loading benches from the benches directory so we can add more
+# dependencies in there which would otherwise hog down testing this crate.
+autobenches = false
+
+[features]
+default = ["alloc", "std"]
+alloc = []
+std = []
+
+[dev-dependencies]
+anyhow = "1.0.70"
+thiserror = "1.0.40"
+codespan-reporting = "0.11.1"
+
+[workspace] 
+members = [
+    "benches",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

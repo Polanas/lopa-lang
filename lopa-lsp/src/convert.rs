@@ -1,39 +1,40 @@
-use std::sync::{Arc, RwLock};
+use std::ops::Range;
 
-use lopa_core::ide::{File, FileContent, TextRange, diagnostics::Diagnostic};
-use tower_lsp_server::ls_types::{self, DiagnosticSeverity, NumberOrString, Position, Range, Uri};
+use lopa_core::{
+    ide::{self, Diagnostic, File, RenderedDiagnostic, Severity},
+    vfs::{FileContent, Vfs},
+};
+use tower_lsp_server::ls_types::{
+    self, DiagnosticSeverity, NumberOrString, Position, Range as LspRange,
+};
 
-use lopa_core::vfs::Vfs;
-
-pub fn from_range(vfs: &Vfs, file: File, range: Range) -> TextRange {
+pub fn from_range(vfs: &Vfs, file: File, range: LspRange) -> Range<usize> {
     let content = vfs.content_by_file(file);
-    let mut content = content.write().unwrap();
 
     let start_offset = content.pos_by_line_col(range.start.line, range.start.character);
     let end_offset = content.pos_by_line_col(range.end.line, range.end.character);
-    TextRange::new(start_offset.into(), end_offset.into())
+    (start_offset as usize)..(end_offset as usize)
 }
 
-pub fn to_range(content: &mut FileContent, range: TextRange) -> Range {
-    let (line1, col1) = content.line_col_by_pos(range.start().into());
-    let (line2, col2) = content.line_col_by_pos(range.end().into());
+pub fn to_range(content: &FileContent, range: Range<usize>) -> LspRange {
+    let (line1, col1) = content.line_col_by_pos(range.start as _);
+    let (line2, col2) = content.line_col_by_pos(range.end as _);
 
-    Range::new(Position::new(line1, col1), Position::new(line2, col2))
+    LspRange::new(Position::new(line1, col1), Position::new(line2, col2))
 }
 
-pub fn to_diagnostics(
-    content: Arc<RwLock<FileContent>>,
-    diagnostics: Vec<Diagnostic>,
+pub fn to_lsp_diagnostics(
+    content: &FileContent,
+    diagnostics: Vec<RenderedDiagnostic>,
 ) -> Vec<ls_types::Diagnostic> {
     let mut res = Vec::with_capacity(diagnostics.len() * 2);
-    let mut content = content.write().unwrap();
     for diagnostic in diagnostics {
         let primary_diagnostic = ls_types::Diagnostic {
-            range: to_range(&mut content, diagnostic.range),
+            range: to_range(&content, diagnostic.range.clone()),
             severity: Some(match diagnostic.severity() {
-                lopa_core::ide::diagnostics::Severity::Error => DiagnosticSeverity::ERROR,
-                lopa_core::ide::diagnostics::Severity::Warning => DiagnosticSeverity::WARNING,
-                lopa_core::ide::diagnostics::Severity::Info => DiagnosticSeverity::INFORMATION,
+                Severity::Error => DiagnosticSeverity::ERROR,
+                Severity::Warning => DiagnosticSeverity::WARNING,
+                Severity::Info => DiagnosticSeverity::INFORMATION,
             }),
             code: Some(NumberOrString::String(diagnostic.code().into())),
             code_description: None,

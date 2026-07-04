@@ -1,6 +1,5 @@
 use logos::Logos;
-use rowan::{TextRange, TextSize};
-use std::fmt;
+use std::{fmt, ops::Range};
 
 macro_rules! def {
     (
@@ -138,6 +137,12 @@ macro_rules! T {
     [const] => { $crate::parsing::lexer::Syntax::CONST_KW};
     [static] => { $crate::parsing::lexer::Syntax::STATIC_KW};
     [ident] => { $crate::parsing::lexer::Syntax::IDENT }
+}
+
+impl From<Syntax> for u16 {
+    fn from(value: Syntax) -> Self {
+        value as u16
+    }
 }
 
 def! {
@@ -426,7 +431,6 @@ def! {
     TYPE_PARAM,
     TYPE_PARAM_BOUND,
     PATH_SEGMENT,
-    IMPL_STRUCT_TYPE,
 
     USE_ROOT_PATH @USE_FIRST,
     USE_SUPER_PATH,
@@ -446,6 +450,10 @@ def! {
     NILABLE_TYPE @TYPE_EXPR_FIRST,
     PAREN_TYPE,
     LIT_TYPE,
+    LIT_TYPE_STRING,
+    LIT_TYPE_INT,
+    LIT_TYPE_FLOAT,
+    LIT_TYPE_BOOL,
     ANY_TYPE,
     PATH_TYPE,
     FN_TYPE,
@@ -487,7 +495,7 @@ def! {
     COMPILER_ATTRIB_LIST,
     COMPILER_ATTRIB,
     COMPILER_ATTRIB_ITEM,
-    
+
     LUA_LIT_EXPR @LUA_EXPR_FIRST,
     LUA_INDEX_EXPR,
     LUA_CALL_EXPR,
@@ -529,12 +537,12 @@ def! {
 }
 
 #[derive(Clone)]
-pub struct Lexer<'a> {
+pub(super) struct Lexer<'a> {
     inner: logos::SpannedIter<'a, Syntax>,
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str) -> Self {
+    pub(super) fn new(input: &'a str) -> Self {
         Self {
             inner: Syntax::lexer(input).spanned(),
         }
@@ -546,20 +554,19 @@ impl<'a> Iterator for Lexer<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let (syntax, span) = self.inner.next()?;
-        let range = TextRange::new(TextSize::new(span.start as _), TextSize::new(span.end as _));
         Some(LexToken {
             token: syntax.unwrap_or(Syntax::ERROR),
             text: self.inner.slice(),
-            range,
+            range: span,
         })
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct LexToken<'a> {
-    pub token: Syntax,
-    pub text: &'a str,
-    pub range: TextRange,
+pub(super) struct LexToken<'a> {
+    pub(super) token: Syntax,
+    pub(super) text: &'a str,
+    pub(super) range: Range<usize>,
 }
 
 impl Syntax {
@@ -685,12 +692,6 @@ fn lex_bracket_string(lex: &mut logos::Lexer<Syntax>) -> bool {
         }
     }
     false
-}
-
-impl From<Syntax> for rowan::SyntaxKind {
-    fn from(value: Syntax) -> Self {
-        Self(value as u16)
-    }
 }
 
 #[cfg(test)]
