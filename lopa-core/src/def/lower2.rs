@@ -433,6 +433,7 @@ pub struct Module<'db> {
     pub name: Ustr,
     #[returns(ref)]
     pub items: Option<Vec<Item<'db>>>,
+    pub parent: Option<Module<'db>>,
 }
 
 #[derive(Default)]
@@ -489,6 +490,7 @@ struct LowerCtx<'db> {
     db: &'db dyn salsa::Database,
     ast_file: ast::File,
     file: ide::File,
+    current_module: Module<'db>,
 }
 
 impl<'db> LowerCtx<'db> {
