@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
 use la_arena::{Arena, Idx};
 
 use crate::{
-    common::{LitKind, Symbol}, def::AstId, ide::{self, Root}, parsing,
+    common::{LitKind, Symbol},
+    def::{AstId, UseTreeId, UseTreeMap, ast_map},
+    ide::{self, Root},
+    parsing::{self, AstNode as _},
 };
 
 // pub type ExprId = Idx<Expr>;
@@ -247,6 +251,101 @@ pub struct UseItem<'db> {
     pub ast_ptr: AstId<parsing::UseItem<'static>>,
 }
 
+#[salsa::tracked]
+impl<'db> UseItem<'db> {
+    #[salsa::tracked]
+    pub fn use_tree_map(
+        self,
+        db: &'db dyn salsa::Database,
+        file: ide::File,
+    ) -> Option<Arc<UseTreeMap>> {
+        self.use_tree_and_map(db, file).map(|(map, _)| map)
+    }
+
+    #[salsa::tracked]
+    pub fn use_tree(self, db: &'db dyn salsa::Database, file: ide::File) -> Option<UseTree> {
+        self.use_tree_and_map(db, file).map(|(_, tree)| tree)
+    }
+
+    #[salsa::tracked]
+    pub fn use_tree_and_map(
+        self,
+        db: &'db dyn salsa::Database,
+        file: ide::File,
+    ) -> Option<(Arc<UseTreeMap>, UseTree)> {
+        fn use_tree_inner<'a, 'db>(
+            db: &'db dyn salsa::Database,
+            use_tree: parsing::UseTree<'a>,
+            map: &mut UseTreeMap,
+            source: &str,
+        ) -> Option<UseTree> {
+            let id = map.insert(use_tree);
+            Some(UseTree::new(
+                db,
+                match use_tree {
+                    parsing::UseTree::UseRootPath(_) => UseTreeKind::Root,
+                    parsing::UseTree::UseSuperPath(_) => UseTreeKind::Super,
+                    parsing::UseTree::UseSelfName(_) => UseTreeKind::SelfUse,
+                    parsing::UseTree::UseGlobal(_) => UseTreeKind::Global,
+                    parsing::UseTree::UsePath(use_path) => {
+                        let name = use_path
+                            .name()
+                            .and_then(|n| n.text(source))
+                            .map(|t| Symbol::new(db, t))?;
+                        let use_tree = use_tree_inner(db, use_path.use_tree()?, map, source)?;
+                        UseTreeKind::Path { name, use_tree }
+                    }
+                    parsing::UseTree::UseName(use_name) => {
+                        let name = use_name
+                            .name()
+                            .and_then(|n| n.text(source))
+                            .map(|t| Symbol::new(db, t))?;
+                        UseTreeKind::Name(name)
+                    }
+                    parsing::UseTree::UseTreeList(use_tree_list) => {
+                        let use_trees = use_tree_list
+                            .elements()
+                            .filter_map(|tree| use_tree_inner(db, tree, map, source))
+                            .collect_vec();
+                        UseTreeKind::TreeList(UseTreeList::new(db, use_trees))
+                    }
+                },
+                id,
+            ))
+        }
+        let mut map = UseTreeMap::default();
+        let parse = file.parse(db);
+        let source = file.contents(db);
+
+        let use_node_id = ast_map(db, file)[self.ast_ptr(db)];
+        let use_tree = parse.cast::<parsing::UseTree>(db, use_node_id)?;
+        let use_tree = use_tree_inner(db, use_tree, &mut map, source)?;
+
+        Some((Arc::new(map), use_tree))
+    }
+}
+
+#[salsa::interned(no_lifetime, debug)]
+pub struct UseTree {
+    pub kind: UseTreeKind,
+    pub id: UseTreeId,
+}
+
+#[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
+pub enum UseTreeKind {
+    Root,
+    Super,
+    SelfUse,
+    Path { name: Symbol, use_tree: UseTree },
+    Name(Symbol),
+    Global,
+    TreeList(UseTreeList),
+}
+
+#[salsa::interned(no_lifetime, debug)]
+pub struct UseTreeList {
+    pub items: Vec<UseTree>,
+}
 
 #[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
 pub enum ModuleKind<'db> {

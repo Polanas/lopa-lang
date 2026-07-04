@@ -55,4 +55,12 @@ impl<'db> Parse<'db> {
     pub fn file<'a>(&'a self, db: &'db dyn salsa::Database) -> Option<File<'a>> {
         File::cast(self.tree(db).first()?)
     }
+
+    pub fn cast<'a, A: AstNode<'a>>(
+        &'a self,
+        db: &'db dyn salsa::Database,
+        id: NodeId,
+    ) -> Option<A> {
+        self.tree(db).get(id).and_then(A::cast)
+    }
 }
