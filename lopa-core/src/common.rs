@@ -8,6 +8,16 @@ pub enum LitKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::Update)]
+pub enum ItemKind {
+    Function,
+    Mod,
+    Impl,
+    Struct,
+    Enum,
+    Use,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::Update)]
 pub enum LuaLitKind {
     Float,
     Int,
@@ -31,7 +41,7 @@ impl LitKind {
 #[salsa::interned(no_lifetime, debug)]
 pub struct Symbol {
     #[returns(ref)]
-    pub value: String
+    pub value: String,
 }
 
 #[macro_export]
@@ -251,4 +261,3 @@ impl std::fmt::Display for UnaryOpKind {
         }
     }
 }
-

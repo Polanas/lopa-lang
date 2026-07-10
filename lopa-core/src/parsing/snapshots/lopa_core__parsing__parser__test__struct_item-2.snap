@@ -10,8 +10,9 @@ STRUCT_ITEM: 0..215
   PARENT: 15..23 
     COLON: 15..16 ":"
     WHITESPACE: 16..17 
-    NAME: 17..23 
-      IDENT: 17..23 "Parent"
+    PATH: 17..23 
+      PATH_SEGMENT: 17..23 
+        IDENT: 17..23 "Parent"
   WHITESPACE: 23..24 
   L_BRACE: 24..25 "{"
   WHITESPACE: 25..46 

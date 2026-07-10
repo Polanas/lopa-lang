@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData, process::Output};
 
 use itertools::Itertools;
 use la_arena::{Arena, Idx};
@@ -110,5 +110,16 @@ impl AstIdMap {
     pub fn insert<'a, A: AstIdItem<'a>>(&mut self, item: A) -> A::Output {
         let arena = &mut self.arenas[A::KIND as u8 as usize];
         A::as_ast_id(arena.alloc(item.id()))
+    }
+
+    pub fn get<A: AstIdItem<'static>>(&self, id: AstId<A>) -> Option<parsing::NodeId> {
+        let arena = &self.arenas[A::KIND as u8 as usize];
+        arena.get(id.0).copied()
+    }
+}
+
+impl Default for AstIdMap {
+    fn default() -> Self {
+        Self::new()
     }
 }

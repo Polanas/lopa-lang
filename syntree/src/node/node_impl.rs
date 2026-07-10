@@ -69,34 +69,6 @@ where
         self.links.data
     }
 
-    /// Replace the value of the node with a new one, returning the old value.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let tree = syntree::tree! {
-    ///     "root" => {
-    ///         ("number", 5),
-    ///         ("ident", 3),
-    ///     }
-    /// };
-    ///
-    /// let root = tree.first().ok_or("missing root")?;
-    /// assert_eq!(root.value(), "root");
-    ///
-    /// let number = root.first().ok_or("missing number")?;
-    /// assert_eq!(number.value(), "number");
-    /// assert_eq!(number.replace("other"), "number");
-    /// assert_eq!(number.value(), "other");
-    ///
-    /// let ident = number.next().ok_or("missing ident")?;
-    /// assert_eq!(ident.value(), "ident");
-    /// # Ok::<_, Box<dyn core::error::Error>>(())
-    /// ```
-    pub fn replace(&self, value: T) -> T {
-        panic!("replace is not supported")
-    }
-
     /// Check if the current node has children or not.
     ///
     /// Nodes without children are also known as tokens.

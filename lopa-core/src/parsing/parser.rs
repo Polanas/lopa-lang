@@ -491,11 +491,23 @@ impl<'a> Parser<'a> {
         if self.at(T![fn]) {
             self.fn_item();
         } else {
-            self.field();
+            self.enum_field();
             if !self.at(T!["}"]) {
                 self.expect(T![,]);
             }
         }
+    }
+
+    fn enum_field(&mut self) {
+        self.with(FIELD, |this| {
+            this.name();
+            if this.ate(T![:]) {
+                this.item_type_expr();
+            }
+            if this.ate(T![=]) {
+                this.expr();
+            }
+        });
     }
 
     fn field(&mut self) {
@@ -2227,6 +2239,9 @@ mod test {
     fn enum_item() {
         insta::assert_snapshot!(parse(
             "enum MyEnum {
+                    A = 0,
+                    B,
+                    C,
                     foo: Foo,
                     bar: Bar,
                     fn test(self) -> FooBar {

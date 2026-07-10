@@ -342,6 +342,18 @@ impl<T> Arena<T> {
         self.data.len()
     }
 
+    /// Returns a reference to an element by index.
+    pub fn get(&self, idx: Idx<T>) -> Option<&T> {
+        let idx = idx.into_raw().0 as usize;
+        self.data.get(idx)
+    }
+
+    /// Returns a mutable reference to an element by index.
+    pub fn get_mut(&mut self, idx: Idx<T>) -> Option<&mut T> {
+        let idx = idx.into_raw().0 as usize;
+        self.data.get_mut(idx)
+    }
+
     /// Returns whether the arena contains no elements.
     ///
     /// ```

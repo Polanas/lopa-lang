@@ -252,7 +252,7 @@ structs! {
         name: Name,
         generics: Generics,
         left_brace_token: T!["{"],
-        elements: [EnumElem],
+        elements: [Elem],
         right_brace_token: T!["}"],
     },
     STRUCT_ITEM = StructItem {
@@ -261,7 +261,7 @@ structs! {
         generics: Generics,
         parent: Parent,
         left_brace_token: T!["{"],
-        elements: [StructElem],
+        elements: [Elem],
         right_brace_token: T!["}"],
     },
     PARENT = Parent {
@@ -925,12 +925,7 @@ enums! {
         UseTreeList,
     },
     //After modifying, don't forget to also change Syntax::is_elem!!!
-    StructElem {
-        Field,
-        FnItem,
-    },
-    //After modifying, don't forget to also change Syntax::is_elem!!!
-    EnumElem {
+    Elem {
         Field,
         FnItem,
     },

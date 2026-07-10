@@ -146,11 +146,11 @@ impl LanguageServer for Backend {
             }
         }
 
-        let uris = self
-            .opened_files
-            .iter()
-            .map(|o| o.key().clone())
-            .collect_vec();
+        // let uris = self
+        //     .opened_files
+        //     .iter()
+        //     .map(|o| o.key().clone())
+        //     .collect_vec();
         self.spawn_update_diagnostics(uri.clone());
     }
     async fn did_open(&self, params: DidOpenTextDocumentParams) {

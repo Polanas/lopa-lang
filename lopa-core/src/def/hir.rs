@@ -5,7 +5,7 @@ use la_arena::{Arena, Idx};
 
 use crate::{
     common::{LitKind, Symbol},
-    def::{AstId, UseTreeId, UseTreeMap, ast_map},
+    def::{AstId, ElemId, TypeExprId, UseTreeId, UseTreeMap, ast_map},
     ide::{self, Root},
     parsing::{self, AstNode as _},
 };
@@ -211,7 +211,6 @@ pub enum ItemFnParam<'db> {
 pub struct Struct<'db> {
     pub name: Symbol,
     pub parent: Option<Path<'db>>,
-    pub elems: Vec<Elem<'db>>,
     pub ast_ptr: AstId<parsing::StructItem<'static>>,
 }
 
@@ -227,8 +226,14 @@ pub struct GenericParam<'db> {
     pub bounds: Vec<TypeExpr<'db>>,
 }
 
+#[salsa::interned(debug)]
+pub struct Elem<'db> {
+    kind: ElemKind<'db>,
+    id: ElemId,
+}
+
 #[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
-pub enum Elem<'db> {
+pub enum ElemKind<'db> {
     Field(Field<'db>),
     Function(Function<'db>),
 }
@@ -242,7 +247,6 @@ pub struct Field<'db> {
 #[salsa::tracked(debug)]
 pub struct Enum<'db> {
     pub name: Symbol,
-    pub elems: Vec<Elem<'db>>,
     pub ast_ptr: AstId<parsing::EnumItem<'static>>,
 }
 
@@ -389,6 +393,7 @@ pub struct ItemTypeExpr<'db> {
 #[salsa::interned(debug)]
 pub struct TypeExpr<'db> {
     pub kind: TypeExprKind<'db>,
+    pub id: TypeExprId,
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
@@ -410,7 +415,7 @@ pub enum TypeExprKind<'db> {
     Nilable(TypeExpr<'db>),
     Paren(TypeExpr<'db>),
     Fn {
-        params: ItemFnTypeParamList<'db>,
+        params: FnTypeParamList<'db>,
         output: Option<TypeExpr<'db>>,
     },
 }
@@ -422,7 +427,7 @@ pub struct FnTypeParam<'db> {
 }
 
 #[salsa::interned(debug)]
-pub struct ItemFnTypeParamList<'db> {
+pub struct FnTypeParamList<'db> {
     #[returns(ref)]
     params: Vec<FnTypeParam<'db>>,
 }
