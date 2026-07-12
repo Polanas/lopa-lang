@@ -156,12 +156,53 @@ macro_rules! struct_impl {
     }
 }
 
+macro_rules! enums_cast {
+    (@match $node:ident, { $($acc:tt)* }, enum $variant:ident, $($tail:tt)*) => {
+        enums_cast!(
+            @match
+            $node,
+            {
+                $($acc)*
+                _ if let Some(node) = $variant::cast($node) => Some(Self::$variant(node)),
+
+            },
+            $($tail)*
+        )
+    };
+    (@match $node:ident, { $($acc:tt)* }, $variant:ident, $($tail:tt)*) => {
+        enums_cast!(
+            @match
+            $node,
+            {
+                $($acc)*
+                <$variant as NodeWrapper>::KIND => Some(Self::$variant($variant($node))),
+
+            },
+            $($tail)*
+        )
+    };
+    (@match $node:ident, {$($acc:tt)*},) => {
+        match $node.value() {
+            $($acc)*
+            _ => None,
+        }
+    };
+    ($node:ident, $($input:tt)*) => {
+        enums_cast!(
+            @match
+            $node,
+            { },
+            $($input)*,
+        )
+    };
+}
+
 macro_rules! enums {
     (
         $(
             $name:ident {
                 $(
-                    $variant:ident
+                    $variant:ident $(: $enum:ident)?
                 ),* $(,)?
             }
         ),* $(,)?
@@ -177,12 +218,7 @@ macro_rules! enums {
                 fn cast(node: Node<'a>) -> Option<Self>
                 where
                     Self: Sized {
-                        match node.value() {
-                            $(
-                                <$variant as NodeWrapper>::KIND => Some(Self::$variant($variant(node))),
-                            )*
-                            _ => None,
-                        }
+                        enums_cast!(node, $($($enum)? $variant),*)
                 }
                 fn syntax(&self) -> &Node<'a> {
                     match self {
@@ -284,12 +320,6 @@ structs! {
         semi_token: T![;],
         body: BlockExpr,
     },
-    ITEM_TYPE_STRUCT = StructItemType {
-        struct_item: StructItem,
-    },
-    ITEM_TYPE_ENUM = EnumItemType {
-        enum_item: EnumItem,
-    },
     GENERIC_ARGUMENTS = GenericArgs {
         types: [TypeExpr],
     },
@@ -300,9 +330,6 @@ structs! {
         name: Name,
         colon_token: T![:],
         bounds: [TypeExpr],
-    },
-    ITEM_TYPE = ItemType {
-        ty: TypeExpr,
     },
     RETURN_TYPE = ReturnType {
         arrow_token: T![->],
@@ -881,6 +908,41 @@ structs! {
     },
 }
 
+// #[allow(clippy::enum_variant_names)]
+// #[derive(Clone, Copy, Debug)]
+// pub enum ItemTypeExpr<'a> {
+//     StructItem(StructItem<'a>),
+//     EnumItem(EnumItem<'a>),
+//     TypeExpr(TypeExpr<'a>),
+// }
+// impl<'a> AstNode<'a> for ItemTypeExpr<'a> {
+//     fn cast(node: Node<'a>) -> Option<Self>
+//     where
+//         Self: Sized,
+//     {
+//         match node.value() {
+//             <StructItemType as NodeWrapper>::KIND => Some(Self::Struct(StructItemType(node))),
+//             <EnumItemType as NodeWrapper>::KIND => Some(Self::Enum(EnumItemType(node))),
+//             _ if let Some(node) = TypeExpr::cast(node) => Some(Self::TypeExpr(node)),
+//             _ => None,
+//         }
+//     }
+//     fn syntax(&self) -> &Node<'a> {
+//         match self {
+//             Self::Struct(e) => e.syntax(),
+//             Self::Enum(e) => e.syntax(),
+//             Self::TypeExpr(e) => e.syntax(),
+//         }
+//     }
+//     fn id(&self) -> NodeId {
+//         match self {
+//             Self::Struct(e) => e.id(),
+//             Self::Enum(e) => e.id(),
+//             Self::TypeExpr(e) => e.id(),
+//         }
+//     }
+// }
+
 enums! {
     Item {
         FnItem,
@@ -935,9 +997,9 @@ enums! {
         WildcardPattern,
     },
     ItemTypeExpr {
-        StructItemType,
-        EnumItemType,
-        ItemType,
+        StructItem,
+        EnumItem,
+        TypeExpr: enum,
     },
     TypeExpr {
         DynType,

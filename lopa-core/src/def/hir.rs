@@ -4,8 +4,10 @@ use itertools::Itertools;
 use la_arena::{Arena, Idx};
 
 use crate::{
-    common::{LitKind, Symbol},
-    def::{AstId, ElemId, TypeExprId, UseTreeId, UseTreeMap, ast_map},
+    common::LitKind,
+    def::{
+        AstId, ElemId, ItemTypeExprId, PatId, Symbol, TypeExprId, UseTreeId, UseTreeMap, ast_map,
+    },
     ide::{self, Root},
     parsing::{self, AstNode as _},
 };
@@ -135,11 +137,18 @@ use crate::{
 //
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-pub enum ItemPat<'db> {
+pub enum PatKind<'db> {
     Path(Path<'db>),
     Name(Symbol),
     Wildcard,
 }
+
+#[salsa::interned(debug)]
+pub struct Pat<'db> {
+    pub id: PatId,
+    pub kind: PatKind<'db>,
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
 pub enum Item<'db> {
     Function(Function<'db>),
@@ -150,10 +159,23 @@ pub enum Item<'db> {
     Impl(ImplBlock<'db>),
 }
 
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub enum InnerItem<'db> {
+    Struct(Struct<'db>),
+    Enum(Enum<'db>),
+}
+
+impl<'db> InnerItem<'db> {
+    pub fn name(&self, db: &dyn salsa::Database) -> Symbol {
+        match self {
+            InnerItem::Struct(item) => item.name(db),
+            InnerItem::Enum(item) => item.name(db),
+        }
+    }
+}
+
 #[salsa::tracked(debug)]
 pub struct ImplBlock<'db> {
-    pub impl_types: ImplTypes<'db>,
-    pub fn_items: Vec<Function<'db>>,
     pub ast_ptr: AstId<parsing::ImplItem<'static>>,
 }
 
@@ -169,9 +191,6 @@ pub enum ImplTypes<'db> {
 #[salsa::tracked(debug)]
 pub struct Function<'db> {
     pub name: Symbol,
-    #[returns(ref)]
-    pub params: Vec<ItemFnParam<'db>>,
-    pub output: Option<TypeExpr<'db>>,
     pub ast_ptr: AstId<parsing::FnItem<'static>>,
 }
 
@@ -179,7 +198,7 @@ pub struct Function<'db> {
 pub enum ItemFnParam<'db> {
     SelfParam,
     PatParam {
-        pat: Option<ItemPat<'db>>,
+        pat: Option<Pat<'db>>,
         type_expr: Option<TypeExpr<'db>>,
     },
 }
@@ -210,7 +229,7 @@ pub enum ItemFnParam<'db> {
 #[salsa::tracked(debug)]
 pub struct Struct<'db> {
     pub name: Symbol,
-    pub parent: Option<Path<'db>>,
+    pub inner_items: Vec<InnerItem<'db>>,
     pub ast_ptr: AstId<parsing::StructItem<'static>>,
 }
 
@@ -228,8 +247,8 @@ pub struct GenericParam<'db> {
 
 #[salsa::interned(debug)]
 pub struct Elem<'db> {
-    kind: ElemKind<'db>,
-    id: ElemId,
+    pub id: ElemId,
+    pub kind: ElemKind<'db>,
 }
 
 #[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
@@ -247,86 +266,13 @@ pub struct Field<'db> {
 #[salsa::tracked(debug)]
 pub struct Enum<'db> {
     pub name: Symbol,
+    pub inner_items: Vec<InnerItem<'db>>,
     pub ast_ptr: AstId<parsing::EnumItem<'static>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct UseItem<'db> {
     pub ast_ptr: AstId<parsing::UseItem<'static>>,
-}
-
-#[salsa::tracked]
-impl<'db> UseItem<'db> {
-    #[salsa::tracked]
-    pub fn use_tree_map(
-        self,
-        db: &'db dyn salsa::Database,
-        file: ide::File,
-    ) -> Option<Arc<UseTreeMap>> {
-        self.use_tree_and_map(db, file).map(|(map, _)| map)
-    }
-
-    #[salsa::tracked]
-    pub fn use_tree(self, db: &'db dyn salsa::Database, file: ide::File) -> Option<UseTree> {
-        self.use_tree_and_map(db, file).map(|(_, tree)| tree)
-    }
-
-    #[salsa::tracked]
-    pub fn use_tree_and_map(
-        self,
-        db: &'db dyn salsa::Database,
-        file: ide::File,
-    ) -> Option<(Arc<UseTreeMap>, UseTree)> {
-        fn use_tree_inner<'a, 'db>(
-            db: &'db dyn salsa::Database,
-            use_tree: parsing::UseTree<'a>,
-            map: &mut UseTreeMap,
-            source: &str,
-        ) -> Option<UseTree> {
-            let id = map.insert(use_tree);
-            Some(UseTree::new(
-                db,
-                match use_tree {
-                    parsing::UseTree::UseRootPath(_) => UseTreeKind::Root,
-                    parsing::UseTree::UseSuperPath(_) => UseTreeKind::Super,
-                    parsing::UseTree::UseSelfName(_) => UseTreeKind::SelfUse,
-                    parsing::UseTree::UseGlobal(_) => UseTreeKind::Global,
-                    parsing::UseTree::UsePath(use_path) => {
-                        let name = use_path
-                            .name()
-                            .and_then(|n| n.text(source))
-                            .map(|t| Symbol::new(db, t))?;
-                        let use_tree = use_tree_inner(db, use_path.use_tree()?, map, source)?;
-                        UseTreeKind::Path { name, use_tree }
-                    }
-                    parsing::UseTree::UseName(use_name) => {
-                        let name = use_name
-                            .name()
-                            .and_then(|n| n.text(source))
-                            .map(|t| Symbol::new(db, t))?;
-                        UseTreeKind::Name(name)
-                    }
-                    parsing::UseTree::UseTreeList(use_tree_list) => {
-                        let use_trees = use_tree_list
-                            .elements()
-                            .filter_map(|tree| use_tree_inner(db, tree, map, source))
-                            .collect_vec();
-                        UseTreeKind::TreeList(UseTreeList::new(db, use_trees))
-                    }
-                },
-                id,
-            ))
-        }
-        let mut map = UseTreeMap::default();
-        let parse = file.parse(db);
-        let source = file.contents(db);
-
-        let use_node_id = ast_map(db, file)[self.ast_ptr(db)];
-        let use_tree = parse.cast::<parsing::UseTree>(db, use_node_id)?;
-        let use_tree = use_tree_inner(db, use_tree, &mut map, source)?;
-
-        Some((Arc::new(map), use_tree))
-    }
 }
 
 #[salsa::interned(no_lifetime, debug)]
@@ -387,18 +333,19 @@ pub struct Module<'db> {
 
 #[salsa::interned(debug)]
 pub struct ItemTypeExpr<'db> {
+    pub id: ItemTypeExprId,
     pub kind: ItemTypeExprKind<'db>,
 }
 
 #[salsa::interned(debug)]
 pub struct TypeExpr<'db> {
-    pub kind: TypeExprKind<'db>,
     pub id: TypeExprId,
+    pub kind: TypeExprKind<'db>,
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
 pub enum ItemTypeExprKind<'db> {
-    TypeExpr(TypeExprKind<'db>),
+    TypeExpr(TypeExpr<'db>),
     Struct(Struct<'db>),
     Enum(Enum<'db>),
 }
@@ -422,8 +369,8 @@ pub enum TypeExprKind<'db> {
 
 #[salsa::interned(debug)]
 pub struct FnTypeParam<'db> {
-    pub name: Symbol,
-    pub ty: TypeExpr<'db>,
+    pub name: Option<Symbol>,
+    pub ty: Option<TypeExpr<'db>>,
 }
 
 #[salsa::interned(debug)]
@@ -442,7 +389,7 @@ pub struct Path<'db> {
 pub struct PathSegment<'db> {
     pub ident: Symbol,
     #[returns(ref)]
-    pub generic_args: Vec<TypeExpr<'db>>,
+    pub generic_args: Vec<Option<TypeExpr<'db>>>,
 }
 
 // #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]

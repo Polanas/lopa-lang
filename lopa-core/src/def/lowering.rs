@@ -4,9 +4,8 @@ use itertools::Itertools as _;
 use la_arena::{Arena, Idx};
 
 use crate::{
-    common::Symbol,
-    def::{AstIdMap, ast_id_map, hir::*},
-    ide::{self, Root},
+    def::{AstIdMap, ItemMap, Symbol, UseTreeMap, ast_id_map, hir::*},
+    ide::{self, File, Root},
     parsing::{self, AstNode as _},
 };
 
@@ -114,74 +113,12 @@ use crate::{
 //         }
 //     }
 //
-//     fn path_segment(&mut self, path_segment: parsing::PathSegment) -> Option<PathSegment> {
-//         Some(PathSegment {
-//             ident: Symbol::new(self.db, path_segment.ident(self.source)?),
-//             generic_args: path_segment
-//                 .generic_args()
-//                 .map(|args| args.types())
-//                 .into_iter()
-//                 .flatten()
-//                 .map(|ty| self.type_expr(ty))
-//                 .collect_vec(),
-//         })
-//     }
 //
 //     fn pat_opt(&mut self, pat: Option<parsing::Pattern>) -> PatId {
 //         pat.map(|e| self.pat(e))
 //             .unwrap_or_else(|| self.missing_pat())
 //     }
 //
-//     fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> TypeExprId {
-//         fn inner(this: &mut LowerBodyCtx, type_expr: parsing::TypeExpr) -> Option<TypeExprId> {
-//             Some(match type_expr {
-//                 parsing::TypeExpr::DynType(dyn_type) => {
-//                     let path = this.path(dyn_type.path()?);
-//                     this.alloc_type_expr(TypeExpr::Dyn(path))
-//                 }
-//                 parsing::TypeExpr::ParenType(paren_type) => {
-//                     let ty = paren_type
-//                         .type_expr()
-//                         .map(|ty| this.type_expr(ty))
-//                         .unwrap_or_else(|| this.missing_type_expr());
-//                     this.alloc_type_expr(TypeExpr::Paren(ty))
-//                 }
-//                 parsing::TypeExpr::PathType(path_type) => {
-//                     let path = this.path(path_type.value()?);
-//                     this.alloc_type_expr(TypeExpr::Path(path))
-//                 }
-//                 parsing::TypeExpr::NilableType(nilable_type) => {
-//                     let ty = nilable_type
-//                         .ty()
-//                         .map(|nilable| this.type_expr(nilable))
-//                         .unwrap_or_else(|| this.missing_type_expr());
-//                     this.alloc_type_expr(TypeExpr::Nilable(ty))
-//                 }
-//                 parsing::TypeExpr::LitType(lit_type) => {
-//                     this.alloc_type_expr(TypeExpr::Lit(lit_type.kind()?))
-//                 }
-//                 parsing::TypeExpr::FnType(fn_type) => {
-//                     let output = fn_type.output().map(|o| {
-//                         o.ty()
-//                             .map(|ty| this.type_expr(ty))
-//                             .unwrap_or_else(|| this.missing_type_expr())
-//                     });
-//                     let params = fn_type
-//                         .param_list()
-//                         .map(|p| p.params())
-//                         .into_iter()
-//                         .flatten()
-//                         .filter_map(|p| this.fn_type_param(p))
-//                         .collect_vec();
-//                     this.alloc_type_expr(TypeExpr::Fn { params, output })
-//                 }
-//                 parsing::TypeExpr::AnyType(_) => this.alloc_type_expr(TypeExpr::Any),
-//                 parsing::TypeExpr::UnitType(_) => this.alloc_type_expr(TypeExpr::Unit),
-//                 parsing::TypeExpr::SelfType(_) => this.alloc_type_expr(TypeExpr::SelfTy),
-//             })
-//         }
-//         inner(self, type_expr).unwrap_or_else(|| self.missing_type_expr())
-//     }
 //
 //     fn type_expr_opt(&mut self, type_expr: Option<parsing::TypeExpr>) -> TypeExprId {
 //         type_expr
@@ -189,13 +126,6 @@ use crate::{
 //             .unwrap_or_else(|| self.missing_type_expr())
 //     }
 //
-//     fn fn_type_param(&mut self, param: parsing::FnTypeParam) -> Option<FnTypeParam> {
-//         let name = param.name().and_then(|n| n.text(self.source))?;
-//         Some(FnTypeParam {
-//             name: Symbol::new(self.db, name),
-//             ty: self.type_expr_opt(param.ty()),
-//         })
-//     }
 //
 //     fn expr(&mut self, expr: parsing::Expr<'ast>) -> ExprId {
 //         match expr {
@@ -252,29 +182,26 @@ use crate::{
 //     stmts: Arena<Stmt>,
 // }
 //
-struct LowerCtx<'db, 'ast, 's> {
+struct Ctx<'db, 'ast, 's> {
     db: &'db dyn salsa::Database,
     source: &'s str,
     ast_file: parsing::File<'ast>,
-    file: ide::File,
-    root: Root,
+    file: File,
     ast_id_map: AstIdMap,
 }
 
-impl<'db, 'ast, 's> LowerCtx<'db, 'ast, 's> {
+impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
     fn new(
         db: &'db dyn salsa::Database,
         source: &'s str,
         ast_file: parsing::File<'ast>,
-        file: ide::File,
-        root: Root,
+        file: File,
     ) -> Self {
         Self {
             db,
             source,
             ast_file,
             file,
-            root,
             ast_id_map: AstIdMap::new(),
         }
     }
@@ -324,47 +251,70 @@ impl<'db, 'ast, 's> LowerCtx<'db, 'ast, 's> {
     }
 
     fn use_item(&mut self, use_item: parsing::UseItem<'ast>) -> Option<UseItem<'db>> {
+        use_item.use_keyword()?;
+        use_item.use_tree()?;
         Some(UseItem::new(self.db, self.ast_id_map.insert(use_item)))
     }
 
     fn enum_item(&mut self, enum_item: parsing::EnumItem<'ast>) -> Option<Enum<'db>> {
-        None
+        enum_item.enum_token()?;
+        let name = enum_item.name()?.text(self.source)?;
+        let items = self.inner_items(enum_item.elements());
+
+        Some(Enum::new(
+            self.db,
+            Symbol::new(self.db, name),
+            items,
+            self.ast_id_map.insert(enum_item),
+        ))
     }
 
     fn struct_item(&mut self, struct_item: parsing::StructItem<'ast>) -> Option<Struct<'db>> {
-        todo!()
-        // let name = struct_item.name().and_then(|n| n.text(self.source))?;
-        // let parent = if let Some(parent) = struct_item.parent() {
-        //     Some(self.path(parent.path()?)?)
-        // } else {
-        //     None
-        // };
-        // // let elems = struct_item
-        // //     .elements()
-        // //     .filter_map(|e| match e {
-        // //         parsing::Elem::Field(field) => Some(Elem::Field(self.field(field))),
-        // //         parsing::Elem::FnItem(fn_item) => {
-        // //             self.fn_item(fn_item).map(|i| Elem::Function(i))
-        // //         }
-        // //     })
-        // //     .collect_vec();
-        // Some(Struct::new(
-        //     self.db,
-        //     Symbol::new(self.db, name),
-        //     parent,
-        //     // elems,
-        //     self.ast_id_map.insert(struct_item),
-        // ))
+        struct_item.struct_token()?;
+        let name = struct_item.name()?.text(self.source)?;
+        let items = self.inner_items(struct_item.elements());
+
+        Some(Struct::new(
+            self.db,
+            Symbol::new(self.db, name),
+            items,
+            self.ast_id_map.insert(struct_item),
+        ))
     }
 
-    // fn field(&mut self, field: parsing::Field<'ast>) -> Field<'db> {
-    //     let name = field.name().and_then(|n| n.text(self.source));
-    //     let ty = field.ty().and_then(|ty| self.item_type_expr(ty));
-    //     Field::new(self.db, name.map(|n| Symbol::new(self.db, n)), ty)
-    // }
+    fn inner_items(
+        &mut self,
+        elems: impl Iterator<Item = parsing::Elem<'ast>>,
+    ) -> Vec<InnerItem<'db>> {
+        let mut items = vec![];
+        for elem in elems {
+            let parsing::Elem::Field(field) = elem else {
+                continue;
+            };
+            let Some(ty) = field.ty() else {
+                continue;
+            };
+            match ty {
+                parsing::ItemTypeExpr::StructItem(struct_item)
+                    if let Some(item) = self.struct_item(struct_item) =>
+                {
+                    items.push(InnerItem::Struct(item));
+                    self.ast_id_map.insert(struct_item);
+                }
+                parsing::ItemTypeExpr::EnumItem(enum_item)
+                    if let Some(item) = self.enum_item(enum_item) =>
+                {
+                    items.push(InnerItem::Enum(item));
+                    self.ast_id_map.insert(enum_item);
+                }
+                _ => {}
+            }
+        }
+        items
+    }
 
     fn impl_item(&mut self, impl_item: parsing::ImplItem<'ast>) -> Option<ImplBlock<'db>> {
-        todo!()
+        Some(ImplBlock::new(self.db, self.ast_id_map.insert(impl_item)))
         // let first = impl_item.first_type().and_then(|ty| self.type_expr(ty));
         // let second = impl_item.second_type().and_then(|ty| self.type_expr(ty));
         // let types = match (first, second) {
@@ -385,7 +335,12 @@ impl<'db, 'ast, 's> LowerCtx<'db, 'ast, 's> {
     }
 
     fn fn_item(&mut self, fn_item: parsing::FnItem<'ast>) -> Option<Function<'db>> {
-        todo!()
+        let name = fn_item.name()?.text(self.source)?;
+        Some(Function::new(
+            self.db,
+            Symbol::new(self.db, name),
+            self.ast_id_map.insert(fn_item),
+        ))
         // let name = fn_item.name().and_then(|n| n.text(self.source))?;
         // let mut params = vec![];
         // if let Some(param_list) = fn_item.params() {
@@ -427,80 +382,6 @@ impl<'db, 'ast, 's> LowerCtx<'db, 'ast, 's> {
         ))
     }
 
-    // fn generic_param(&self, param: parsing::TypeParam<'ast>) -> Option<GenericParam<'db>> {
-    //     Some(GenericParam::new(
-    //         self.db,
-    //         Symbol::new(self.db, param.name().and_then(|n| n.text(self.source))?),
-    //         param
-    //             .bounds()
-    //             .filter_map(|b| self.type_expr(b))
-    //             .collect_vec(),
-    //     ))
-    // }
-    //
-    // fn pat(&self, pat: parsing::Pattern<'ast>) -> Option<ItemPat<'db>> {
-    //     Some(match pat {
-    //         parsing::Pattern::NamePattern(name_pattern) => name_pattern
-    //             .name()
-    //             .and_then(|n| n.text(self.source))
-    //             .map(|name| Symbol::new(self.db, name))
-    //             .map(ItemPat::Name)?,
-    //         parsing::Pattern::PathPattern(path_pattern) => {
-    //             let path = path_pattern.path().and_then(|p| self.path(p));
-    //             path.map(ItemPat::Path)?
-    //         }
-    //         parsing::Pattern::WildcardPattern(_) => ItemPat::Wildcard,
-    //     })
-    // }
-
-    // fn path(&self, path: parsing::Path<'ast>) -> Option<Path<'db>> {
-    //     let segments = path
-    //         .segments()
-    //         .filter_map(|s| self.path_segment(s))
-    //         .collect_vec();
-    //     if segments.is_empty() {
-    //         return None;
-    //     }
-    //     Some(Path::new(self.db, segments))
-    // }
-    //
-    // fn path_segment(&self, path_segment: parsing::PathSegment<'ast>) -> Option<PathSegment<'db>> {
-    //     Some(PathSegment::new(
-    //         self.db,
-    //         Symbol::new(self.db, path_segment.ident(self.source)?),
-    //         path_segment
-    //             .generic_args()
-    //             .map(|args| args.types())
-    //             .into_iter()
-    //             .flatten()
-    //             .filter_map(|ty| self.type_expr(ty))
-    //             .collect_vec(),
-    //     ))
-    // }
-
-    // fn type_expr_from(&self, kind: TypeExprKind<'db>) -> TypeExpr<'db> {
-    //     TypeExpr::new(self.db, kind)
-    // }
-    //
-    // fn item_type_expr(
-    //     &mut self,
-    //     item_type_expr: parsing::ItemTypeExpr<'ast>,
-    // ) -> Option<ItemTypeExpr<'db>> {
-    //     Some(ItemTypeExpr::new(
-    //         self.db,
-    //         match item_type_expr {
-    //             parsing::ItemTypeExpr::StructItemType(struct_item_type) => {
-    //                 ItemTypeExprKind::Struct(self.struct_item(struct_item_type.struct_item()?)?)
-    //             }
-    //             parsing::ItemTypeExpr::EnumItemType(enum_item_type) => {
-    //                 ItemTypeExprKind::Enum(self.enum_item(enum_item_type.enum_item()?)?)
-    //             }
-    //             parsing::ItemTypeExpr::ItemType(item_type) => {
-    //                 ItemTypeExprKind::TypeExpr(self.type_expr(item_type.ty()?)?.kind(self.db))
-    //             }
-    //         },
-    //     ))
-    // }
     //
     // fn type_expr(&self, type_expr: parsing::TypeExpr<'ast>) -> Option<TypeExpr<'db>> {
     //     Some(match type_expr {
@@ -546,40 +427,287 @@ impl<'db, 'ast, 's> LowerCtx<'db, 'ast, 's> {
     //         parsing::TypeExpr::SelfType(_) => self.type_expr_from(TypeExprKind::SelfTy),
     //     })
     // }
+}
 
-    // fn fn_type_param(&self, param: parsing::FnTypeParam<'ast>) -> Option<FnTypeParam<'db>> {
-    //     let name = param.name().and_then(|n| n.text(self.source))?;
-    //     Some(FnTypeParam::new(
-    //         self.db,
-    //         Symbol::new(self.db, name),
-    //         self.type_expr(param.ty()?)?,
-    //     ))
-    // }
+struct ItemMapCtx<'db, 's> {
+    db: &'db dyn salsa::Database,
+    source: &'s str,
+    map: ItemMap,
+}
+
+impl<'db, 's> ItemMapCtx<'db, 's> {
+    fn new(db: &'db dyn salsa::Database, source: &'s str) -> Self {
+        Self {
+            db,
+            source,
+            map: ItemMap::default(),
+        }
+    }
+
+    fn item_type_expr(
+        &mut self,
+        mut items: impl Iterator<Item = InnerItem<'db>>,
+        item_type_expr: parsing::ItemTypeExpr,
+    ) -> Option<ItemTypeExpr<'db>> {
+        Some(match item_type_expr {
+            parsing::ItemTypeExpr::StructItem(struct_item) => {
+                let name = Symbol::new(
+                    self.db,
+                    struct_item.name().and_then(|n| n.text(self.source))?,
+                );
+                let item = items.find(|i| i.name(self.db) == name)?;
+                self.alloc_item_type_expr(
+                    match item {
+                        InnerItem::Struct(item) => ItemTypeExprKind::Struct(item),
+                        InnerItem::Enum(item) => ItemTypeExprKind::Enum(item),
+                    },
+                    item_type_expr,
+                )
+            }
+            parsing::ItemTypeExpr::EnumItem(enum_item) => {
+                let name =
+                    Symbol::new(self.db, enum_item.name().and_then(|n| n.text(self.source))?);
+                let item = items.find(|i| i.name(self.db) == name)?;
+                self.alloc_item_type_expr(
+                    match item {
+                        InnerItem::Struct(item) => ItemTypeExprKind::Struct(item),
+                        InnerItem::Enum(item) => ItemTypeExprKind::Enum(item),
+                    },
+                    item_type_expr,
+                )
+            }
+            parsing::ItemTypeExpr::TypeExpr(type_expr) => {
+                let ty = self.type_expr(type_expr)?;
+                self.alloc_item_type_expr(
+                    ItemTypeExprKind::TypeExpr(ty),
+                    parsing::ItemTypeExpr::TypeExpr(type_expr),
+                )
+            }
+        })
+    }
+
+    fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> Option<TypeExpr<'db>> {
+        Some(match type_expr {
+            parsing::TypeExpr::DynType(dyn_type) => {
+                let path = self.path(dyn_type.path()?)?;
+                self.alloc_type_expr(TypeExprKind::Dyn(path), type_expr)
+            }
+            parsing::TypeExpr::ParenType(paren_type) => {
+                let ty = paren_type.type_expr().and_then(|ty| self.type_expr(ty))?;
+                self.alloc_type_expr(TypeExprKind::Paren(ty), type_expr)
+            }
+            parsing::TypeExpr::PathType(path_type) => {
+                let path = self.path(path_type.value()?)?;
+                self.alloc_type_expr(TypeExprKind::Path(path), type_expr)
+            }
+            parsing::TypeExpr::NilableType(nilable_type) => {
+                let ty = nilable_type
+                    .ty()
+                    .and_then(|nilable| self.type_expr(nilable))?;
+                self.alloc_type_expr(TypeExprKind::Nilable(ty), type_expr)
+            }
+            parsing::TypeExpr::LitType(lit_type) => {
+                self.alloc_type_expr(TypeExprKind::Lit(lit_type.kind()?), type_expr)
+            }
+            parsing::TypeExpr::FnType(fn_type) => {
+                let output = fn_type
+                    .output()
+                    .and_then(|o| o.ty().and_then(|ty| self.type_expr(ty)));
+                let params = fn_type
+                    .param_list()
+                    .map(|p| p.params())
+                    .into_iter()
+                    .flatten()
+                    .map(|p| self.fn_type_param(p))
+                    .collect_vec();
+                self.alloc_type_expr(
+                    TypeExprKind::Fn {
+                        params: FnTypeParamList::new(self.db, params),
+                        output,
+                    },
+                    type_expr,
+                )
+            }
+            parsing::TypeExpr::AnyType(_) => self.alloc_type_expr(TypeExprKind::Any, type_expr),
+            parsing::TypeExpr::UnitType(_) => self.alloc_type_expr(TypeExprKind::Unit, type_expr),
+            parsing::TypeExpr::SelfType(_) => self.alloc_type_expr(TypeExprKind::SelfTy, type_expr),
+        })
+    }
+
+    fn fn_type_param(&mut self, param: parsing::FnTypeParam) -> FnTypeParam<'db> {
+        let name = param
+            .name()
+            .and_then(|n| n.text(self.source))
+            .map(|n| Symbol::new(self.db, n));
+        FnTypeParam::new(self.db, name, param.ty().and_then(|ty| self.type_expr(ty)))
+    }
+
+    fn generic_param(&mut self, param: parsing::TypeParam) -> Option<GenericParam<'db>> {
+        Some(GenericParam::new(
+            self.db,
+            Symbol::new(self.db, param.name().and_then(|n| n.text(self.source))?),
+            param
+                .bounds()
+                .filter_map(|b| self.type_expr(b))
+                .collect_vec(),
+        ))
+    }
+
+    fn pat(&mut self, pat: parsing::Pattern) -> Option<Pat<'db>> {
+        Some(match pat {
+            parsing::Pattern::NamePattern(name_pattern) => {
+                let name = name_pattern
+                    .name()
+                    .and_then(|n| n.text(self.source))
+                    .map(|name| Symbol::new(self.db, name))?;
+                self.alloc_pat(PatKind::Name(name), pat)
+            }
+            parsing::Pattern::PathPattern(path_pattern) => {
+                let path = path_pattern.path().and_then(|p| self.path(p))?;
+                self.alloc_pat(PatKind::Path(path), pat)
+            }
+            parsing::Pattern::WildcardPattern(_) => self.alloc_pat(PatKind::Wildcard, pat),
+        })
+    }
+
+    fn alloc_elem(&mut self, elem: ElemKind<'db>, elem_ast: parsing::Elem) -> Elem<'db> {
+        let id = self.map.insert_elem(elem_ast);
+        Elem::new(self.db, id, elem)
+    }
+
+    fn alloc_item_type_expr(
+        &mut self,
+        type_expr: ItemTypeExprKind<'db>,
+        type_expr_ast: parsing::ItemTypeExpr,
+    ) -> ItemTypeExpr<'db> {
+        let id = self.map.insert_item_type_expr(type_expr_ast);
+        ItemTypeExpr::new(self.db, id, type_expr)
+    }
+
+    fn alloc_type_expr(
+        &mut self,
+        type_expr: TypeExprKind<'db>,
+        type_expr_ast: parsing::TypeExpr,
+    ) -> TypeExpr<'db> {
+        let id = self.map.insert_type_expr(type_expr_ast);
+        TypeExpr::new(self.db, id, type_expr)
+    }
+
+    fn alloc_pat(&mut self, pat: PatKind<'db>, pat_ast: parsing::Pattern) -> Pat<'db> {
+        let id = self.map.insert_pat(pat_ast);
+        Pat::new(self.db, id, pat)
+    }
+
+    fn path(&mut self, path: parsing::Path) -> Option<Path<'db>> {
+        let segments = path
+            .segments()
+            .filter_map(|s| self.path_segment(s))
+            .collect_vec();
+        if segments.is_empty() {
+            return None;
+        }
+        Some(Path::new(self.db, segments))
+    }
+
+    fn path_segment(&mut self, path_segment: parsing::PathSegment) -> Option<PathSegment<'db>> {
+        Some(PathSegment::new(
+            self.db,
+            Symbol::new(self.db, path_segment.ident(self.source)?),
+            path_segment
+                .generic_args()
+                .map(|args| args.types())
+                .into_iter()
+                .flatten()
+                .map(|ty| self.type_expr(ty))
+                .collect_vec(),
+        ))
+    }
 }
 
 #[salsa::tracked]
-pub fn items<'db>(db: &'db dyn salsa::Database, file: ide::File) -> Arc<Vec<Item<'db>>> {
+impl<'db> UseItem<'db> {
+    #[salsa::tracked]
+    pub fn use_tree_map(self, db: &'db dyn salsa::Database, file: File) -> Option<Arc<UseTreeMap>> {
+        self.use_tree_and_map(db, file).map(|(map, _)| map)
+    }
+
+    #[salsa::tracked]
+    pub fn use_tree(self, db: &'db dyn salsa::Database, file: File) -> Option<UseTree> {
+        self.use_tree_and_map(db, file).map(|(_, tree)| tree)
+    }
+
+    #[salsa::tracked]
+    pub fn use_tree_and_map(
+        self,
+        db: &'db dyn salsa::Database,
+        file: File,
+    ) -> Option<(Arc<UseTreeMap>, UseTree)> {
+        fn use_tree_inner<'a, 'db>(
+            db: &'db dyn salsa::Database,
+            use_tree: parsing::UseTree<'a>,
+            map: &mut UseTreeMap,
+            source: &str,
+        ) -> Option<UseTree> {
+            let id = map.insert(use_tree);
+            Some(UseTree::new(
+                db,
+                match use_tree {
+                    parsing::UseTree::UseRootPath(_) => UseTreeKind::Root,
+                    parsing::UseTree::UseSuperPath(_) => UseTreeKind::Super,
+                    parsing::UseTree::UseSelfName(_) => UseTreeKind::SelfUse,
+                    parsing::UseTree::UseGlobal(_) => UseTreeKind::Global,
+                    parsing::UseTree::UsePath(use_path) => {
+                        let name = use_path
+                            .name()
+                            .and_then(|n| n.text(source))
+                            .map(|t| Symbol::new(db, t))?;
+                        let use_tree = use_tree_inner(db, use_path.use_tree()?, map, source)?;
+                        UseTreeKind::Path { name, use_tree }
+                    }
+                    parsing::UseTree::UseName(use_name) => {
+                        let name = use_name
+                            .name()
+                            .and_then(|n| n.text(source))
+                            .map(|t| Symbol::new(db, t))?;
+                        UseTreeKind::Name(name)
+                    }
+                    parsing::UseTree::UseTreeList(use_tree_list) => {
+                        let use_trees = use_tree_list
+                            .elements()
+                            .filter_map(|tree| use_tree_inner(db, tree, map, source))
+                            .collect_vec();
+                        UseTreeKind::TreeList(UseTreeList::new(db, use_trees))
+                    }
+                },
+                id,
+            ))
+        }
+        let mut map = UseTreeMap::default();
+        let parse = file.parse(db);
+        let source = file.contents(db);
+
+        let use_node_id = ast_map(db, file)[self.ast_ptr(db)];
+        let use_tree = parse.cast::<parsing::UseTree>(db, use_node_id)?;
+        let use_tree = use_tree_inner(db, use_tree, &mut map, source)?;
+
+        Some((Arc::new(map), use_tree))
+    }
+}
+
+#[salsa::tracked]
+pub fn items<'db>(db: &'db dyn salsa::Database, file: File) -> Arc<Vec<Item<'db>>> {
     lower(db, file).0
 }
 
 #[salsa::tracked]
-pub fn ast_map(db: &dyn salsa::Database, file: ide::File) -> Arc<AstIdMap> {
+pub fn ast_map(db: &dyn salsa::Database, file: File) -> Arc<AstIdMap> {
     lower(db, file).1
 }
 
 #[salsa::tracked]
-fn lower<'db>(
-    db: &'db dyn salsa::Database,
-    file: ide::File,
-) -> (Arc<Vec<Item<'db>>>, Arc<AstIdMap>) {
+fn lower<'db>(db: &'db dyn salsa::Database, file: File) -> (Arc<Vec<Item<'db>>>, Arc<AstIdMap>) {
     let parse = file.parse(db);
-    let ctx = LowerCtx::new(
-        db,
-        file.contents(db),
-        parse.file(db).unwrap(),
-        file,
-        file.root(db),
-    );
+    let ctx = Ctx::new(db, file.contents(db), parse.file(db).unwrap(), file);
     let (items, id_map) = ctx.lower();
     (items.into(), id_map.into())
 }

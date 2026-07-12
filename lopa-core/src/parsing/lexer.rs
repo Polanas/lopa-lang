@@ -443,10 +443,6 @@ def! {
     LET_STMT @STMT_FIRST,
     EXPR_STMT @STMT_LAST,
 
-    ITEM_TYPE @ITEM_TYPE_EXPR_FIRST,
-    ITEM_TYPE_ENUM,
-    ITEM_TYPE_STRUCT @ITEM_TYPE_EXPR_LAST,
-
     NILABLE_TYPE @TYPE_EXPR_FIRST,
     PAREN_TYPE,
     LIT_TYPE,
@@ -628,11 +624,6 @@ impl Syntax {
 
     pub fn is_type_expr(self) -> bool {
         (Self::TYPE_EXPR_FIRST as u16..=Self::TYPE_EXPR_LAST as u16).contains(&(self as u16))
-    }
-
-    pub fn is_item_type_expr(self) -> bool {
-        (Self::ITEM_TYPE_EXPR_FIRST as u16..=Self::ITEM_TYPE_EXPR_LAST as u16)
-            .contains(&(self as u16))
     }
 
     pub fn is_lua_stmt(self) -> bool {

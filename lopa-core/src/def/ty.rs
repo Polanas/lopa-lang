@@ -1,6 +1,6 @@
 use crate::{
-    common::{LitKind, Symbol},
-    def::hir,
+    common::LitKind,
+    def::{Symbol, hir},
 };
 
 #[salsa::interned(debug)]

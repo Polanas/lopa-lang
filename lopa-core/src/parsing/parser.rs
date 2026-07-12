@@ -705,9 +705,9 @@ impl<'a> Parser<'a> {
     fn item_type_expr(&mut self) {
         if self.at_any(ITEM_TYPE_FIRST) {
             match self.peek() {
-                T![struct] => self.with(ITEM_TYPE_STRUCT, |this| this.struct_item()),
-                T![enum] => self.with(ITEM_TYPE_ENUM, |this| this.enum_item()),
-                _ => self.with(ITEM_TYPE, |this| this.type_expr()),
+                T![struct] => self.struct_item(),
+                T![enum] => self.enum_item(),
+                _ => self.type_expr(),
             }
         } else {
             self.advance_with_error(SyntaxErrorKind::ExpectedType);

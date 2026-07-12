@@ -1,4 +1,7 @@
-use crate::{common::Symbol, def::ty::{self, Type}};
+use crate::def::{
+    Symbol,
+    ty::{self, Type},
+};
 
 #[salsa::interned(debug)]
 pub struct Path<'db> {

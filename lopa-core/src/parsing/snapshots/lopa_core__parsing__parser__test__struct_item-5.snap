@@ -15,33 +15,32 @@ STRUCT_ITEM: 0..34
       IDENT: 11..16 "value"
     COLON: 16..17 ":"
     WHITESPACE: 17..18 
-    ITEM_TYPE: 18..32 
-      PATH_TYPE: 18..32 
-        PATH: 18..32 
-          PATH_SEGMENT: 18..32 
-            IDENT: 18..19 "S"
-            GENERIC_ARGUMENTS: 19..32 
-              LT: 19..20 "<"
-              LIT_TYPE: 20..23 
-                LIT_TYPE_INT: 20..23 
-                  PATH_TYPE: 20..23 
-                    PATH: 20..23 
-                      PATH_SEGMENT: 20..23 
-                        IDENT: 20..23 "int"
-              COMMA: 23..24 ","
-              LIT_TYPE: 24..27 
-                LIT_TYPE_INT: 24..27 
-                  PATH_TYPE: 24..27 
-                    PATH: 24..27 
-                      PATH_SEGMENT: 24..27 
-                        IDENT: 24..27 "int"
-              COMMA: 27..28 ","
-              LIT_TYPE: 28..31 
-                LIT_TYPE_INT: 28..31 
-                  PATH_TYPE: 28..31 
-                    PATH: 28..31 
-                      PATH_SEGMENT: 28..31 
-                        IDENT: 28..31 "int"
-              GT: 31..32 ">"
+    PATH_TYPE: 18..32 
+      PATH: 18..32 
+        PATH_SEGMENT: 18..32 
+          IDENT: 18..19 "S"
+          GENERIC_ARGUMENTS: 19..32 
+            LT: 19..20 "<"
+            LIT_TYPE: 20..23 
+              LIT_TYPE_INT: 20..23 
+                PATH_TYPE: 20..23 
+                  PATH: 20..23 
+                    PATH_SEGMENT: 20..23 
+                      IDENT: 20..23 "int"
+            COMMA: 23..24 ","
+            LIT_TYPE: 24..27 
+              LIT_TYPE_INT: 24..27 
+                PATH_TYPE: 24..27 
+                  PATH: 24..27 
+                    PATH_SEGMENT: 24..27 
+                      IDENT: 24..27 "int"
+            COMMA: 27..28 ","
+            LIT_TYPE: 28..31 
+              LIT_TYPE_INT: 28..31 
+                PATH_TYPE: 28..31 
+                  PATH: 28..31 
+                    PATH_SEGMENT: 28..31 
+                      IDENT: 28..31 "int"
+            GT: 31..32 ">"
   WHITESPACE: 32..33 
   R_BRACE: 33..34 "}"

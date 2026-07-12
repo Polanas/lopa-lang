@@ -26,27 +26,3 @@ impl std::ops::Index<UseTreeId> for UseTreeMap {
         &self.arena[index.0]
     }
 }
-
-#[salsa::tracked]
-pub fn use_tree_map<'db>(
-    db: &'db dyn salsa::Database,
-    module: hir::Module<'db>,
-    //required instead of `AstId` because rust can't handle 'static lifetime inside `parsing::UseItem`
-    use_id: ErasedAstId,
-) -> UseTreeMap {
-    let mut map = UseTreeMap::default();
-    let file = module.file(db);
-    let parse = file.parse(db);
-
-    let use_node = ast_map(db, file)[AstId::<parsing::UseItem<'static>>::from(use_id)];
-    let use_node = parse.tree(db).get(use_node).unwrap();
-
-    use_node
-        .walk()
-        .filter_map(parsing::UseTree::cast)
-        .for_each(|tree| {
-            map.insert(tree);
-        });
-
-    map
-}

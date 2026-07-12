@@ -38,12 +38,6 @@ impl LitKind {
     }
 }
 
-#[salsa::interned(no_lifetime, debug)]
-pub struct Symbol {
-    #[returns(ref)]
-    pub value: String,
-}
-
 #[macro_export]
 macro_rules! B {
     (+) => {

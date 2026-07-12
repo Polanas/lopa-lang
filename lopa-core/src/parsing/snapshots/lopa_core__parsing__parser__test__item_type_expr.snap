@@ -2,24 +2,22 @@
 source: lopa-core/src/parsing/parser.rs
 expression: "parse(\"struct Name {\n            value: String\n        }\", |p|\np.item_type_expr())"
 ---
-ITEM_TYPE_STRUCT: 0..49 
-  STRUCT_ITEM: 0..49 
-    STRUCT_KW: 0..6 "struct"
-    WHITESPACE: 6..7 
-    NAME: 7..11 
-      IDENT: 7..11 "Name"
-    WHITESPACE: 11..12 
-    L_BRACE: 12..13 "{"
-    WHITESPACE: 13..26 
-    FIELD: 26..39 
-      NAME: 26..31 
-        IDENT: 26..31 "value"
-      COLON: 31..32 ":"
-      WHITESPACE: 32..33 
-      ITEM_TYPE: 33..39 
-        PATH_TYPE: 33..39 
-          PATH: 33..39 
-            PATH_SEGMENT: 33..39 
-              IDENT: 33..39 "String"
-    WHITESPACE: 39..48 
-    R_BRACE: 48..49 "}"
+STRUCT_ITEM: 0..49 
+  STRUCT_KW: 0..6 "struct"
+  WHITESPACE: 6..7 
+  NAME: 7..11 
+    IDENT: 7..11 "Name"
+  WHITESPACE: 11..12 
+  L_BRACE: 12..13 "{"
+  WHITESPACE: 13..26 
+  FIELD: 26..39 
+    NAME: 26..31 
+      IDENT: 26..31 "value"
+    COLON: 31..32 ":"
+    WHITESPACE: 32..33 
+    PATH_TYPE: 33..39 
+      PATH: 33..39 
+        PATH_SEGMENT: 33..39 
+          IDENT: 33..39 "String"
+  WHITESPACE: 39..48 
+  R_BRACE: 48..49 "}"

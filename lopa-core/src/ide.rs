@@ -5,12 +5,10 @@ pub use diagnostics::{
 };
 
 use itertools::Itertools;
-use notify_rust::{Notification, Timeout};
 use salsa::Accumulator;
 
 use crate::{
-    common::Symbol,
-    def::{self, ast_map, hir},
+    def::{self, Symbol, hir},
     parsing::{self, AstNode},
 };
 use std::{path::PathBuf, sync::Arc};
