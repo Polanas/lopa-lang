@@ -179,7 +179,20 @@ impl<'db> InnerItem<'db> {
 #[salsa::tracked(debug)]
 pub struct ImplBlock<'db> {
     pub file: ide::File,
+    pub items: ImplItems<'db>,
     pub ast_ptr: AstId<parsing::ImplItem<'static>>,
+}
+
+#[salsa::tracked(debug)]
+pub struct ImplItems<'db> {
+    pub items: Vec<Function<'db>>,
+}
+
+#[derive(salsa::Update, PartialEq, Clone)]
+pub struct ImplContents<'db> {
+    pub item_map: ItemMap,
+    pub generics: Generics<'db>,
+    pub impl_types: ImplTypes<'db>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
