@@ -1,20 +1,22 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"generic_call::<A>()\", |p| p.expr())"
+expression: "parse(\"foo?.bar?.baz()\", |p| p.expr())"
 ---
-CALL_EXPR: 0..19 
-  PATH_EXPR: 0..17 
-    PATH: 0..17 
-      PATH_SEGMENT: 0..17 
-        IDENT: 0..12 "generic_call"
-        COLON: 12..13 ":"
-        COLON: 13..14 ":"
-        GENERIC_ARGUMENTS: 14..17 
-          LT: 14..15 "<"
-          PATH_TYPE: 15..16 
-            PATH: 15..16 
-              PATH_SEGMENT: 15..16 
-                IDENT: 15..16 "A"
-          GT: 16..17 ">"
-  L_PAREN: 17..18 "("
-  R_PAREN: 18..19 ")"
+SAFE_METHOD_EXPR: 0..15 
+  METHOD_EXPR: 0..15 
+    SAFE_FIELD_EXPR: 0..8 
+      FIELD_EXPR: 0..8 
+        PATH_EXPR: 0..3 
+          PATH: 0..3 
+            PATH_SEGMENT: 0..3 
+              IDENT: 0..3 "foo"
+        MARK: 3..4 "?"
+        DOT: 4..5 "."
+        NAME: 5..8 
+          IDENT: 5..8 "bar"
+    MARK: 8..9 "?"
+    DOT: 9..10 "."
+    NAME: 10..13 
+      IDENT: 10..13 "baz"
+    L_PAREN: 13..14 "("
+    R_PAREN: 14..15 ")"

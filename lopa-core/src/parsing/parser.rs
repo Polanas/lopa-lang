@@ -46,6 +46,8 @@ const ELEMENT_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root], T![super]]);
 const PATH_FIRST: TokenSet = TokenSet::new(&[T![root], T![super], IDENT]);
 
+const GENERIC_ANCHOR: TokenSet = TokenSet::new(&[T![;], T!["{"], T!["("], T![")"], T![:], T![?]]);
+
 const USE_RECOVERY: TokenSet = TokenSet::new(&[]).union(ITEM_FIRST);
 // const PATTERN_RECOVERY: TokenSet = TokenSet::new(&[T![=], T![=>], T!["{"]]);
 const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], IDENT]);
@@ -136,6 +138,12 @@ impl ParseError {
     }
 }
 
+struct SavePoint {
+    pos: usize,
+    event_id: usize,
+    error_id: usize,
+}
+
 struct Parser<'a> {
     tokens: Vec<LexToken<'a>>,
     pos: usize,
@@ -144,6 +152,8 @@ struct Parser<'a> {
     errors: Vec<ParseError>,
     input: &'a str,
     tokens_raw: Peekable<Lexer<'a>>,
+    save_point: Option<SavePoint>,
+    save_point_errors: Vec<ParseError>,
 }
 
 impl<'a> Parser<'a> {
@@ -161,6 +171,8 @@ impl<'a> Parser<'a> {
             errors: Default::default(),
             input,
             tokens_raw: tokens_raw.peekable(),
+            save_point: None,
+            save_point_errors: Default::default(),
         }
     }
 
@@ -171,6 +183,37 @@ impl<'a> Parser<'a> {
             errors: self.errors,
         }
         .build_tree(&self.events)
+    }
+
+    fn set_save_point(&mut self) {
+        self.save_point = Some(SavePoint {
+            pos: self.pos,
+            event_id: self.events.len(),
+            error_id: self.errors.len(),
+        });
+    }
+
+    fn restore_save_point(&mut self, f: impl FnOnce(&mut Self)) {
+        let save_point = self.save_point.take().unwrap();
+
+        self.errors
+            .drain((save_point.error_id)..(self.errors.len()))
+            .for_each(|err| {
+                self.save_point_errors.push(err);
+            });
+
+        f(self);
+
+        self.pos = save_point.pos;
+        self.events
+            .drain((save_point.event_id)..(self.events.len()));
+        self.save_point_errors.clear();
+    }
+
+    fn with_save_point(&mut self, body: impl FnOnce(&mut Self), restore: impl FnOnce(&mut Self)) {
+        self.set_save_point();
+        body(self);
+        self.restore_save_point(restore);
     }
 
     fn with<R>(&mut self, syntax: Syntax, body: impl FnOnce(&mut Self) -> R) -> R {
@@ -847,6 +890,23 @@ impl<'a> Parser<'a> {
         // }
     }
 
+    fn can_parse_generic_args(&mut self) -> bool {
+        let mut result = true;
+        self.with_save_point(
+            |this| this.generic_args(),
+            |this| {
+                if !this.save_point_errors.is_empty() {
+                    result = false;
+                }
+
+                if !GENERIC_ANCHOR.contains(this.nth(0)) {
+                    result = false;
+                }
+            },
+        );
+        result
+    }
+
     fn path_segment(&mut self, kind: PathKind) {
         self.with(PATH_SEGMENT, |this| {
             if this.at(T![root]) {
@@ -855,18 +915,14 @@ impl<'a> Parser<'a> {
                 this.expect(T![super]);
             } else {
                 this.expect(IDENT);
-                match kind {
-                    PathKind::Type => {
-                        if this.at(T![<]) {
-                            this.generic_args();
+                if this.at(T![<]) {
+                    match kind {
+                        PathKind::Expr => {
+                            if this.can_parse_generic_args() {
+                                this.generic_args();
+                            }
                         }
-                    }
-                    PathKind::Expr => {
-                        if this.at_path_sep(0) && this.nth(2) == T![<] {
-                            this.expect(T![:]);
-                            this.expect(T![:]);
-                            this.generic_args();
-                        }
+                        PathKind::Type => this.generic_args(),
                     }
                 }
             }
@@ -1010,7 +1066,7 @@ impl<'a> Parser<'a> {
                 return None;
             }
         }
-        loop {
+        'outer: loop {
             match self.peek() {
                 T!["("] => {
                     self.with_at(CALL_EXPR, checkpoint, |this| this.arg_list());
@@ -1020,40 +1076,73 @@ impl<'a> Parser<'a> {
                 }
                 T![?] | T![.] => {
                     let safe_call = self.ate(T![?]);
-                    if self.nth(2) == T!["("] || self.nth(2) == T![:] {
-                        let method_expr = |this: &mut Self, syntax: Syntax| {
-                            this.with_at(syntax, checkpoint, |this| {
-                                this.expect(T![.]);
-                                this.name();
-                                if this.ate(T![:]) {
-                                    this.expect(T![:]);
-                                    this.generics();
-                                }
-                                this.arg_list();
-                            })
-                        };
-                        if safe_call {
-                            self.with_at(METHOD_EXPR, checkpoint, |this| {
-                                method_expr(this, SAFE_METHOD_EXPR)
-                            });
-                        } else {
-                            method_expr(self, METHOD_EXPR);
+                    self.expect(T![.]);
+                    self.name();
+                    'inner: {
+                        if self.at(T![<]) && self.can_parse_generic_args() {
+                            self.generic_args();
+
+                            if self.at(T!["("]) {
+                                self.arg_list();
+                                break 'inner;
+                            }
                         }
-                    } else {
-                        let field_expr = |this: &mut Self, syntax: Syntax| {
-                            this.with_at(syntax, checkpoint, |this| {
-                                this.expect(T![.]);
-                                this.name();
-                            })
-                        };
+                        if self.at(T!["("]) {
+                            self.arg_list();
+                            break 'inner;
+                        }
                         if safe_call {
                             self.with_at(FIELD_EXPR, checkpoint, |this| {
-                                field_expr(this, SAFE_FIELD_EXPR)
-                            });
+                                this.with_at(SAFE_FIELD_EXPR, checkpoint, |_| {});
+                            })
                         } else {
-                            field_expr(self, FIELD_EXPR);
+                            self.with_at(FIELD_EXPR, checkpoint, |_| {})
                         }
+                        continue 'outer;
                     }
+
+                    if safe_call {
+                        self.with_at(METHOD_EXPR, checkpoint, |this| {
+                            this.with_at(SAFE_METHOD_EXPR, checkpoint, |_| {});
+                        })
+                    } else {
+                        self.with_at(METHOD_EXPR, checkpoint, |_| {})
+                    }
+                    // if self.nth(2) == T!["("] || (self.nth(2) == T![<]) {
+                    //     //parse?.test<idk>()
+                    //     let method_expr = |this: &mut Self, syntax: Syntax| {
+                    //         this.with_at(syntax, checkpoint, |this| {
+                    //             this.expect(T![.]);
+                    //             this.name();
+                    //             if this.at(T![<]) {
+                    //                 this.expect(T![:]);
+                    //                 this.generic_args();
+                    //             }
+                    //             this.arg_list();
+                    //         })
+                    //     };
+                    //     if safe_call {
+                    //         self.with_at(METHOD_EXPR, checkpoint, |this| {
+                    //             method_expr(this, SAFE_METHOD_EXPR)
+                    //         });
+                    //     } else {
+                    //         method_expr(self, METHOD_EXPR);
+                    //     }
+                    // } else {
+                    //     let field_expr = |this: &mut Self, syntax: Syntax| {
+                    //         this.with_at(syntax, checkpoint, |this| {
+                    //             this.expect(T![.]);
+                    //             this.name();
+                    //         })
+                    //     };
+                    //     if safe_call {
+                    //         self.with_at(FIELD_EXPR, checkpoint, |this| {
+                    //             field_expr(this, SAFE_FIELD_EXPR)
+                    //         });
+                    //     } else {
+                    //         field_expr(self, FIELD_EXPR);
+                    //     }
+                    // }
                 }
                 _ => break,
             }
@@ -2115,7 +2204,7 @@ mod test {
     fn path() {
         insta::assert_snapshot!(parse("a : : b : : c", |p| p.expr_path()));
         insta::assert_snapshot!(parse("root::hello", |p| p.expr_path()));
-        insta::assert_snapshot!(parse("hey::<A,B,C>", |p| p.expr_path()));
+        insta::assert_snapshot!(parse("hey<A,B,C>", |p| p.expr_path()));
         insta::assert_snapshot!(parse("hey<A,B,C>", |p| p.type_path()));
     }
 
@@ -2124,7 +2213,7 @@ mod test {
         insta::assert_snapshot!(parse("A", |p| p.path_segment(PathKind::Expr)));
         insta::assert_snapshot!(parse("root", |p| p.path_segment(PathKind::Expr)));
         insta::assert_snapshot!(parse("super", |p| p.path_segment(PathKind::Expr)));
-        insta::assert_snapshot!(parse("G::<T1,T2>", |p| p.path_segment(PathKind::Expr)));
+        insta::assert_snapshot!(parse("G<T1,T2>", |p| p.path_segment(PathKind::Expr)));
     }
 
     #[test]
@@ -2208,6 +2297,15 @@ mod test {
     }
 
     #[test]
+    fn temp() {
+        insta::assert_snapshot!(parse("method.call<A,B>()", |p| p.expr()));
+        insta::assert_snapshot!(parse("Vec<Vec<int>>::new()", |p| p.expr()));
+        insta::assert_snapshot!(parse("BegoneTurbofish<Yay, Finally> {a:b,c:d}", |p| p.expr()));
+        insta::assert_snapshot!(parse("let ty = Vec<int>;", |p| p.stmt_let()));
+        insta::assert_snapshot!(parse("let ty = (Vec<int>);", |p| p.stmt_let()));
+    }
+
+    #[test]
     fn expr() {
         insta::assert_snapshot!(parse("1", |p| p.expr()));
         insta::assert_snapshot!(parse("1+1", |p| p.expr()));
@@ -2221,18 +2319,18 @@ mod test {
         insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
         insta::assert_snapshot!(parse("a[1] = b = c", |p| p.expr()));
         insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
-        // insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
+        insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
         insta::assert_snapshot!(parse("()", |p| p.expr()));
         insta::assert_snapshot!(parse("1.abs()", |p| p.expr()));
         insta::assert_snapshot!(parse("pos[1][2].test().test.len()[0]", |p| p.expr()));
         insta::assert_snapshot!(parse("math::Vec2 { x: 1, y: 2, }", |p| p.expr()));
         insta::assert_snapshot!(parse("Vec2 {}", |p| p.expr()));
         insta::assert_snapshot!(parse("(20 as float) as int", |p| p.expr()));
-        insta::assert_snapshot!(parse("generic_call::<A>()", |p| p.expr()));
-        insta::assert_snapshot!(parse("obj.generic_method::<A>()", |p| p.expr()));
+        insta::assert_snapshot!(parse("generic_call<A>()", |p| p.expr()));
+        insta::assert_snapshot!(parse("obj.generic_method<A>()", |p| p.expr()));
         insta::assert_snapshot!(parse("foo?.bar?.baz()", |p| p.expr()));
         insta::assert_snapshot!(parse("x is value and x !is value", |p| p.expr()));
-        insta::assert_snapshot!(parse("std::Vec::<int>::new()", |p| p.expr()));
+        insta::assert_snapshot!(parse("std::Vec<int>::new()", |p| p.expr()));
     }
 
     #[test]
