@@ -527,6 +527,8 @@ structs! {
         bar_left_token: T![|],
         params: ClosureParamList,
         bar_right_token[1]: T![|],
+        return_type: ReturnType,
+        body: Expr,
     },
     CLOSURE_PARAM_LIST = ClosureParamList {
         params: [ClosureParam],
@@ -590,6 +592,7 @@ structs! {
         expr: Expr,
         dot_token: T![.],
         name: Name,
+        generic_args: GenericArgs,
         left_paren_token: T!["("],
         args: [Arg],
         right_paren_token: T![")"],

@@ -12,22 +12,22 @@ pub struct ItemMap {
 }
 
 impl ItemMap {
-    pub(super) fn insert_item_type_expr<'a>(
+    pub(super) fn insert_item_type_expr(
         &mut self,
-        type_expr: parsing::ItemTypeExpr<'a>,
+        type_expr: parsing::ItemTypeExpr,
     ) -> ItemTypeExprId {
         ItemTypeExprId(self.item_type_exprs.alloc(type_expr.id()))
     }
 
-    pub(super) fn insert_type_expr<'a>(&mut self, type_expr: parsing::TypeExpr<'a>) -> TypeExprId {
+    pub(super) fn insert_type_expr(&mut self, type_expr: parsing::TypeExpr) -> TypeExprId {
         TypeExprId(self.type_exprs.alloc(type_expr.id()))
     }
 
-    pub(super) fn insert_elem<'a>(&mut self, elem: parsing::Elem<'a>) -> ElemId {
+    pub(super) fn insert_elem(&mut self, elem: parsing::Elem) -> ElemId {
         ElemId(self.elems.alloc(elem.id()))
     }
 
-    pub(super) fn insert_pat<'a>(&mut self, pat: parsing::Pattern<'a>) -> PatId {
+    pub(super) fn insert_pat(&mut self, pat: parsing::Pattern) -> PatId {
         PatId(self.pats.alloc(pat.id()))
     }
 }
@@ -44,7 +44,7 @@ impl std::ops::Index<ItemTypeExprId> for ItemMap {
     type Output = parsing::NodeId;
 
     fn index(&self, index: ItemTypeExprId) -> &Self::Output {
-        &self.type_exprs[index.0]
+        &self.item_type_exprs[index.0]
     }
 }
 

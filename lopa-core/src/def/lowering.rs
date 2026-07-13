@@ -1,187 +1,424 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{f32::consts::E, ops::Index, sync::Arc};
 
-use itertools::{Itertools as _, concat};
-use la_arena::{Arena, Idx};
+use itertools::Itertools as _;
 
 use crate::{
-    def::{AstIdMap, ItemMap, Symbol, UseTreeMap, ast_id_map, hir::*},
-    ide::{self, File, Root},
-    parsing::{self, AstNode as _},
+    def::{AstIdMap, ItemMap, Symbol, UseTreeMap, body_map::BodyMap, hir::*},
+    ide::File,
+    parsing::{self},
 };
 
-// struct LowerBodyCtx<'db, 'ast, 's> {
-//     db: &'db dyn salsa::Database,
-//     expr: parsing::Expr<'ast>,
-//     source: &'s str,
-//     ctx: BodyCtx,
-// }
+struct BodyCtx<'db, 's> {
+    db: &'db dyn salsa::Database,
+    source: &'s str,
+    map: BodyMap,
+    file: File,
+}
 
-// impl<'db, 'ast, 's> LowerBodyCtx<'db, 'ast, 's> {
-//     fn new(db: &'db dyn salsa::Database, expr: parsing::Expr<'ast>, source: &'s str) -> Self {
-//         Self {
-//             db,
-//             expr,
-//             ctx: BodyCtx::default(),
-//             source,
-//         }
-//     }
-//
-//     fn alloc_expr(&mut self, expr: Expr) -> ExprId {
-//         self.ctx.exprs.alloc(expr)
-//     }
-//
-//     fn alloc_pat(&mut self, pat: Pat) -> PatId {
-//         self.ctx.pats.alloc(pat)
-//     }
-//
-//     fn alloc_type_expr(&mut self, type_expr: TypeExpr) -> TypeExprId {
-//         self.ctx.type_exprs.alloc(type_expr)
-//     }
-//
-//     fn missing_type_expr(&mut self) -> TypeExprId {
-//         self.ctx.type_exprs.alloc(TypeExpr::Missing)
-//     }
-//
-//     fn missing_expr(&mut self) -> ExprId {
-//         self.alloc_expr(Expr::Missing)
-//     }
-//
-//     fn missing_pat(&mut self) -> PatId {
-//         self.alloc_pat(Pat::Missing)
-//     }
-//
-//     fn alloc_stmt(&mut self, stmt: Stmt) -> StmtId {
-//         self.ctx.stmts.alloc(stmt)
-//     }
-//
-//     fn lower(mut self) -> Body<'db> {
-//         let expr = self.expr(self.expr);
-//         Body::new(
-//             self.db,
-//             self.ctx.exprs,
-//             self.ctx.pats,
-//             self.ctx.type_exprs,
-//             self.ctx.stmts,
-//             expr,
-//         )
-//     }
-//
-//     fn stmt(&mut self, stmt: parsing::Stmt<'ast>) -> Option<StmtId> {
-//         Some(match stmt {
-//             parsing::Stmt::LetStmt(let_stmt) => {
-//                 let (pat, expr) = (let_stmt.pattern()?, let_stmt.expr()?);
-//                 let pat = self.pat(pat);
-//                 let expr = self.expr(expr);
-//                 let ty = let_stmt.ty().map(|ty| self.type_expr(ty));
-//                 self.alloc_stmt(Stmt::Let { pat, ty, expr })
-//             }
-//             parsing::Stmt::ExprStmt(expr_stmt) => {
-//                 let expr = self.expr(expr_stmt.expr()?);
-//                 self.alloc_stmt(Stmt::Expr {
-//                     expr,
-//                     semi: expr_stmt.semi_token().map(|_| ()),
-//                 })
-//             }
-//         })
-//     }
-//
-//     fn pat(&mut self, pat: parsing::Pattern) -> PatId {
-//         match pat {
-//             parsing::Pattern::NamePattern(name_pattern) => {
-//                 let pat = name_pattern
-//                     .name()
-//                     .and_then(|n| n.text(self.source))
-//                     .map(|name| Symbol::new(self.db, name))
-//                     .map(Pat::Name)
-//                     .unwrap_or_else(|| Pat::Missing);
-//                 self.alloc_pat(pat)
-//             }
-//             parsing::Pattern::PathPattern(path_pattern) => {
-//                 let path = path_pattern.path().map(|p| self.path(p));
-//                 self.alloc_pat(path.map(Pat::Path).unwrap_or_else(|| Pat::Missing))
-//             }
-//             parsing::Pattern::WildcardPattern(_) => self.alloc_pat(Pat::Wildcard),
-//         }
-//     }
-//
-//     fn path(&mut self, path: parsing::Path) -> Path {
-//         Path {
-//             segments: path
-//                 .segments()
-//                 .filter_map(|s| self.path_segment(s))
-//                 .collect_vec(),
-//         }
-//     }
-//
-//
-//     fn pat_opt(&mut self, pat: Option<parsing::Pattern>) -> PatId {
-//         pat.map(|e| self.pat(e))
-//             .unwrap_or_else(|| self.missing_pat())
-//     }
-//
-//
-//     fn type_expr_opt(&mut self, type_expr: Option<parsing::TypeExpr>) -> TypeExprId {
-//         type_expr
-//             .map(|ty| self.type_expr(ty))
-//             .unwrap_or_else(|| self.missing_type_expr())
-//     }
-//
-//
-//     fn expr(&mut self, expr: parsing::Expr<'ast>) -> ExprId {
-//         match expr {
-//             parsing::Expr::AsExpr(as_expr) => self.missing_expr(),
-//             parsing::Expr::IsExpr(is_expr) => self.missing_expr(),
-//             parsing::Expr::IsNotExpr(is_not_expr) => self.missing_expr(),
-//             parsing::Expr::SelfExpr(self_expr) => self.missing_expr(),
-//             parsing::Expr::ClosureExpr(closure_expr) => self.missing_expr(),
-//             parsing::Expr::FieldExpr(field_expr) => self.missing_expr(),
-//             parsing::Expr::MethodExpr(method_expr) => self.missing_expr(),
-//             parsing::Expr::RecordExpr(record_expr) => self.missing_expr(),
-//             parsing::Expr::UnitExpr(unit_expr) => self.missing_expr(),
-//             parsing::Expr::PathExpr(path_expr) => self.missing_expr(),
-//             parsing::Expr::BinaryExpr(binary_expr) => self.missing_expr(),
-//             parsing::Expr::UnaryExpr(unary_expr) => self.missing_expr(),
-//             parsing::Expr::BlockExpr(block_expr) => {
-//                 let stmts = block_expr
-//                     .stmts()
-//                     .filter_map(|stmt| self.stmt(stmt))
-//                     .collect_vec();
-//                 self.alloc_expr(Expr::Block { stmts })
-//             }
-//             parsing::Expr::IndexExpr(index_expr) => self.missing_expr(),
-//             parsing::Expr::CallExpr(call_expr) => self.missing_expr(),
-//             parsing::Expr::ParenExpr(paren_expr) => {
-//                 let expr = self.expr_opt(paren_expr.expr());
-//                 self.alloc_expr(Expr::Paren(expr))
-//             }
-//             parsing::Expr::ReturnExpr(return_expr) => {
-//                 let expr = self.expr_opt(return_expr.expr());
-//                 self.alloc_expr(Expr::Return { expr })
-//             }
-//             parsing::Expr::LitExpr(lit_expr) => self.alloc_expr(
-//                 lit_expr
-//                     .kind()
-//                     .map(Expr::Lit)
-//                     .unwrap_or_else(|| Expr::Missing),
-//             ),
-//             parsing::Expr::IfExpr(if_expr) => self.missing_expr(),
-//         }
-//     }
-//
-//     fn expr_opt(&mut self, expr: Option<parsing::Expr<'ast>>) -> ExprId {
-//         expr.map(|e| self.expr(e))
-//             .unwrap_or_else(|| self.missing_expr())
-//     }
-// }
+impl<'db, 's> BodyCtx<'db, 's> {
+    fn new(db: &'db dyn salsa::Database, source: &'s str, file: File) -> Self {
+        Self {
+            db,
+            source,
+            file,
+            map: Default::default(),
+        }
+    }
 
-// #[derive(Default)]
-// pub struct BodyCtx {
-//     exprs: Arena<Expr>,
-//     pats: Arena<Pat>,
-//     type_exprs: Arena<TypeExpr>,
-//     stmts: Arena<Stmt>,
-// }
-//
+    fn stmt(&mut self, stmt: parsing::Stmt) -> Option<Stmt<'db>> {
+        Some(match stmt {
+            parsing::Stmt::LetStmt(let_stmt) => {
+                let expr = let_stmt.expr().and_then(|e| self.expr(e))?;
+                let pat = let_stmt.pattern().and_then(|p| self.pat(p))?;
+                let ty = let_stmt.ty().and_then(|ty| self.type_expr(ty));
+                self.alloc_stmt(StmtKind::Let { pat, ty, expr }, stmt)
+            }
+            parsing::Stmt::ExprStmt(expr_stmt) => {
+                let expr = self.expr(expr_stmt.expr()?)?;
+                self.alloc_stmt(
+                    StmtKind::Expr {
+                        expr,
+                        semi: expr_stmt.semi_token().map(|_| ()),
+                    },
+                    stmt,
+                )
+            }
+        })
+    }
+
+    fn expr(&mut self, expr: parsing::Expr) -> Option<Expr<'db>> {
+        Some(match expr {
+            parsing::Expr::AsExpr(as_expr) => {
+                let inner_expr = as_expr.expr().and_then(|e| self.expr(e))?;
+                let ty = as_expr.type_expr().and_then(|ty| self.type_expr(ty))?;
+                self.alloc_expr(
+                    ExprKind::As {
+                        expr: inner_expr,
+                        ty,
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::IsExpr(is_expr) => {
+                let pat = is_expr.pat().and_then(|p| self.pat(p))?;
+                let inner_expr = is_expr.expr().and_then(|e| self.expr(e))?;
+                self.alloc_expr(
+                    ExprKind::Is {
+                        expr: inner_expr,
+                        pat,
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::IsNotExpr(is_not_expr) => {
+                let pat = is_not_expr.pat().and_then(|p| self.pat(p))?;
+                let inner_expr = is_not_expr.expr().and_then(|e| self.expr(e))?;
+                self.alloc_expr(
+                    ExprKind::IsNot {
+                        expr: inner_expr,
+                        pat,
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::SelfExpr(self_expr) => self.alloc_expr(ExprKind::SelfExpr, expr),
+            parsing::Expr::ClosureExpr(closure_expr) => {
+                let body = closure_expr.body().and_then(|e| self.expr(e))?;
+                let output = closure_expr
+                    .return_type()
+                    .and_then(|o| o.ty())
+                    .and_then(|ty| self.type_expr(ty));
+                let params = closure_expr
+                    .params()
+                    .map(|p| p.params())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|p| self.closure_param(p))
+                    .collect_vec();
+                self.alloc_expr(
+                    ExprKind::Closure {
+                        params: ClosureParams::new(self.db, params),
+                        body,
+                        output,
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::FieldExpr(field_expr) => {
+                let inner_expr = field_expr.expr().and_then(|e| self.expr(e))?;
+                let name = field_expr.name().and_then(|n| n.text(self.source))?;
+                self.alloc_expr(
+                    ExprKind::Field {
+                        name: Symbol::new(self.db, name),
+                        expr: inner_expr,
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::MethodExpr(method_expr) => {
+                let inner_expr = method_expr.expr().and_then(|e| self.expr(e))?;
+                let name = method_expr.name().and_then(|n| n.text(self.source))?;
+                let generics = method_expr
+                    .generic_args()
+                    .map(|args| args.types())
+                    .into_iter()
+                    .flatten()
+                    .map(|ty| self.type_expr(ty))
+                    .collect_vec();
+                let args = method_expr.args().filter_map(|a| self.arg(a)).collect_vec();
+                self.alloc_expr(
+                    ExprKind::Method {
+                        expr: inner_expr,
+                        name: Symbol::new(self.db, name),
+                        generic_args: GenericArgs::new(self.db, generics),
+                        args: Args::new(self.db, args),
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::RecordExpr(record_expr) => {
+                let path = record_expr.path().and_then(|p| self.path(p))?;
+                let fields = record_expr
+                    .fields_list()
+                    .filter_map(|f| self.record_field(f))
+                    .collect_vec();
+                self.alloc_expr(
+                    ExprKind::Record {
+                        path,
+                        fields: RecordFields::new(self.db, fields),
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::UnitExpr(_) => self.alloc_expr(ExprKind::Unit, expr),
+            parsing::Expr::PathExpr(path_expr) => {
+                let path = path_expr.path().and_then(|p| self.path(p))?;
+                self.alloc_expr(ExprKind::Path(path), expr)
+            }
+            parsing::Expr::BinaryExpr(binary_expr) => {
+                let lhs = binary_expr.lhs().and_then(|e| self.expr(e))?;
+                let rhs = binary_expr.rhs().and_then(|e| self.expr(e))?;
+                let kind = binary_expr.op_kind()?;
+                self.alloc_expr(ExprKind::Binary { lhs, rhs, kind }, expr)
+            }
+            parsing::Expr::UnaryExpr(unary_expr) => {
+                let unary = unary_expr.expr().and_then(|e| self.expr(e))?;
+                let kind = unary_expr.op_kind()?;
+                self.alloc_expr(ExprKind::Unary { expr: unary, kind }, expr)
+            }
+            parsing::Expr::BlockExpr(block_expr) => self.block_expr(block_expr),
+            parsing::Expr::IndexExpr(index_expr) => {
+                let base = index_expr.base().and_then(|e| self.expr(e))?;
+                let index = index_expr.index().and_then(|e| self.expr(e))?;
+                self.alloc_expr(ExprKind::Index { base, index }, expr)
+            }
+            parsing::Expr::CallExpr(call_expr) => {
+                let func = call_expr.func().and_then(|e| self.expr(e))?;
+                let args = call_expr.args().filter_map(|a| self.arg(a)).collect_vec();
+                self.alloc_expr(
+                    ExprKind::Call {
+                        func,
+                        agrs: Args::new(self.db, args),
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::ParenExpr(paren_expr) => {
+                let inner_expr = paren_expr.expr().and_then(|e| self.expr(e))?;
+                self.alloc_expr(ExprKind::Paren(inner_expr), expr)
+            }
+            parsing::Expr::ReturnExpr(return_expr) => {
+                let inner_expr = return_expr.expr().and_then(|e| self.expr(e))?;
+                self.alloc_expr(ExprKind::Return(inner_expr), expr)
+            }
+            parsing::Expr::LitExpr(lit_expr) => {
+                let kind = lit_expr.kind()?;
+                self.alloc_expr(ExprKind::Lit(kind), expr)
+            }
+            parsing::Expr::IfExpr(if_expr) => {
+                let cond = if_expr.if_condition().and_then(|e| self.expr(e))?;
+                let if_branch = if_expr.if_branch().map(|b| self.block_expr(b))?;
+                let else_branch = if_expr.else_branch().map(|b| self.block_expr(b));
+                self.alloc_expr(
+                    ExprKind::If {
+                        cond,
+                        if_branch,
+                        else_branch,
+                    },
+                    expr,
+                )
+            }
+            parsing::Expr::TupleExpr(tuple_expr) => {
+                let exprs = tuple_expr
+                    .exprs()
+                    .filter_map(|e| self.expr(e))
+                    .collect_vec();
+                self.alloc_expr(
+                    ExprKind::Tuple {
+                        exprs: ExprList::new(self.db, exprs),
+                    },
+                    expr,
+                )
+            }
+        })
+    }
+
+    fn closure_param(&mut self, param: parsing::ClosureParam) -> Option<ClosureParam<'db>> {
+        let pat = param.pattern().and_then(|p| self.pat(p))?;
+        let ty = param.ty().and_then(|ty| self.type_expr(ty));
+        Some(ClosureParam::new(self.db, pat, ty))
+    }
+
+    fn record_field(&mut self, field: parsing::RecordField) -> Option<RecordField<'db>> {
+        let name = field.name().and_then(|n| n.text(self.source))?;
+        let expr = field.expr().and_then(|e| self.expr(e))?;
+        Some(RecordField::new(self.db, Symbol::new(self.db, name), expr))
+    }
+
+    fn arg(&mut self, arg: parsing::Arg) -> Option<Arg<'db>> {
+        let value = arg.value().and_then(|e| self.expr(e))?;
+        Some(
+            if let Some(label) = arg.label().and_then(|n| n.text(self.source)) {
+                Arg::new(
+                    self.db,
+                    ArgKind::Labeled {
+                        label: Symbol::new(self.db, label),
+                        value,
+                    },
+                )
+            } else {
+                Arg::new(self.db, ArgKind::NonLabeled { value })
+            },
+        )
+    }
+
+    fn block_expr(&mut self, block: parsing::BlockExpr) -> Expr<'db> {
+        let stmts = block.stmts().filter_map(|s| self.stmt(s)).collect_vec();
+        self.alloc_expr(
+            ExprKind::Block {
+                stmts: StmtList::new(self.db, stmts),
+            },
+            parsing::Expr::BlockExpr(block),
+        )
+    }
+
+    fn pat(&mut self, pat: parsing::Pattern) -> Option<Pat<'db>> {
+        Some(match pat {
+            parsing::Pattern::NamePattern(name_pattern) => {
+                let name = name_pattern
+                    .name()
+                    .and_then(|n| n.text(self.source))
+                    .map(|name| Symbol::new(self.db, name))?;
+                self.alloc_pat(PatKind::Name(name), pat)
+            }
+            parsing::Pattern::PathPattern(path_pattern) => {
+                let path = path_pattern.path().and_then(|p| self.path(p))?;
+                self.alloc_pat(PatKind::Path(path), pat)
+            }
+            parsing::Pattern::WildcardPattern(_) => self.alloc_pat(PatKind::Wildcard, pat),
+        })
+    }
+
+    fn path(&mut self, path: parsing::Path) -> Option<Path<'db>> {
+        let segments = path
+            .segments()
+            .filter_map(|s| self.path_segment(s))
+            .collect_vec();
+        if segments.is_empty() {
+            return None;
+        }
+        Some(Path::new(self.db, segments))
+    }
+
+    fn path_segment(&mut self, path_segment: parsing::PathSegment) -> Option<PathSegment<'db>> {
+        Some(PathSegment::new(
+            self.db,
+            Symbol::new(self.db, path_segment.ident(self.source)?),
+            GenericArgs::new(
+                self.db,
+                path_segment
+                    .generic_args()
+                    .map(|args| args.types())
+                    .into_iter()
+                    .flatten()
+                    .map(|ty| self.type_expr(ty))
+                    .collect_vec(),
+            ),
+        ))
+    }
+
+    fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> Option<TypeExpr<'db>> {
+        Some(match type_expr {
+            parsing::TypeExpr::DynType(dyn_type) => {
+                let path = self.path(dyn_type.path()?)?;
+                self.alloc_type_expr(TypeExprKind::Dyn(path), type_expr)
+            }
+            parsing::TypeExpr::ParenType(paren_type) => {
+                let ty = paren_type.type_expr().and_then(|ty| self.type_expr(ty))?;
+                self.alloc_type_expr(TypeExprKind::Paren(ty), type_expr)
+            }
+            parsing::TypeExpr::PathType(path_type) => {
+                let path = self.path(path_type.value()?)?;
+                self.alloc_type_expr(TypeExprKind::Path(path), type_expr)
+            }
+            parsing::TypeExpr::NilableType(nilable_type) => {
+                let ty = nilable_type
+                    .ty()
+                    .and_then(|nilable| self.type_expr(nilable))?;
+                self.alloc_type_expr(TypeExprKind::Nilable(ty), type_expr)
+            }
+            parsing::TypeExpr::LitType(lit_type) => {
+                self.alloc_type_expr(TypeExprKind::Lit(lit_type.kind()?), type_expr)
+            }
+            parsing::TypeExpr::FnType(fn_type) => {
+                let output = fn_type
+                    .output()
+                    .and_then(|o| o.ty().and_then(|ty| self.type_expr(ty)));
+                let params = fn_type
+                    .param_list()
+                    .map(|p| p.params())
+                    .into_iter()
+                    .flatten()
+                    .map(|p| self.fn_type_param(p))
+                    .collect_vec();
+                self.alloc_type_expr(
+                    TypeExprKind::Fn {
+                        params: FnTypeParamList::new(self.db, params),
+                        output,
+                    },
+                    type_expr,
+                )
+            }
+            parsing::TypeExpr::AnyType(_) => self.alloc_type_expr(TypeExprKind::Any, type_expr),
+            parsing::TypeExpr::UnitType(_) => self.alloc_type_expr(TypeExprKind::Unit, type_expr),
+            parsing::TypeExpr::SelfType(_) => self.alloc_type_expr(TypeExprKind::SelfTy, type_expr),
+            parsing::TypeExpr::TupleType(tuple_type) => {
+                let types = tuple_type
+                    .types()
+                    .filter_map(|ty| self.type_expr(ty))
+                    .collect_vec();
+                self.alloc_type_expr(
+                    TypeExprKind::Tuple(TypeExprList::new(self.db, types)),
+                    type_expr,
+                )
+            }
+        })
+    }
+
+    fn fn_type_param(&mut self, param: parsing::FnTypeParam) -> FnTypeParam<'db> {
+        let name = param
+            .name()
+            .and_then(|n| n.text(self.source))
+            .map(|n| Symbol::new(self.db, n));
+        FnTypeParam::new(self.db, name, param.ty().and_then(|ty| self.type_expr(ty)))
+    }
+
+    fn generics(&mut self, generics: parsing::Generics) -> Option<Generics<'db>> {
+        Some(Generics::new(
+            self.db,
+            generics
+                .params()
+                .filter_map(|p| self.generic_param(p))
+                .collect_vec(),
+        ))
+    }
+
+    fn generic_param(&mut self, param: parsing::TypeParam) -> Option<GenericParam<'db>> {
+        Some(GenericParam::new(
+            self.db,
+            Symbol::new(self.db, param.name().and_then(|n| n.text(self.source))?),
+            param
+                .bounds()
+                .filter_map(|b| self.type_expr(b))
+                .collect_vec(),
+        ))
+    }
+
+    fn alloc_type_expr(
+        &mut self,
+        type_expr: TypeExprKind<'db>,
+        type_expr_ast: parsing::TypeExpr,
+    ) -> TypeExpr<'db> {
+        let id = self.map.insert_type_expr(type_expr_ast);
+        TypeExpr::new(self.db, id, type_expr)
+    }
+
+    fn alloc_pat(&mut self, pat: PatKind<'db>, pat_ast: parsing::Pattern) -> Pat<'db> {
+        let id = self.map.insert_pat(pat_ast);
+        Pat::new(self.db, id, pat)
+    }
+
+    fn alloc_expr(&mut self, expr: ExprKind<'db>, expr_ast: parsing::Expr) -> Expr<'db> {
+        let id = self.map.insert_expr(expr_ast);
+        Expr::new(self.db, id, expr)
+    }
+
+    fn alloc_stmt(&mut self, stmt: StmtKind<'db>, stmt_ast: parsing::Stmt) -> Stmt<'db> {
+        let id = self.map.insert_stmt(stmt_ast);
+        Stmt::new(self.db, id, stmt)
+    }
+}
+
 struct Ctx<'db, 'ast, 's> {
     db: &'db dyn salsa::Database,
     source: &'s str,
@@ -528,7 +765,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
                     match item {
                         InnerItem::Struct(item) => ItemTypeExprKind::Struct(item),
                         InnerItem::Enum(item) => ItemTypeExprKind::Enum(item),
-                        _ => return None,
+                        InnerItem::Function(_) => return None,
                     },
                     item_type_expr,
                 )
@@ -541,7 +778,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
                     match item {
                         InnerItem::Struct(item) => ItemTypeExprKind::Struct(item),
                         InnerItem::Enum(item) => ItemTypeExprKind::Enum(item),
-                        _ => todo!(),
+                        InnerItem::Function(_) => return None,
                     },
                     item_type_expr,
                 )
@@ -627,7 +864,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
                     .filter_map(|ty| self.type_expr(ty))
                     .collect_vec();
                 self.alloc_type_expr(
-                    TypeExprKind::Tuple(TupleType::new(self.db, types)),
+                    TypeExprKind::Tuple(TypeExprList::new(self.db, types)),
                     type_expr,
                 )
             }
@@ -723,13 +960,16 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         Some(PathSegment::new(
             self.db,
             Symbol::new(self.db, path_segment.ident(self.source)?),
-            path_segment
-                .generic_args()
-                .map(|args| args.types())
-                .into_iter()
-                .flatten()
-                .map(|ty| self.type_expr(ty))
-                .collect_vec(),
+            GenericArgs::new(
+                self.db,
+                path_segment
+                    .generic_args()
+                    .map(|args| args.types())
+                    .into_iter()
+                    .flatten()
+                    .map(|ty| self.type_expr(ty))
+                    .collect_vec(),
+            ),
         ))
     }
 }

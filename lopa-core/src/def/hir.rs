@@ -1,140 +1,169 @@
 use std::sync::Arc;
 
-use itertools::Itertools;
-use la_arena::{Arena, Idx};
-
 use crate::{
-    common::LitKind,
+    common::{BinaryOpKind, LitKind, UnaryOpKind},
     def::{
-        AstId, ElemId, ItemMap, ItemTypeExprId, PatId, Symbol, TypeExprId, UseTreeId, UseTreeMap,
+        AstId, ElemId, ExprId, ItemMap, ItemTypeExprId, PatId, StmtId, Symbol, TypeExprId,
+        UseTreeId, body_map::BodyMap,
     },
-    ide::{self, Root},
-    parsing::{self, AstNode as _},
+    ide::{self},
+    parsing::{self},
 };
 
-// pub type ExprId = Idx<Expr>;
+#[salsa::interned(debug)]
+pub struct Expr<'db> {
+    pub id: ExprId,
+    pub kind: ExprKind<'db>,
+}
 
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub enum Expr {
-//     Missing,
-//     Unit,
-//     Lit(LitKind),
-//     Path(Path),
-//     As {
-//         expr: ExprId,
-//         ty: TypeExprId,
-//     },
-//     Is {
-//         expr: ExprId,
-//         pat: PatId,
-//     },
-//     IsNot {
-//         expr: ExprId,
-//         pat: PatId,
-//     },
-//     SelfExpr,
-//     Closure {
-//         params: Vec<ClosureParam>,
-//         body: ExprId,
-//         output: Option<TypeExprId>,
-//     },
-//     Field {
-//         name: Symbol,
-//         expr: ExprId,
-//     },
-//     Method {
-//         expr: ExprId,
-//         name: Symbol,
-//
-//         args: Vec<Arg>,
-//     },
-//     Record {
-//         path: Path,
-//         fields: Vec<RecordField>,
-//     },
-//     Binary {
-//         lhs: ExprId,
-//         rhs: ExprId,
-//         kind: BinaryOpKind,
-//     },
-//     Unary {
-//         expr: ExprId,
-//         kind: UnaryOpKind,
-//     },
-//     Block {
-//         stmts: Vec<StmtId>,
-//     },
-//     Index {
-//         base: ExprId,
-//         index: ExprId,
-//     },
-//     Call {
-//         func: ExprId,
-//         agrs: Vec<Arg>,
-//     },
-//     Paren(ExprId),
-//     Return {
-//         expr: ExprId,
-//     },
-//     If {
-//         cond: ExprId,
-//         if_branch: ExprId,
-//         else_branch: ExprId,
-//     },
-// }
+//TODO: replace most Expr with Option<Expr> (alternative of Expr::Missing). Also same with Pat
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub enum ExprKind<'db> {
+    Unit,
+    Lit(LitKind),
+    Path(Path<'db>),
+    As {
+        expr: Expr<'db>,
+        ty: TypeExpr<'db>,
+    },
+    Is {
+        expr: Expr<'db>,
+        pat: Pat<'db>,
+    },
+    IsNot {
+        expr: Expr<'db>,
+        pat: Pat<'db>,
+    },
+    SelfExpr,
+    Closure {
+        params: ClosureParams<'db>,
+        body: Expr<'db>,
+        output: Option<TypeExpr<'db>>,
+    },
+    Field {
+        name: Symbol,
+        expr: Expr<'db>,
+    },
+    Method {
+        expr: Expr<'db>,
+        name: Symbol,
+        generic_args: GenericArgs<'db>,
+        args: Args<'db>,
+    },
+    Record {
+        path: Path<'db>,
+        fields: RecordFields<'db>,
+    },
+    Binary {
+        lhs: Expr<'db>,
+        rhs: Expr<'db>,
+        kind: BinaryOpKind,
+    },
+    Unary {
+        expr: Expr<'db>,
+        kind: UnaryOpKind,
+    },
+    Block {
+        stmts: StmtList<'db>,
+    },
+    Index {
+        base: Expr<'db>,
+        index: Expr<'db>,
+    },
+    Call {
+        func: Expr<'db>,
+        agrs: Args<'db>,
+    },
+    Paren(Expr<'db>),
+    Return(Expr<'db>),
+    If {
+        cond: Expr<'db>,
+        if_branch: Expr<'db>,
+        else_branch: Option<Expr<'db>>,
+    },
+    Tuple {
+        exprs: ExprList<'db>,
+    },
+}
 
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub struct ClosureParam {
-//     pattern: PatId,
-//     ty: Option<TypeExprId>,
-// }
-//
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub struct RecordField {
-//     pub name: Symbol,
-//     pub expr: ExprId,
-// }
-//
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub enum Arg {
-//     Labeled { label: Symbol, value: ExprId },
-//     NonLabeled { value: ExprId },
-// }
-//
-// impl Arg {
-//     pub fn value(&self) -> ExprId {
-//         match self {
-//             Arg::Labeled { value, .. } | Arg::NonLabeled { value } => *value,
-//         }
-//     }
-// }
-//
-// pub type PatId = Idx<Pat>;
-//
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub enum Pat {
-//     Missing,
-//     Path(Path),
-//     Name(Symbol),
-//     Wildcard,
-// }
-//
+#[salsa::interned(debug)]
+pub struct ExprList<'db> {
+    #[returns(ref)]
+    pub types: Vec<Expr<'db>>,
+}
 
-// pub type StmtId = Idx<Stmt>;
-//
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub enum Stmt {
-//     Let {
-//         pat: PatId,
-//         ty: Option<TypeExprId>,
-//         expr: ExprId,
-//     },
-//     Expr {
-//         expr: ExprId,
-//         semi: Option<()>,
-//     },
-// }
-//
+#[salsa::interned(debug)]
+pub struct ClosureParams<'db> {
+    #[returns(ref)]
+    pub params: Vec<ClosureParam<'db>>,
+}
+
+#[salsa::interned(debug)]
+pub struct ClosureParam<'db> {
+    pub pattern: Pat<'db>,
+    pub ty: Option<TypeExpr<'db>>,
+}
+
+#[salsa::interned(debug)]
+pub struct RecordFields<'db> {
+    #[returns(ref)]
+    pub fields: Vec<RecordField<'db>>,
+}
+
+#[salsa::interned(debug)]
+pub struct RecordField<'db> {
+    pub name: Symbol,
+    pub expr: Expr<'db>,
+}
+
+#[salsa::interned(debug)]
+pub struct Args<'db> {
+    #[returns(ref)]
+    pub args: Vec<Arg<'db>>,
+}
+
+#[salsa::interned(debug)]
+pub struct Arg<'db> {
+    pub kind: ArgKind<'db>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub enum ArgKind<'db> {
+    Labeled { label: Symbol, value: Expr<'db> },
+    NonLabeled { value: Expr<'db> },
+}
+impl<'db> ArgKind<'db> {
+    pub fn value(&self) -> Expr<'db> {
+        match self {
+            ArgKind::Labeled { value, .. } | ArgKind::NonLabeled { value } => *value,
+        }
+    }
+}
+
+#[salsa::tracked(debug)]
+pub struct StmtList<'db> {
+    #[returns(ref)]
+    pub stmts: Vec<Stmt<'db>>,
+}
+
+#[salsa::tracked(debug)]
+pub struct Stmt<'db> {
+    pub id: StmtId,
+    pub kind: StmtKind<'db>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub enum StmtKind<'db> {
+    Let {
+        pat: Pat<'db>,
+        ty: Option<TypeExpr<'db>>,
+        expr: Expr<'db>,
+    },
+    Expr {
+        expr: Expr<'db>,
+        semi: Option<()>,
+    },
+}
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
 pub enum PatKind<'db> {
@@ -185,6 +214,7 @@ pub struct ImplBlock<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ImplItems<'db> {
+    #[returns(ref)]
     pub items: Vec<Function<'db>>,
 }
 
@@ -228,33 +258,37 @@ pub enum ItemFnParam<'db> {
     },
 }
 
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub enum FnParam {
-//     SelfParam,
-//     PatParam {
-//         pat: PatId,
-//         type_expr: TypeExprId,
-//         default_value: Option<ExprId>,
-//     },
-// }
-//
-// #[salsa::tracked(debug)]
-// pub struct Body<'db> {
-//     #[returns(ref)]
-//     pub exprs: Arena<Expr>,
-//     #[returns(ref)]
-//     pub pats: Arena<Pat>,
-//     #[returns(ref)]
-//     pub type_exprs: Arena<TypeExpr>,
-//     #[returns(ref)]
-//     pub stmts: Arena<Stmt>,
-//     pub body_expr: ExprId,
-// }
+#[derive(salsa::Update, PartialEq, Clone)]
+pub struct FnBody<'db> {
+    pub body_map: BodyMap,
+    pub params: FnBodyParamList<'db>,
+}
+
+#[salsa::tracked(debug)]
+pub struct FnBodyParamList<'db> {
+    #[returns(ref)]
+    pub params: Vec<FnBodyParam<'db>>,
+}
+
+#[salsa::interned(debug)]
+pub struct FnBodyParam<'db> {
+    pub kind: FnBodyParamKind<'db>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub enum FnBodyParamKind<'db> {
+    SelfParam,
+    Pat {
+        pat: Option<Pat<'db>>,
+        expr: Option<Expr<'db>>,
+    },
+}
 
 #[salsa::tracked(debug)]
 pub struct Struct<'db> {
     pub name: Symbol,
     pub file: ide::File,
+    #[returns(ref)]
     pub inner_items: Vec<InnerItem<'db>>,
     pub ast_ptr: AstId<parsing::StructItem<'static>>,
 }
@@ -268,6 +302,7 @@ pub struct StructContents<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ElemList<'db> {
+    #[returns(ref)]
     pub elems: Vec<Elem<'db>>,
 }
 
@@ -280,6 +315,7 @@ pub struct Generics<'db> {
 #[salsa::interned(debug)]
 pub struct GenericParam<'db> {
     pub ident: Symbol,
+    #[returns(ref)]
     pub bounds: Vec<TypeExpr<'db>>,
 }
 
@@ -305,6 +341,7 @@ pub struct Field<'db> {
 pub struct Enum<'db> {
     pub name: Symbol,
     pub file: ide::File,
+    #[returns(ref)]
     pub inner_items: Vec<InnerItem<'db>>,
     pub ast_ptr: AstId<parsing::EnumItem<'static>>,
 }
@@ -340,6 +377,7 @@ pub enum UseTreeKind {
 
 #[salsa::interned(no_lifetime, debug)]
 pub struct UseTreeList {
+    #[returns(ref)]
     pub items: Vec<UseTree>,
 }
 
@@ -391,17 +429,17 @@ pub struct ItemTypeExpr<'db> {
     pub kind: ItemTypeExprKind<'db>,
 }
 
-#[salsa::interned(debug)]
-pub struct TypeExpr<'db> {
-    pub id: TypeExprId,
-    pub kind: TypeExprKind<'db>,
-}
-
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
 pub enum ItemTypeExprKind<'db> {
     TypeExpr(TypeExpr<'db>),
     Struct(Struct<'db>),
     Enum(Enum<'db>),
+}
+
+#[salsa::interned(debug)]
+pub struct TypeExpr<'db> {
+    pub id: TypeExprId,
+    pub kind: TypeExprKind<'db>,
 }
 
 #[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
@@ -410,7 +448,7 @@ pub enum TypeExprKind<'db> {
     Unit,
     Never,
     SelfTy,
-    Tuple(TupleType<'db>),
+    Tuple(TypeExprList<'db>),
     Lit(LitKind),
     Path(Path<'db>),
     Dyn(Path<'db>),
@@ -423,12 +461,14 @@ pub enum TypeExprKind<'db> {
 }
 
 #[salsa::interned(debug)]
-pub struct TupleType<'db> {
+pub struct TypeExprList<'db> {
+    #[returns(ref)]
     pub types: Vec<TypeExpr<'db>>,
 }
 
 #[salsa::interned(debug)]
 pub struct FnParamList<'db> {
+    #[returns(ref)]
     pub params: Vec<FnParam<'db>>,
 }
 
@@ -467,6 +507,11 @@ pub struct Path<'db> {
 #[salsa::interned(debug)]
 pub struct PathSegment<'db> {
     pub ident: Symbol,
+    pub args: GenericArgs<'db>,
+}
+
+#[salsa::interned(debug)]
+pub struct GenericArgs<'db> {
     #[returns(ref)]
     pub generic_args: Vec<Option<TypeExpr<'db>>>,
 }

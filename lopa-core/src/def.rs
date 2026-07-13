@@ -5,6 +5,7 @@ mod use_tree_map_mod;
 
 pub mod hir;
 pub mod item_map;
+pub mod body_map;
 pub mod mir;
 pub mod ty;
 
@@ -29,6 +30,9 @@ pub struct PatId(pub Idx<parsing::NodeId>);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ExprId(pub Idx<parsing::NodeId>);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct StmtId(pub Idx<parsing::NodeId>);
 
 #[salsa::interned(no_lifetime, debug)]
 pub struct Symbol {
