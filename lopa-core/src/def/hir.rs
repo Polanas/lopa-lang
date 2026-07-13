@@ -259,13 +259,20 @@ pub enum ItemFnParam<'db> {
 }
 
 #[derive(salsa::Update, PartialEq, Clone)]
-pub struct FnBody<'db> {
+pub struct FunctionBody<'db> {
     pub body_map: BodyMap,
-    pub params: FnBodyParamList<'db>,
+    pub body_expr: Expr<'db>,
+    pub params: FnBodyParams<'db>,
+}
+
+#[derive(salsa::Update, PartialEq, Clone, Hash, Eq, Debug)]
+pub struct FieldBody<'db> {
+    pub body_map: BodyMap,
+    pub body_expr: Expr<'db>,
 }
 
 #[salsa::tracked(debug)]
-pub struct FnBodyParamList<'db> {
+pub struct FnBodyParams<'db> {
     #[returns(ref)]
     pub params: Vec<FnBodyParam<'db>>,
 }
@@ -335,6 +342,7 @@ pub enum ElemKind<'db> {
 pub struct Field<'db> {
     pub name: Option<Symbol>,
     pub ty: Option<ItemTypeExpr<'db>>,
+    pub body: Option<FieldBody<'db>>,
 }
 
 #[salsa::tracked(debug)]

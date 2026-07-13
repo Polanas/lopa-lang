@@ -1,4 +1,4 @@
-use std::{f32::consts::E, ops::Index, sync::Arc};
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 
@@ -23,6 +23,41 @@ impl<'db, 's> BodyCtx<'db, 's> {
             file,
             map: Default::default(),
         }
+    }
+
+    fn fn_item(mut self, item: Function<'db>) -> Option<FunctionBody<'db>> {
+        let ast_map = self.file.ast_map(self.db);
+        let parse = self.file.parse(self.db);
+        let ast_item =
+            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+
+        let params = ast_item
+            .params()
+            .map(|p| p.params())
+            .into_iter()
+            .flatten()
+            .filter_map(|p| self.fn_param(p))
+            .collect_vec();
+
+        let body_expr = ast_item.body().map(|b| self.block_expr(b))?;
+
+        Some(FunctionBody {
+            body_map: self.map,
+            body_expr,
+            params: FnBodyParams::new(self.db, params),
+        })
+    }
+
+    fn fn_param(&mut self, param: parsing::FnParam) -> Option<FnBodyParam<'db>> {
+        if param.self_token().is_some() {
+            return Some(FnBodyParam::new(self.db, FnBodyParamKind::SelfParam));
+        }
+        let pat = param.pattern().and_then(|p| self.pat(p));
+        let expr = param.default_value().and_then(|e| self.expr(e));
+        Some(FnBodyParam::new(
+            self.db,
+            FnBodyParamKind::Pat { pat, expr },
+        ))
     }
 
     fn stmt(&mut self, stmt: parsing::Stmt) -> Option<Stmt<'db>> {
@@ -81,7 +116,7 @@ impl<'db, 's> BodyCtx<'db, 's> {
                     expr,
                 )
             }
-            parsing::Expr::SelfExpr(self_expr) => self.alloc_expr(ExprKind::SelfExpr, expr),
+            parsing::Expr::SelfExpr(_) => self.alloc_expr(ExprKind::SelfExpr, expr),
             parsing::Expr::ClosureExpr(closure_expr) => {
                 let body = closure_expr.body().and_then(|e| self.expr(e))?;
                 let output = closure_expr
@@ -736,7 +771,15 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
                     .and_then(|n| n.text(self.source))
                     .map(|n| Symbol::new(self.db, n));
                 let ty = field.ty().and_then(|ty| self.item_type_expr(items, ty));
-                self.alloc_elem(ElemKind::Field(Field::new(self.db, name, ty)), elem)
+                let body = field.default_value().and_then(|e| {
+                    let mut ctx = BodyCtx::new(self.db, self.source, self.file);
+                    let body_expr = ctx.expr(e)?;
+                    Some(FieldBody {
+                        body_map: ctx.map,
+                        body_expr,
+                    })
+                });
+                self.alloc_elem(ElemKind::Field(Field::new(self.db, name, ty, body)), elem)
             }
             parsing::Elem::FnItem(fn_item) => {
                 let name = Symbol::new(self.db, fn_item.name().and_then(|n| n.text(self.source))?);
@@ -979,6 +1022,11 @@ fn item_map_ctx<'db>(db: &'db dyn salsa::Database, file: File) -> ItemMapCtx<'db
     ItemMapCtx::new(db, source, file)
 }
 
+fn body_ctx<'db>(db: &'db dyn salsa::Database, file: File) -> BodyCtx<'db, 'db> {
+    let source = file.contents(db);
+    BodyCtx::new(db, source, file)
+}
+
 #[salsa::tracked]
 impl<'db> ImplBlock<'db> {
     #[salsa::tracked]
@@ -1012,6 +1060,12 @@ impl<'db> Function<'db> {
     pub fn contents(self, db: &'db dyn salsa::Database) -> FunctionContents<'db> {
         let ctx = item_map_ctx(db, self.file(db));
         ctx.fn_contents(self).unwrap()
+    }
+
+    #[salsa::tracked]
+    pub fn body(self, db: &'db dyn salsa::Database) -> FunctionBody<'db> {
+        let ctx = body_ctx(db, self.file(db));
+        todo!()
     }
 }
 
