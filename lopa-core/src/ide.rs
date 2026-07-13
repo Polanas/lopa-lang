@@ -46,7 +46,7 @@ impl<'db> Root {
     #[salsa::tracked]
     pub fn root_module(self, db: &'db dyn salsa::Database) -> Option<hir::Module<'db>> {
         let root_file = self.root_file(db)?;
-        let items = def::items(db, root_file);
+        let items = root_file.items(db);
         Some(hir::Module::new(
             db,
             Symbol::new(db, "root"),
@@ -171,7 +171,7 @@ impl<'db> File {
     pub fn rendered_diagnostics(self, db: &'db dyn salsa::Database) -> Vec<RenderedDiagnostic> {
         let parse = self.parse(db);
         let tree = parse.tree(db);
-        let ast_map = def::ast_map(db, self);
+        let ast_map = self.ast_map(db);
         let diagnostics = self.diagnostics(db);
         diagnostics
             .into_iter()

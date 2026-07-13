@@ -6,7 +6,7 @@ use la_arena::{Arena, Idx};
 use crate::{
     common::LitKind,
     def::{
-        AstId, ElemId, ItemTypeExprId, PatId, Symbol, TypeExprId, UseTreeId, UseTreeMap, ast_map,
+        AstId, ElemId, ItemMap, ItemTypeExprId, PatId, Symbol, TypeExprId, UseTreeId, UseTreeMap,
     },
     ide::{self, Root},
     parsing::{self, AstNode as _},
@@ -163,6 +163,7 @@ pub enum Item<'db> {
 pub enum InnerItem<'db> {
     Struct(Struct<'db>),
     Enum(Enum<'db>),
+    Function(Function<'db>),
 }
 
 impl<'db> InnerItem<'db> {
@@ -170,6 +171,7 @@ impl<'db> InnerItem<'db> {
         match self {
             InnerItem::Struct(item) => item.name(db),
             InnerItem::Enum(item) => item.name(db),
+            InnerItem::Function(item) => item.name(db),
         }
     }
 }
@@ -192,6 +194,14 @@ pub enum ImplTypes<'db> {
 pub struct Function<'db> {
     pub name: Symbol,
     pub ast_ptr: AstId<parsing::FnItem<'static>>,
+}
+
+#[derive(salsa::Update, PartialEq)]
+pub struct FunctionContents<'db> {
+    pub item_map: ItemMap,
+    pub params: Vec<FnParam<'db>>,
+    pub generics: Generics<'db>,
+    pub output: Option<TypeExpr<'db>>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
@@ -233,6 +243,13 @@ pub struct Struct<'db> {
     pub ast_ptr: AstId<parsing::StructItem<'static>>,
 }
 
+#[derive(salsa::Update, PartialEq)]
+pub struct StructContents<'db> {
+    pub item_map: ItemMap,
+    pub parent: Option<Path<'db>>,
+    pub elems: Vec<Elem<'db>>,
+}
+
 #[salsa::tracked(debug)]
 pub struct Generics<'db> {
     #[returns(ref)]
@@ -268,6 +285,13 @@ pub struct Enum<'db> {
     pub name: Symbol,
     pub inner_items: Vec<InnerItem<'db>>,
     pub ast_ptr: AstId<parsing::EnumItem<'static>>,
+}
+
+#[derive(salsa::Update, PartialEq)]
+pub struct EnumContents<'db> {
+    pub item_map: ItemMap,
+    pub parent: Option<Path<'db>>,
+    pub elems: Vec<Elem<'db>>,
 }
 
 #[salsa::tracked(debug)]
@@ -364,6 +388,20 @@ pub enum TypeExprKind<'db> {
     Fn {
         params: FnTypeParamList<'db>,
         output: Option<TypeExpr<'db>>,
+    },
+}
+
+#[salsa::interned(debug)]
+pub struct FnParam<'db> {
+    pub kind: FnParamKind<'db>,
+}
+
+#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+pub enum FnParamKind<'db> {
+    SelfParam,
+    Pat {
+        pat: Option<Pat<'db>>,
+        ty: Option<TypeExpr<'db>>,
     },
 }
 

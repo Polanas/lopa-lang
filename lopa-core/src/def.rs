@@ -10,7 +10,6 @@ pub mod ty;
 
 pub use ast_id_map::*;
 pub use item_map::*;
-pub use lowering::{ast_map, items};
 pub use use_tree_map_mod::*;
 
 use crate::parsing;
@@ -36,4 +35,3 @@ pub struct Symbol {
     #[returns(ref)]
     pub value: String,
 }
-

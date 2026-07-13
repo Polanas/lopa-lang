@@ -1,9 +1,6 @@
 use la_arena::{Arena, Idx};
 
-use crate::{
-    def::{AstId, ErasedAstId, ast_id_map, ast_map, hir},
-    parsing::{self, AstNode},
-};
+use crate::parsing::{self, AstNode};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct UseTreeId(Idx<parsing::NodeId>);
