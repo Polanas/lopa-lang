@@ -1,0 +1,26 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"method.call<A,B>()\", |p| p.expr())"
+---
+METHOD_EXPR: 0..18 
+  PATH_EXPR: 0..6 
+    PATH: 0..6 
+      PATH_SEGMENT: 0..6 
+        IDENT: 0..6 "method"
+  DOT: 6..7 "."
+  NAME: 7..11 
+    IDENT: 7..11 "call"
+  GENERIC_ARGUMENTS: 11..16 
+    LT: 11..12 "<"
+    PATH_TYPE: 12..13 
+      PATH: 12..13 
+        PATH_SEGMENT: 12..13 
+          IDENT: 12..13 "A"
+    COMMA: 13..14 ","
+    PATH_TYPE: 14..15 
+      PATH: 14..15 
+        PATH_SEGMENT: 14..15 
+          IDENT: 14..15 "B"
+    GT: 15..16 ">"
+  L_PAREN: 16..17 "("
+  R_PAREN: 17..18 ")"

@@ -1,0 +1,41 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"BegoneTurbofish<Yay, Finally> {a:b,c:d}\", |p| p.expr())"
+---
+RECORD_EXPR: 0..39 
+  PATH: 0..29 
+    PATH_SEGMENT: 0..29 
+      IDENT: 0..15 "BegoneTurbofish"
+      GENERIC_ARGUMENTS: 15..29 
+        LT: 15..16 "<"
+        PATH_TYPE: 16..19 
+          PATH: 16..19 
+            PATH_SEGMENT: 16..19 
+              IDENT: 16..19 "Yay"
+        COMMA: 19..20 ","
+        WHITESPACE: 20..21 
+        PATH_TYPE: 21..28 
+          PATH: 21..28 
+            PATH_SEGMENT: 21..28 
+              IDENT: 21..28 "Finally"
+        GT: 28..29 ">"
+  WHITESPACE: 29..30 
+  L_BRACE: 30..31 "{"
+  RECORD_FIELD: 31..35 
+    NAME: 31..32 
+      IDENT: 31..32 "a"
+    COLON: 32..33 ":"
+    PATH_EXPR: 33..34 
+      PATH: 33..34 
+        PATH_SEGMENT: 33..34 
+          IDENT: 33..34 "b"
+    COMMA: 34..35 ","
+  RECORD_FIELD: 35..38 
+    NAME: 35..36 
+      IDENT: 35..36 "c"
+    COLON: 36..37 ":"
+    PATH_EXPR: 37..38 
+      PATH: 37..38 
+        PATH_SEGMENT: 37..38 
+          IDENT: 37..38 "d"
+  R_BRACE: 38..39 "}"

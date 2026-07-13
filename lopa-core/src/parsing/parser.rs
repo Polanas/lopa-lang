@@ -2297,7 +2297,7 @@ mod test {
     }
 
     #[test]
-    fn temp() {
+    fn generic_shenanigans() {
         insta::assert_snapshot!(parse("method.call<A,B>()", |p| p.expr()));
         insta::assert_snapshot!(parse("Vec<Vec<int>>::new()", |p| p.expr()));
         insta::assert_snapshot!(parse("BegoneTurbofish<Yay, Finally> {a:b,c:d}", |p| p.expr()));
