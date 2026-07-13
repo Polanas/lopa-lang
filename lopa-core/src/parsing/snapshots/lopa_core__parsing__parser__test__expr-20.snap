@@ -1,30 +1,18 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"x is value and x !is value\", |p| p.expr())"
+expression: "parse(\"generic_call<A>()\", |p| p.expr())"
 ---
-BINARY_EXPR: 0..26 
-  IS_EXPR: 0..10 
-    PATH_EXPR: 0..1 
-      PATH: 0..1 
-        PATH_SEGMENT: 0..1 
-          IDENT: 0..1 "x"
-    WHITESPACE: 1..2 
-    IS_KW: 2..4 "is"
-    WHITESPACE: 4..5 
-    NAME_PAT: 5..10 
-      NAME: 5..10 
-        IDENT: 5..10 "value"
-  WHITESPACE: 10..11 
-  AND_KW: 11..14 "and"
-  WHITESPACE: 14..15 
-  IS_NOT_EXPR: 15..26 
-    PATH_EXPR: 15..16 
-      PATH: 15..16 
-        PATH_SEGMENT: 15..16 
-          IDENT: 15..16 "x"
-    WHITESPACE: 16..17 
-    IS_NOT_KW: 17..20 "!is"
-    WHITESPACE: 20..21 
-    NAME_PAT: 21..26 
-      NAME: 21..26 
-        IDENT: 21..26 "value"
+CALL_EXPR: 0..17 
+  PATH_EXPR: 0..15 
+    PATH: 0..15 
+      PATH_SEGMENT: 0..15 
+        IDENT: 0..12 "generic_call"
+        GENERIC_ARGUMENTS: 12..15 
+          LT: 12..13 "<"
+          PATH_TYPE: 13..14 
+            PATH: 13..14 
+              PATH_SEGMENT: 13..14 
+                IDENT: 13..14 "A"
+          GT: 14..15 ">"
+  L_PAREN: 15..16 "("
+  R_PAREN: 16..17 ")"

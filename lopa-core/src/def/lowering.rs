@@ -579,6 +579,16 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             parsing::TypeExpr::AnyType(_) => self.alloc_type_expr(TypeExprKind::Any, type_expr),
             parsing::TypeExpr::UnitType(_) => self.alloc_type_expr(TypeExprKind::Unit, type_expr),
             parsing::TypeExpr::SelfType(_) => self.alloc_type_expr(TypeExprKind::SelfTy, type_expr),
+            parsing::TypeExpr::TupleType(tuple_type) => {
+                let types = tuple_type
+                    .types()
+                    .filter_map(|ty| self.type_expr(ty))
+                    .collect_vec();
+                self.alloc_type_expr(
+                    TypeExprKind::Tuple(TupleType::new(self.db, types)),
+                    type_expr,
+                )
+            }
         })
     }
 

@@ -363,13 +363,15 @@ structs! {
     },
     NAME_PAT = NamePattern {
         name: Name,
-
     },
     PATH_PAT = PathPattern {
         path: Path,
     },
     WILDCARD_PAT = WildcardPattern {
         wildcard_token: T![_],
+    },
+    TUPLE_TYPE = TupleType {
+        types: [TypeExpr],
     },
     NILABLE_TYPE = NilableType {
         ty: TypeExpr,
@@ -424,6 +426,9 @@ structs! {
     },
     SELF_TYPE = SelfType {
         self_token: T![Self],
+    },
+    TUPLE_EXPR = TupleExpr {
+        exprs: [Expr],
     },
     UNARY_EXPR = UnaryExpr {
         expr: Expr,
@@ -976,6 +981,7 @@ enums! {
         ReturnExpr,
         LitExpr,
         IfExpr,
+        TupleExpr,
     },
     UseTree {
         UseRootPath,
@@ -1002,6 +1008,7 @@ enums! {
         TypeExpr: enum,
     },
     TypeExpr {
+        TupleType,
         DynType,
         ParenType,
         PathType,
@@ -1044,7 +1051,7 @@ enums! {
 
 #[cfg(test)]
 mod test {
-    use crate::parsing::{Tree, parser::parse};
+    use crate::parsing::parser::parse;
 
     use super::*;
 

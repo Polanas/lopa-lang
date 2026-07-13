@@ -1,30 +1,22 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"x is value and x !is value\", |p| p.expr())"
+expression: "parse(\"foo?.bar?.baz()\", |p| p.expr())"
 ---
-BINARY_EXPR: 0..26 
-  IS_EXPR: 0..10 
-    PATH_EXPR: 0..1 
-      PATH: 0..1 
-        PATH_SEGMENT: 0..1 
-          IDENT: 0..1 "x"
-    WHITESPACE: 1..2 
-    IS_KW: 2..4 "is"
-    WHITESPACE: 4..5 
-    NAME_PAT: 5..10 
-      NAME: 5..10 
-        IDENT: 5..10 "value"
-  WHITESPACE: 10..11 
-  AND_KW: 11..14 "and"
-  WHITESPACE: 14..15 
-  IS_NOT_EXPR: 15..26 
-    PATH_EXPR: 15..16 
-      PATH: 15..16 
-        PATH_SEGMENT: 15..16 
-          IDENT: 15..16 "x"
-    WHITESPACE: 16..17 
-    IS_NOT_KW: 17..20 "!is"
-    WHITESPACE: 20..21 
-    NAME_PAT: 21..26 
-      NAME: 21..26 
-        IDENT: 21..26 "value"
+SAFE_METHOD_EXPR: 0..15 
+  METHOD_EXPR: 0..15 
+    SAFE_FIELD_EXPR: 0..8 
+      FIELD_EXPR: 0..8 
+        PATH_EXPR: 0..3 
+          PATH: 0..3 
+            PATH_SEGMENT: 0..3 
+              IDENT: 0..3 "foo"
+        MARK: 3..4 "?"
+        DOT: 4..5 "."
+        NAME: 5..8 
+          IDENT: 5..8 "bar"
+    MARK: 8..9 "?"
+    DOT: 9..10 "."
+    NAME: 10..13 
+      IDENT: 10..13 "baz"
+    L_PAREN: 13..14 "("
+    R_PAREN: 14..15 ")"

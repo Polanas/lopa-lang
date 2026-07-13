@@ -380,6 +380,7 @@ pub enum TypeExprKind<'db> {
     Unit,
     Never,
     SelfTy,
+    Tuple(TupleType<'db>),
     Lit(LitKind),
     Path(Path<'db>),
     Dyn(Path<'db>),
@@ -389,6 +390,11 @@ pub enum TypeExprKind<'db> {
         params: FnTypeParamList<'db>,
         output: Option<TypeExpr<'db>>,
     },
+}
+
+#[salsa::interned(debug)]
+pub struct TupleType<'db> {
+    pub types: Vec<TypeExpr<'db>>,
 }
 
 #[salsa::interned(debug)]

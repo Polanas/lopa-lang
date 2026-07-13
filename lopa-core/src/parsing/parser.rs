@@ -59,6 +59,7 @@ const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]])
 const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
 const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
 const GENERICS_RECOVERY: TokenSet = TokenSet::new(&[T!["{"], T![>]]).union(ITEM_FIRST);
+const TUPLE_RECOVERY: TokenSet = TokenSet::new(&[T![")"]]);
 
 pub fn parse(input: &str) -> (Tree, Vec<ParseError>) {
     let mut p = Parser::new(input);
@@ -779,10 +780,18 @@ impl<'a> Parser<'a> {
                             this.expect(T![")"]);
                         })
                     } else {
-                        self.with_at(PAREN_TYPE, checkpoint, |this| {
-                            this.type_expr();
-                            this.expect(T![")"]);
-                        })
+                        self.type_expr();
+                        if self.at(T![")"]) {
+                            self.with_at(PAREN_TYPE, checkpoint, |this| {
+                                this.expect(T![")"]);
+                            })
+                        } else {
+                            self.with_at(TUPLE_TYPE, checkpoint, |this| {
+                                this.ate(T![,]);
+                                this.tuple_type();
+                                this.expect(T![")"]);
+                            });
+                        }
                     }
                     if self.ate(T![?]) {
                         self.with_at(NILABLE_TYPE, checkpoint, |_| {});
@@ -827,6 +836,23 @@ impl<'a> Parser<'a> {
             }
         } else {
             self.advance_with_error(SyntaxErrorKind::ExpectedType);
+        }
+    }
+
+    fn tuple_type(&mut self) {
+        while !self.at(T![")"]) && !self.eof() {
+            if self.at_any(TYPE_FIRST) {
+                self.type_expr();
+                if !self.at(T![")"]) {
+                    self.expect(T![,]);
+                }
+            } else {
+                if self.at_any(TUPLE_RECOVERY) {
+                    break;
+                } else {
+                    self.advance_with_error(SyntaxErrorKind::ExpectedType);
+                }
+            }
         }
     }
 
@@ -1031,17 +1057,25 @@ impl<'a> Parser<'a> {
                         this.expect(T![")"]);
                     })
                 } else {
-                    self.with_at(PAREN_EXPR, checkpoint, |this| {
-                        this.expr();
-                        this.expect(T![")"]);
-                    });
+                    self.expr();
+                    if self.at(T![")"]) {
+                        self.with_at(PAREN_EXPR, checkpoint, |this| {
+                            this.expect(T![")"]);
+                        });
+                    } else {
+                        self.with_at(TUPLE_EXPR, checkpoint, |this| {
+                            this.ate(T![,]);
+                            this.tuple_expr();
+                            this.expect(T![")"]);
+                        })
+                    }
                 }
             }
             T!["{"] => {
                 self.block();
             }
             T![lua] => {
-                self.lua_block();
+                self.lua_block_expr();
             }
             T![|] => {
                 self.closure_expr();
@@ -1108,41 +1142,6 @@ impl<'a> Parser<'a> {
                     } else {
                         self.with_at(METHOD_EXPR, checkpoint, |_| {})
                     }
-                    // if self.nth(2) == T!["("] || (self.nth(2) == T![<]) {
-                    //     //parse?.test<idk>()
-                    //     let method_expr = |this: &mut Self, syntax: Syntax| {
-                    //         this.with_at(syntax, checkpoint, |this| {
-                    //             this.expect(T![.]);
-                    //             this.name();
-                    //             if this.at(T![<]) {
-                    //                 this.expect(T![:]);
-                    //                 this.generic_args();
-                    //             }
-                    //             this.arg_list();
-                    //         })
-                    //     };
-                    //     if safe_call {
-                    //         self.with_at(METHOD_EXPR, checkpoint, |this| {
-                    //             method_expr(this, SAFE_METHOD_EXPR)
-                    //         });
-                    //     } else {
-                    //         method_expr(self, METHOD_EXPR);
-                    //     }
-                    // } else {
-                    //     let field_expr = |this: &mut Self, syntax: Syntax| {
-                    //         this.with_at(syntax, checkpoint, |this| {
-                    //             this.expect(T![.]);
-                    //             this.name();
-                    //         })
-                    //     };
-                    //     if safe_call {
-                    //         self.with_at(FIELD_EXPR, checkpoint, |this| {
-                    //             field_expr(this, SAFE_FIELD_EXPR)
-                    //         });
-                    //     } else {
-                    //         field_expr(self, FIELD_EXPR);
-                    //     }
-                    // }
                 }
                 _ => break,
             }
@@ -1172,7 +1171,24 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    fn lua_block(&mut self) {
+    fn tuple_expr(&mut self) {
+        while !self.at(T![")"]) && !self.eof() {
+            if self.at_any(EXPR_FIRST) {
+                self.expr();
+                if !self.at(T![")"]) {
+                    self.expect(T![,]);
+                }
+            } else {
+                if self.at_any(TUPLE_RECOVERY) {
+                    break;
+                } else {
+                    self.advance_with_error(SyntaxErrorKind::ExpectedExpression);
+                }
+            }
+        }
+    }
+
+    fn lua_block_expr(&mut self) {
         LuaParser::new(self).chunk();
     }
 
@@ -2242,6 +2258,9 @@ mod test {
         insta::assert_snapshot!(parse("NotInt", |p| p.type_expr()));
         insta::assert_snapshot!(parse("fn(a : int, string) -> Result", |p| p.type_expr()));
         insta::assert_snapshot!(parse("(dyn Debug)?", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("Generic::Path<A,B>::Yay", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("(int, string, yo,)", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("((),)", |p| p.type_expr()));
     }
 
     #[test]
@@ -2319,7 +2338,7 @@ mod test {
         insta::assert_snapshot!(parse("a[1](2)[3]", |p| p.expr()));
         insta::assert_snapshot!(parse("a[1] = b = c", |p| p.expr()));
         insta::assert_snapshot!(parse("sort(array, by: callback, something_else:)", |p| p.expr()));
-        insta::assert_snapshot!(parse("|x,y: int| lua {x+y}", |p| p.expr()));
+        insta::assert_snapshot!(parse("|x,y: int| lua { #return x+y; }", |p| p.expr()));
         insta::assert_snapshot!(parse("()", |p| p.expr()));
         insta::assert_snapshot!(parse("1.abs()", |p| p.expr()));
         insta::assert_snapshot!(parse("pos[1][2].test().test.len()[0]", |p| p.expr()));
@@ -2331,6 +2350,8 @@ mod test {
         insta::assert_snapshot!(parse("foo?.bar?.baz()", |p| p.expr()));
         insta::assert_snapshot!(parse("x is value and x !is value", |p| p.expr()));
         insta::assert_snapshot!(parse("std::Vec<int>::new()", |p| p.expr()));
+        insta::assert_snapshot!(parse("(1,2,3)", |p| p.expr()));
+        insta::assert_snapshot!(parse("((),)", |p| p.expr()));
     }
 
     #[test]
@@ -2391,43 +2412,44 @@ mod test {
 
     #[test]
     fn lua() {
-        insta::assert_snapshot!(parse("lua {}", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua {}", |p| p.lua_block_expr()));
         insta::assert_snapshot!(parse(
             "lua { x = { [1] = 1, 2, 3, a=1,b=3, [3]=1 }; }",
-            |p| p.lua_block()
+            |p| p.lua_block_expr()
         ));
         insta::assert_snapshot!(parse(
             "lua { function func(a,b,c) a = 1; b = 2; end }",
-            |p| p.lua_block()
+            |p| p.lua_block_expr()
         ));
         insta::assert_snapshot!(parse(
             "lua { function test.func(a,b,c) a = 1; b = 2; end }",
-            |p| p.lua_block()
+            |p| p.lua_block_expr()
         ));
         insta::assert_snapshot!(parse(
             "lua { function test:func(a,b,c) a = 1; b = 2; end }",
-            |p| p.lua_block()
+            |p| p.lua_block_expr()
         ));
         insta::assert_snapshot!(parse("lua { local string = [[ hello there ]]; }", |p| p
-            .lua_block()));
-        insta::assert_snapshot!(parse("lua { call(1)[1.5](2)[2.5](3); }", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { x = vec2.x.y().y; }", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { x.y = 1; }", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { print('1'); }", |p| p.lua_block()));
+            .lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { call(1)[1.5](2)[2.5](3); }", |p| p.lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { x = vec2.x.y().y; }", |p| p.lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { x.y = 1; }", |p| p.lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { print('1'); }", |p| p.lua_block_expr()));
         insta::assert_snapshot!(parse("lua { x.y()().x.x().y[1][2](),x = 1,2; }", |p| p
-            .lua_block()));
-        insta::assert_snapshot!(parse("lua { return 1,2,3; }", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { #return 1,2,3; }", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { break; }", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { local a,b,c = 1, 'string', nil; }", |p| p.lua_block()));
-        insta::assert_snapshot!(parse("lua { a,b = 1,2; }", |p| p.lua_block()));
+            .lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { return 1,2,3; }", |p| p.lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { #return 1,2,3; }", |p| p.lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { break; }", |p| p.lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { local a,b,c = 1, 'string', nil; }", |p| p
+            .lua_block_expr()));
+        insta::assert_snapshot!(parse("lua { a,b = 1,2; }", |p| p.lua_block_expr()));
         insta::assert_snapshot!(parse("lua { while true do print(); break; end  }", |p| p
-            .lua_block()));
+            .lua_block_expr()));
         insta::assert_snapshot!(parse("lua { repeat print(); until false }", |p| {
-            p.lua_block();
+            p.lua_block_expr();
         }));
         insta::assert_snapshot!(parse("lua { print(...); }", |p| {
-            p.lua_block();
+            p.lua_block_expr();
         }));
         insta::assert_snapshot!(parse(
             "lua {
@@ -2440,7 +2462,7 @@ mod test {
                 end
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
         insta::assert_snapshot!(parse(
@@ -2452,7 +2474,7 @@ mod test {
                 end
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
         insta::assert_snapshot!(parse(
@@ -2462,7 +2484,7 @@ mod test {
                 end
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
         insta::assert_snapshot!(parse(
@@ -2470,7 +2492,7 @@ mod test {
                 for i=1,2,3 do end
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
         insta::assert_snapshot!(parse(
@@ -2478,7 +2500,7 @@ mod test {
                 for i = 1,10 do end
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
         insta::assert_snapshot!(parse(
@@ -2486,7 +2508,7 @@ mod test {
                 for a,b,c,d in {} do end
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
         insta::assert_snapshot!(parse(
@@ -2494,7 +2516,7 @@ mod test {
                 local x = function() end;
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
         insta::assert_snapshot!(parse(
@@ -2505,9 +2527,9 @@ mod test {
                 print(value[#output]);
             }",
             |p| {
-                p.lua_block();
+                p.lua_block_expr();
             }
         ));
-        insta::assert_snapshot!(parse("lua { local x = 1 ^ 2 ^ 3; }", |p| p.lua_block()));
+        insta::assert_snapshot!(parse("lua { local x = 1 ^ 2 ^ 3; }", |p| p.lua_block_expr()));
     }
 }
