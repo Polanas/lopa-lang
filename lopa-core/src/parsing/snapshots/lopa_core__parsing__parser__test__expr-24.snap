@@ -1,0 +1,28 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"std::Vec<int>::new()\", |p| p.expr())"
+---
+CALL_EXPR: 0..20 
+  PATH_EXPR: 0..18 
+    PATH: 0..18 
+      PATH_SEGMENT: 0..3 
+        IDENT: 0..3 "std"
+      COLON: 3..4 ":"
+      COLON: 4..5 ":"
+      PATH_SEGMENT: 5..13 
+        IDENT: 5..8 "Vec"
+        GENERIC_ARGUMENTS: 8..13 
+          LT: 8..9 "<"
+          LIT_TYPE: 9..12 
+            LIT_TYPE_INT: 9..12 
+              PATH_TYPE: 9..12 
+                PATH: 9..12 
+                  PATH_SEGMENT: 9..12 
+                    IDENT: 9..12 "int"
+          GT: 12..13 ">"
+      COLON: 13..14 ":"
+      COLON: 14..15 ":"
+      PATH_SEGMENT: 15..18 
+        IDENT: 15..18 "new"
+  L_PAREN: 18..19 "("
+  R_PAREN: 19..20 ")"

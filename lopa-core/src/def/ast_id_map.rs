@@ -7,6 +7,9 @@ use crate::parsing::{self, AstNode};
 
 pub type ErasedAstId = Idx<parsing::NodeId>;
 
+//Primary purpose of AstId is to be used for diagnostics.
+//The ids themselves are stored inside items.
+//They can then be sent via accumulators to then be converted into NodeId's
 #[derive(salsa::Update, Clone, Copy)]
 pub struct AstId<A: parsing::AstNode<'static>>(ErasedAstId, PhantomData<A>);
 

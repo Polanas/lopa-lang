@@ -1,0 +1,27 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"let ty = Vec<int>;\", |p| p.stmt_let())"
+---
+LET_STMT: 0..18 
+  LET_KW: 0..3 "let"
+  WHITESPACE: 3..4 
+  NAME_PAT: 4..6 
+    NAME: 4..6 
+      IDENT: 4..6 "ty"
+  WHITESPACE: 6..7 
+  EQ: 7..8 "="
+  WHITESPACE: 8..9 
+  PATH_EXPR: 9..17 
+    PATH: 9..17 
+      PATH_SEGMENT: 9..17 
+        IDENT: 9..12 "Vec"
+        GENERIC_ARGUMENTS: 12..17 
+          LT: 12..13 "<"
+          LIT_TYPE: 13..16 
+            LIT_TYPE_INT: 13..16 
+              PATH_TYPE: 13..16 
+                PATH: 13..16 
+                  PATH_SEGMENT: 13..16 
+                    IDENT: 13..16 "int"
+          GT: 16..17 ">"
+  SEMI: 17..18 ";"

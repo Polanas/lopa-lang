@@ -253,7 +253,11 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
     fn use_item(&mut self, use_item: parsing::UseItem<'ast>) -> Option<UseItem<'db>> {
         use_item.use_keyword()?;
         use_item.use_tree()?;
-        Some(UseItem::new(self.db, self.ast_id_map.insert(use_item)))
+        Some(UseItem::new(
+            self.db,
+            self.file,
+            self.ast_id_map.insert(use_item),
+        ))
     }
 
     fn enum_item(&mut self, enum_item: parsing::EnumItem<'ast>) -> Option<Enum<'db>> {
@@ -264,6 +268,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         Some(Enum::new(
             self.db,
             Symbol::new(self.db, name),
+            self.file,
             items,
             self.ast_id_map.insert(enum_item),
         ))
@@ -277,6 +282,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         Some(Struct::new(
             self.db,
             Symbol::new(self.db, name),
+            self.file,
             items,
             self.ast_id_map.insert(struct_item),
         ))
@@ -318,7 +324,11 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
     }
 
     fn impl_item(&mut self, impl_item: parsing::ImplItem<'ast>) -> Option<ImplBlock<'db>> {
-        Some(ImplBlock::new(self.db, self.ast_id_map.insert(impl_item)))
+        Some(ImplBlock::new(
+            self.db,
+            self.file,
+            self.ast_id_map.insert(impl_item),
+        ))
         // let first = impl_item.first_type().and_then(|ty| self.type_expr(ty));
         // let second = impl_item.second_type().and_then(|ty| self.type_expr(ty));
         // let types = match (first, second) {
@@ -343,6 +353,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         Some(Function::new(
             self.db,
             Symbol::new(self.db, name),
+            self.file,
             self.ast_id_map.insert(fn_item),
         ))
         // let name = fn_item.name().and_then(|n| n.text(self.source))?;
@@ -379,8 +390,11 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             self.db,
             Symbol::new(self.db, name),
             match mod_item.semi() {
-                Some(_) => ModuleKind::Declaration(id),
-                None => ModuleKind::Definition(self.items(mod_item.items()).into()),
+                Some(_) => ModuleKind::Declaration { id },
+                None => ModuleKind::Definition {
+                    id,
+                    items: self.items(mod_item.items()).into(),
+                },
             },
             self.file,
         ))
@@ -466,6 +480,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .output()
             .and_then(|o| o.ty())
             .and_then(|ty| self.type_expr(ty));
+
         Some(FunctionContents {
             item_map: self.map,
             params,
@@ -483,6 +498,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .elements()
             .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
             .collect_vec();
+
         Some(EnumContents {
             item_map: self.map,
             elems: ElemList::new(self.db, elems),
@@ -502,6 +518,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .elements()
             .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
             .collect_vec();
+
         Some(StructContents {
             item_map: self.map,
             parent,
@@ -753,6 +770,38 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
                 .map(|ty| self.type_expr(ty))
                 .collect_vec(),
         ))
+    }
+}
+
+fn item_map_ctx<'db>(db: &'db dyn salsa::Database, file: File) -> ItemMapCtx<'db, 'db> {
+    let source = file.contents(db);
+    ItemMapCtx::new(db, source, file)
+}
+
+#[salsa::tracked]
+impl<'db> Struct<'db> {
+    #[salsa::tracked]
+    pub fn contents(self, db: &'db dyn salsa::Database) -> StructContents<'db> {
+        let ctx = item_map_ctx(db, self.file(db));
+        ctx.struct_item(self).unwrap()
+    }
+}
+
+#[salsa::tracked]
+impl<'db> Enum<'db> {
+    #[salsa::tracked]
+    pub fn contents(self, db: &'db dyn salsa::Database) -> EnumContents<'db> {
+        let ctx = item_map_ctx(db, self.file(db));
+        ctx.enum_item(self).unwrap()
+    }
+}
+
+#[salsa::tracked]
+impl<'db> Function<'db> {
+    #[salsa::tracked]
+    pub fn contents(self, db: &'db dyn salsa::Database) -> FunctionContents<'db> {
+        let ctx = item_map_ctx(db, self.file(db));
+        ctx.fn_contents(self).unwrap()
     }
 }
 

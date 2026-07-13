@@ -8,7 +8,10 @@ use itertools::Itertools;
 use salsa::Accumulator;
 
 use crate::{
-    def::{self, Symbol, hir},
+    def::{
+        self, Symbol,
+        hir::{self, ModuleKind},
+    },
     parsing::{self, AstNode},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -50,7 +53,7 @@ impl<'db> Root {
         Some(hir::Module::new(
             db,
             Symbol::new(db, "root"),
-            hir::ModuleKind::Definition(items),
+            ModuleKind::Root { items },
             root_file,
         ))
     }
@@ -86,7 +89,7 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Modu
         files_by_names: &indexmap::IndexMap<PathBuf, File>,
     ) {
         match module.kind(db) {
-            hir::ModuleKind::Declaration(ast_ptr) => {
+            ModuleKind::Declaration { id } => {
                 let mut file_path = module_dir_path;
                 let mod_name = module.name(db).value(db);
                 file_path.push(format!("{}.lopa", mod_name));
@@ -95,13 +98,13 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Modu
                 } else {
                     Diagnostic {
                         message: format!("unresolved module: `{}`", mod_name),
-                        location: DiagnosticLocation::Module(*ast_ptr),
+                        location: DiagnosticLocation::Module(*id),
                         kind: DiagnosticKind::ModuleError,
                     }
                     .accumulate(db);
                 }
             }
-            hir::ModuleKind::Definition(items) => {
+            ModuleKind::Definition { items, .. } | ModuleKind::Root { items } => {
                 let mut children = vec![];
                 for item in items.iter() {
                     if let hir::Item::Module(child) = item {

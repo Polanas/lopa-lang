@@ -178,6 +178,7 @@ impl<'db> InnerItem<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ImplBlock<'db> {
+    pub file: ide::File,
     pub ast_ptr: AstId<parsing::ImplItem<'static>>,
 }
 
@@ -193,10 +194,11 @@ pub enum ImplTypes<'db> {
 #[salsa::tracked(debug)]
 pub struct Function<'db> {
     pub name: Symbol,
+    pub file: ide::File,
     pub ast_ptr: AstId<parsing::FnItem<'static>>,
 }
 
-#[derive(salsa::Update, PartialEq)]
+#[derive(salsa::Update, PartialEq, Clone)]
 pub struct FunctionContents<'db> {
     pub item_map: ItemMap,
     pub params: FnParamList<'db>,
@@ -239,11 +241,12 @@ pub enum ItemFnParam<'db> {
 #[salsa::tracked(debug)]
 pub struct Struct<'db> {
     pub name: Symbol,
+    pub file: ide::File,
     pub inner_items: Vec<InnerItem<'db>>,
     pub ast_ptr: AstId<parsing::StructItem<'static>>,
 }
 
-#[derive(salsa::Update, PartialEq)]
+#[derive(salsa::Update, PartialEq, Clone)]
 pub struct StructContents<'db> {
     pub item_map: ItemMap,
     pub parent: Option<Path<'db>>,
@@ -288,11 +291,12 @@ pub struct Field<'db> {
 #[salsa::tracked(debug)]
 pub struct Enum<'db> {
     pub name: Symbol,
+    pub file: ide::File,
     pub inner_items: Vec<InnerItem<'db>>,
     pub ast_ptr: AstId<parsing::EnumItem<'static>>,
 }
 
-#[derive(salsa::Update, PartialEq)]
+#[derive(salsa::Update, PartialEq, Clone)]
 pub struct EnumContents<'db> {
     pub item_map: ItemMap,
     pub elems: ElemList<'db>,
@@ -300,6 +304,7 @@ pub struct EnumContents<'db> {
 
 #[salsa::tracked(debug)]
 pub struct UseItem<'db> {
+    pub file: ide::File,
     pub ast_ptr: AstId<parsing::UseItem<'static>>,
 }
 
@@ -327,8 +332,16 @@ pub struct UseTreeList {
 
 #[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
 pub enum ModuleKind<'db> {
-    Declaration(AstId<parsing::ModItem<'static>>),
-    Definition(Arc<Vec<Item<'db>>>),
+    Root {
+        items: Arc<Vec<Item<'db>>>,
+    },
+    Definition {
+        items: Arc<Vec<Item<'db>>>,
+        id: AstId<parsing::ModItem<'static>>,
+    },
+    Declaration {
+        id: AstId<parsing::ModItem<'static>>,
+    },
 }
 
 #[salsa::tracked(debug)]

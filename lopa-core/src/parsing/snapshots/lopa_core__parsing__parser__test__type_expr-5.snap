@@ -1,0 +1,28 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"Generic::Path<A,B>::Yay\", |p| p.type_expr())"
+---
+PATH_TYPE: 0..23 
+  PATH: 0..23 
+    PATH_SEGMENT: 0..7 
+      IDENT: 0..7 "Generic"
+    COLON: 7..8 ":"
+    COLON: 8..9 ":"
+    PATH_SEGMENT: 9..18 
+      IDENT: 9..13 "Path"
+      GENERIC_ARGUMENTS: 13..18 
+        LT: 13..14 "<"
+        PATH_TYPE: 14..15 
+          PATH: 14..15 
+            PATH_SEGMENT: 14..15 
+              IDENT: 14..15 "A"
+        COMMA: 15..16 ","
+        PATH_TYPE: 16..17 
+          PATH: 16..17 
+            PATH_SEGMENT: 16..17 
+              IDENT: 16..17 "B"
+        GT: 17..18 ">"
+    COLON: 18..19 ":"
+    COLON: 19..20 ":"
+    PATH_SEGMENT: 20..23 
+      IDENT: 20..23 "Yay"
