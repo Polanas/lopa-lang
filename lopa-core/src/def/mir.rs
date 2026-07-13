@@ -1,7 +1,4 @@
-use crate::def::{
-    Symbol,
-    ty::{self, Type},
-};
+use crate::def::{Symbol, ty::TypeList};
 
 #[salsa::interned(debug)]
 pub struct Path<'db> {
@@ -12,5 +9,5 @@ pub struct Path<'db> {
 #[salsa::interned(debug)]
 pub struct PathSegment<'db> {
     pub ident: Symbol,
-    pub generics: Vec<Type<'db>>,
+    pub generics: TypeList<'db>,
 }

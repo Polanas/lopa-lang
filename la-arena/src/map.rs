@@ -11,7 +11,6 @@ pub struct ArenaMap<IDX, V> {
     _ty: PhantomData<IDX>,
 }
 
-
 impl<T, V> ArenaMap<Idx<T>, V> {
     /// Creates a new empty map.
     pub const fn new() -> Self {

@@ -1,4 +1,6 @@
 mod diagnostics;
+mod resolver;
+mod scope;
 
 pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
@@ -9,7 +11,7 @@ use salsa::Accumulator;
 
 use crate::{
     def::{
-        self, Symbol,
+        Symbol,
         hir::{self, ModuleKind},
     },
     parsing::{self, AstNode},
@@ -179,21 +181,76 @@ impl<'db> File {
         diagnostics
             .into_iter()
             .filter_map(|d| match d.location {
-                DiagnosticLocation::Module(ast_ptr) => {
-                    let module_id = ast_map[ast_ptr];
-                    let module_node = tree.get(module_id).and_then(parsing::ModItem::cast)?;
+                DiagnosticLocation::Struct(ast_id) => {
+                    let id = ast_map[ast_id];
+                    let node = tree.get(id).and_then(parsing::StructItem::cast)?;
                     Some(RenderedDiagnostic {
                         message: d.message,
-                        range: module_node.syntax().range(),
+                        range: {
+                            if let Some(struct_token) = node.struct_token()
+                                && let Some(name) = node.name()
+                            {
+                                struct_token.range().start..name.syntax().range().end
+                            } else {
+                                node.syntax().range()
+                            }
+                        },
                         kind: d.kind,
                     })
                 }
-                DiagnosticLocation::Param { fn_item, param_num } => None,
+                DiagnosticLocation::Enum(ast_id) => {
+                    let id = ast_map[ast_id];
+                    let node = tree.get(id).and_then(parsing::EnumItem::cast)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: {
+                            if let Some(struct_token) = node.enum_token()
+                                && let Some(name) = node.name()
+                            {
+                                struct_token.range().start..name.syntax().range().end
+                            } else {
+                                node.syntax().range()
+                            }
+                        },
+                        kind: d.kind,
+                    })
+                }
+                DiagnosticLocation::Function(ast_id) => {
+                    let id = ast_map[ast_id];
+                    let node = tree.get(id).and_then(parsing::FnItem::cast)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: {
+                            if let Some(struct_token) = node.fn_token()
+                                && let Some(name) = node.name()
+                            {
+                                struct_token.range().start..name.syntax().range().end
+                            } else {
+                                node.syntax().range()
+                            }
+                        },
+                        kind: d.kind,
+                    })
+                }
+                DiagnosticLocation::UseTree { module, tree_id } => {
+                    todo!()
+                    // let use_tree_map =
+                }
+                DiagnosticLocation::Module(id) => {
+                    let id = ast_map[id];
+                    let node = tree.get(id).and_then(parsing::ModItem::cast)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: node.syntax().range(),
+                        kind: d.kind,
+                    })
+                }
                 DiagnosticLocation::Range(range) => Some(RenderedDiagnostic {
                     message: d.message,
                     range,
                     kind: d.kind,
                 }),
+                DiagnosticLocation::Param { fn_item, param_num } => None,
             })
             .collect_vec()
     }

@@ -67,10 +67,46 @@ impl fmt::Display for RawIdx {
 }
 
 /// The index of a value allocated in an arena that holds `T`s.
-#[derive(salsa::Update)]
 pub struct Idx<T> {
     raw: RawIdx,
     _ty: PhantomData<fn() -> T>,
+}
+#[allow(clippy::all)]
+unsafe impl<T> salsa::Update for Idx<T> {
+    unsafe fn maybe_update(old_pointer_: *mut Self, new_value_: Self) -> bool {
+        let old_pointer_ = unsafe { &mut *old_pointer_ };
+        match old_pointer_ {
+            Idx {
+                raw: __binding_0,
+                _ty: __binding_1,
+            } => {
+                #[allow(unreachable_patterns)]
+                let new_value_ = match new_value_ {
+                    Idx {
+                        raw: __binding_0,
+                        _ty: __binding_1,
+                    } => (__binding_0, __binding_1),
+                    _ => {
+                        *old_pointer_ = new_value_;
+                        return true;
+                    }
+                };
+                false
+                    | unsafe {
+                        salsa::plumbing::UpdateDispatch::<RawIdx>::maybe_update(
+                            __binding_0,
+                            new_value_.0,
+                        )
+                    }
+                    | unsafe {
+                        salsa::plumbing::UpdateDispatch::<PhantomData<fn() -> T>>::maybe_update(
+                            __binding_1,
+                            new_value_.1,
+                        )
+                    }
+            }
+        }
+    }
 }
 
 impl<T> Ord for Idx<T> {

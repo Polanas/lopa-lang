@@ -3,7 +3,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 
 use crate::{
-    def::{AstIdMap, ItemMap, Symbol, UseTreeMap, body_map::BodyMap, hir::*},
+    def::{AstIdMap, ContentsMap, Symbol, UseTreeMap, body_map::BodyMap, hir::*},
     ide::File,
     parsing::{self},
 };
@@ -29,7 +29,7 @@ impl<'db, 's> BodyCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item =
-            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
 
         let params = ast_item
             .params()
@@ -656,7 +656,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
 struct ItemMapCtx<'db, 's> {
     db: &'db dyn salsa::Database,
     source: &'s str,
-    map: ItemMap,
+    map: ContentsMap,
     file: File,
 }
 
@@ -666,7 +666,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             db,
             file,
             source,
-            map: ItemMap::default(),
+            map: ContentsMap::default(),
         }
     }
 
@@ -674,7 +674,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item =
-            parse.cast::<parsing::ImplItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+            parse.cast::<parsing::ImplItem>(self.db, ast_map.get(item.id(self.db))?)?;
 
         let first = ast_item.first_type().and_then(|ty| self.type_expr(ty));
         let second = ast_item.second_type().and_then(|ty| self.type_expr(ty));
@@ -700,7 +700,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item =
-            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
         let params = ast_item
             .params()
             .and_then(|p| self.fn_param_list(p))
@@ -726,7 +726,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item =
-            parse.cast::<parsing::EnumItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+            parse.cast::<parsing::EnumItem>(self.db, ast_map.get(item.id(self.db))?)?;
         let elems = ast_item
             .elements()
             .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
@@ -742,7 +742,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item =
-            parse.cast::<parsing::StructItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+            parse.cast::<parsing::StructItem>(self.db, ast_map.get(item.id(self.db))?)?;
         let parent = ast_item
             .parent()
             .and_then(|p| p.path())
@@ -1131,7 +1131,7 @@ impl<'db> UseItem<'db> {
         let parse = file.parse(db);
         let source = file.contents(db);
 
-        let use_node_id = file.ast_map(db)[self.ast_ptr(db)];
+        let use_node_id = file.ast_map(db)[self.id(db)];
         let use_tree = parse.cast::<parsing::UseTree>(db, use_node_id)?;
         let use_tree = use_tree_inner(db, use_tree, &mut map, source)?;
 

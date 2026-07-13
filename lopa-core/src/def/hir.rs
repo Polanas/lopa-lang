@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     common::{BinaryOpKind, LitKind, UnaryOpKind},
     def::{
-        AstId, ElemId, ExprId, ItemMap, ItemTypeExprId, PatId, StmtId, Symbol, TypeExprId,
+        AstId, ContentsMap, ElemId, ExprId, ItemTypeExprId, PatId, StmtId, Symbol, TypeExprId,
         UseTreeId, body_map::BodyMap,
     },
     ide::{self},
@@ -178,7 +178,7 @@ pub struct Pat<'db> {
     pub kind: PatKind<'db>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(salsa::Supertype, PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
 pub enum Item<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
@@ -209,7 +209,7 @@ impl<'db> InnerItem<'db> {
 pub struct ImplBlock<'db> {
     pub file: ide::File,
     pub items: ImplItems<'db>,
-    pub ast_ptr: AstId<parsing::ImplItem<'static>>,
+    pub id: AstId<parsing::ImplItem<'static>>,
 }
 
 #[salsa::tracked(debug)]
@@ -220,7 +220,7 @@ pub struct ImplItems<'db> {
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct ImplContents<'db> {
-    pub item_map: ItemMap,
+    pub item_map: ContentsMap,
     pub generics: Generics<'db>,
     pub impl_types: ImplTypes<'db>,
 }
@@ -238,12 +238,12 @@ pub enum ImplTypes<'db> {
 pub struct Function<'db> {
     pub name: Symbol,
     pub file: ide::File,
-    pub ast_ptr: AstId<parsing::FnItem<'static>>,
+    pub id: AstId<parsing::FnItem<'static>>,
 }
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct FunctionContents<'db> {
-    pub item_map: ItemMap,
+    pub item_map: ContentsMap,
     pub params: FnParamList<'db>,
     pub generics: Generics<'db>,
     pub output: Option<TypeExpr<'db>>,
@@ -297,12 +297,12 @@ pub struct Struct<'db> {
     pub file: ide::File,
     #[returns(ref)]
     pub inner_items: Vec<InnerItem<'db>>,
-    pub ast_ptr: AstId<parsing::StructItem<'static>>,
+    pub id: AstId<parsing::StructItem<'static>>,
 }
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct StructContents<'db> {
-    pub item_map: ItemMap,
+    pub item_map: ContentsMap,
     pub parent: Option<Path<'db>>,
     pub elems: ElemList<'db>,
 }
@@ -351,19 +351,19 @@ pub struct Enum<'db> {
     pub file: ide::File,
     #[returns(ref)]
     pub inner_items: Vec<InnerItem<'db>>,
-    pub ast_ptr: AstId<parsing::EnumItem<'static>>,
+    pub id: AstId<parsing::EnumItem<'static>>,
 }
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct EnumContents<'db> {
-    pub item_map: ItemMap,
+    pub item_map: ContentsMap,
     pub elems: ElemList<'db>,
 }
 
 #[salsa::tracked(debug)]
 pub struct UseItem<'db> {
     pub file: ide::File,
-    pub ast_ptr: AstId<parsing::UseItem<'static>>,
+    pub id: AstId<parsing::UseItem<'static>>,
 }
 
 #[salsa::interned(no_lifetime, debug)]
@@ -411,25 +411,14 @@ pub struct Module<'db> {
     pub file: ide::File,
 }
 
-// pub type TypeExprId = Idx<TypeExpr>;
-//
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub enum TypeExpr {
-//     Missing,
-//     Any,
-//     Unit,
-//     Never,
-//     SelfTy,
-//     Lit(LitKind),
-//     Path(Path),
-//     Dyn(Path),
-//     Nilable(TypeExprId),
-//     Paren(TypeExprId),
-//     Fn {
-//         params: Vec<FnTypeParam>,
-//         output: Option<TypeExprId>,
-//     },
-// }
+impl<'db> Module<'db> {
+    pub fn id(&self, db: &'db dyn salsa::Database) -> Option<AstId<parsing::ModItem<'static>>> {
+        Some(match self.kind(db) {
+            ModuleKind::Definition { id, .. } | ModuleKind::Declaration { id } => *id,
+            _ => return None,
+        })
+    }
+}
 
 #[salsa::interned(debug)]
 pub struct ItemTypeExpr<'db> {

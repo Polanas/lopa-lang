@@ -3,15 +3,17 @@ mod lowering;
 #[path = "def/use_tree_map.rs"]
 mod use_tree_map_mod;
 
-pub mod hir;
-pub mod item_map;
 pub mod body_map;
+pub mod hir;
+pub mod contents_map;
+pub mod items_map;
 pub mod mir;
 pub mod ty;
 
 pub use ast_id_map::*;
-pub use item_map::*;
+pub use contents_map::*;
 pub use use_tree_map_mod::*;
+pub use items_map::*;
 
 use crate::parsing;
 use la_arena::Idx;
@@ -38,4 +40,10 @@ pub struct StmtId(pub Idx<parsing::NodeId>);
 pub struct Symbol {
     #[returns(ref)]
     pub value: String,
+}
+
+#[salsa::interned(no_lifetime, debug)]
+pub struct SymbolList {
+    #[returns(ref)]
+    pub symbols: Vec<Symbol>,
 }

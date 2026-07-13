@@ -196,7 +196,6 @@ macro_rules! implement {
         }
     };
 }
-
 implement!(usize, NonZeroUsize, PointerUsize);
 implement!(u8, NonZeroU8, PointerU8);
 implement!(u16, NonZeroU16, PointerU16);

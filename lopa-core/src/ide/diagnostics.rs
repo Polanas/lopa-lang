@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{def::AstId, parsing};
+use crate::{def::{AstId, UseTreeId}, parsing};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[allow(clippy::enum_variant_names)]
@@ -13,6 +13,13 @@ pub enum DiagnosticKind {
 #[derive(Clone, PartialEq, Debug, Eq, Hash)]
 pub enum DiagnosticLocation {
     Module(AstId<parsing::ModItem<'static>>),
+    Struct(AstId<parsing::StructItem<'static>>),
+    Enum(AstId<parsing::EnumItem<'static>>),
+    Function(AstId<parsing::FnItem<'static>>),
+    UseTree {
+        module: AstId<parsing::ModItem<'static>>,
+        tree_id: UseTreeId,
+    },
     Param {
         fn_item: AstId<parsing::FnItem<'static>>,
         param_num: usize,
