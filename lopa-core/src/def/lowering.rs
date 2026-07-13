@@ -449,20 +449,64 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         }
     }
 
-    fn struct_item(&mut self, item: Struct<'db>) -> StructContents<'db> {
+    fn fn_contents(mut self, item: Function<'db>) -> Option<FunctionContents<'db>> {
         let ast_map = self.file.ast_map(self.db);
-        let ast_item = self
-            .file
-            .parse(self.db)
-            .cast::<parsing::StructItem>(self.db, ast_map.get(item.ast_ptr(self.db)).unwrap());
-        // let parent = ast_item
-        //     .parent()
-        //     .and_then(|p| p.path())
-        //     .and_then(|p| self.path(p));
-        // let elems = item
-        //     .elements()
-        //     .filter_map(|e| self.elem(, e));
-        todo!()
+        let parse = self.file.parse(self.db);
+        let ast_item =
+            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+        let params = ast_item
+            .params()
+            .and_then(|p| self.fn_param_list(p))
+            .unwrap_or_else(|| FnParamList::new(self.db, vec![]));
+        let generics = ast_item
+            .generics()
+            .and_then(|g| self.generics(g))
+            .unwrap_or_else(|| Generics::new(self.db, vec![]));
+        let output = ast_item
+            .output()
+            .and_then(|o| o.ty())
+            .and_then(|ty| self.type_expr(ty));
+        Some(FunctionContents {
+            item_map: self.map,
+            params,
+            generics,
+            output,
+        })
+    }
+
+    fn enum_item(mut self, item: Enum<'db>) -> Option<EnumContents<'db>> {
+        let ast_map = self.file.ast_map(self.db);
+        let parse = self.file.parse(self.db);
+        let ast_item =
+            parse.cast::<parsing::EnumItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+        let elems = ast_item
+            .elements()
+            .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
+            .collect_vec();
+        Some(EnumContents {
+            item_map: self.map,
+            elems: ElemList::new(self.db, elems),
+        })
+    }
+
+    fn struct_item(mut self, item: Struct<'db>) -> Option<StructContents<'db>> {
+        let ast_map = self.file.ast_map(self.db);
+        let parse = self.file.parse(self.db);
+        let ast_item =
+            parse.cast::<parsing::StructItem>(self.db, ast_map.get(item.ast_ptr(self.db))?)?;
+        let parent = ast_item
+            .parent()
+            .and_then(|p| p.path())
+            .and_then(|p| self.path(p));
+        let elems = ast_item
+            .elements()
+            .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
+            .collect_vec();
+        Some(StructContents {
+            item_map: self.map,
+            parent,
+            elems: ElemList::new(self.db, elems),
+        })
     }
 
     fn elem(
@@ -534,6 +578,26 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         })
     }
 
+    fn fn_param_list(&mut self, param_list: parsing::ParamList) -> Option<FnParamList<'db>> {
+        Some(FnParamList::new(
+            self.db,
+            param_list
+                .params()
+                .filter_map(|p| self.fn_param(p))
+                .collect_vec(),
+        ))
+    }
+
+    fn fn_param(&mut self, param: parsing::FnParam) -> Option<FnParam<'db>> {
+        if param.self_token().is_some() {
+            return Some(FnParam::new(self.db, FnParamKind::SelfParam));
+        }
+        let pat = param.pattern().and_then(|p| self.pat(p));
+        let ty = param.type_expr().and_then(|ty| self.type_expr(ty));
+
+        Some(FnParam::new(self.db, FnParamKind::Pat { pat, ty }))
+    }
+
     fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> Option<TypeExpr<'db>> {
         Some(match type_expr {
             parsing::TypeExpr::DynType(dyn_type) => {
@@ -598,6 +662,16 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .and_then(|n| n.text(self.source))
             .map(|n| Symbol::new(self.db, n));
         FnTypeParam::new(self.db, name, param.ty().and_then(|ty| self.type_expr(ty)))
+    }
+
+    fn generics(&mut self, generics: parsing::Generics) -> Option<Generics<'db>> {
+        Some(Generics::new(
+            self.db,
+            generics
+                .params()
+                .filter_map(|p| self.generic_param(p))
+                .collect_vec(),
+        ))
     }
 
     fn generic_param(&mut self, param: parsing::TypeParam) -> Option<GenericParam<'db>> {

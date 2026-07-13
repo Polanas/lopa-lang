@@ -199,7 +199,7 @@ pub struct Function<'db> {
 #[derive(salsa::Update, PartialEq)]
 pub struct FunctionContents<'db> {
     pub item_map: ItemMap,
-    pub params: Vec<FnParam<'db>>,
+    pub params: FnParamList<'db>,
     pub generics: Generics<'db>,
     pub output: Option<TypeExpr<'db>>,
 }
@@ -247,6 +247,11 @@ pub struct Struct<'db> {
 pub struct StructContents<'db> {
     pub item_map: ItemMap,
     pub parent: Option<Path<'db>>,
+    pub elems: ElemList<'db>,
+}
+
+#[salsa::tracked(debug)]
+pub struct ElemList<'db> {
     pub elems: Vec<Elem<'db>>,
 }
 
@@ -290,8 +295,7 @@ pub struct Enum<'db> {
 #[derive(salsa::Update, PartialEq)]
 pub struct EnumContents<'db> {
     pub item_map: ItemMap,
-    pub parent: Option<Path<'db>>,
-    pub elems: Vec<Elem<'db>>,
+    pub elems: ElemList<'db>,
 }
 
 #[salsa::tracked(debug)]
@@ -395,6 +399,11 @@ pub enum TypeExprKind<'db> {
 #[salsa::interned(debug)]
 pub struct TupleType<'db> {
     pub types: Vec<TypeExpr<'db>>,
+}
+
+#[salsa::interned(debug)]
+pub struct FnParamList<'db> {
+    pub params: Vec<FnParam<'db>>,
 }
 
 #[salsa::interned(debug)]
