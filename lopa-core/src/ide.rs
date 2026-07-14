@@ -90,18 +90,35 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
     fn traverse_module<'db>(
         db: &'db dyn salsa::Database,
         module: hir::Module<'db>,
-        module_dir_path: PathBuf,
+        mut module_dir_path: PathBuf,
         tree: &mut ModuleTree<'db>,
         files_by_names: &indexmap::IndexMap<PathBuf, File>,
     ) {
         match module.kind(db) {
             hir::ModuleKind::Declaration { id } => {
-                let mut file_path = module_dir_path;
+                let mut file_path = module_dir_path.clone();
                 let mod_name = module.name(db).value(db);
+                module_dir_path.push(mod_name);
                 file_path.push(format!("{}.lopa", mod_name));
                 if let Some(file) = files_by_names.get(&file_path) {
                     tree.modules_by_files.insert(*file, module);
                     tree.files_by_modules.insert(module, *file);
+
+                    let mut children = vec![];
+                    for item in file.items(db).iter() {
+                        if let hir::Item::Module(child) = item {
+                            children.push(*child);
+                            tree.parents.insert(*child, module);
+                            traverse_module(
+                                db,
+                                *child,
+                                module_dir_path.clone(),
+                                tree,
+                                files_by_names,
+                            );
+                        }
+                    }
+                    tree.children.insert(module, children.into());
                 } else {
                     Diagnostic {
                         message: Symbol::new(db, format!("unresolved module: `{}`", mod_name)),
@@ -230,6 +247,10 @@ pub fn module_diagnostics<'db>(
             .into_iter()
             .cloned(),
     );
+    for child in module.children(db).iter() {
+        let mut child_diagnostics = module_diagnostics(db, *child);
+        diagnostics.append(&mut child_diagnostics);
+    }
     diagnostics
 }
 
