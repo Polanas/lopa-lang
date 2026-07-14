@@ -6,7 +6,6 @@ members = ["lopa-core", "lopa-lsp"]
 logos = "0.16.0"
 anyhow = "1.0.100"
 itertools = "0.14.0"
-salsa = "0.26.2"
 indexmap = "2"
 insta = { version = "1.47.2" }
 walkdir = "2.5.0"

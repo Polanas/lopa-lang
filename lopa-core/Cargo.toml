@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 logos.workspace = true
-salsa.workspace = true
 anyhow.workspace = true
 itertools.workspace = true
 indexmap.workspace = true
 
+salsa = { path = "../salsa" }
 syntree = { path = "../syntree" }
 la-arena = { path = "../la-arena" }
 notify-rust = "4.13.1"

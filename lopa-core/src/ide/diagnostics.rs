@@ -1,7 +1,8 @@
 use std::ops::Range;
 
-use crate::{def::{AstId, UseTreeId}, parsing};
+use crate::{def::{AstId, Symbol, UseTreeId}, parsing};
 
+//TODO: refactor this (add more kinds for each class of error like in rust)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[allow(clippy::enum_variant_names)]
 pub enum DiagnosticKind {
@@ -17,7 +18,7 @@ pub enum DiagnosticLocation {
     Enum(AstId<parsing::EnumItem<'static>>),
     Function(AstId<parsing::FnItem<'static>>),
     UseTree {
-        module: AstId<parsing::ModItem<'static>>,
+        use_id: AstId<parsing::UseItem<'static>>,
         tree_id: UseTreeId,
     },
     Param {
@@ -30,7 +31,7 @@ pub enum DiagnosticLocation {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[salsa::accumulator]
 pub struct Diagnostic {
-    pub message: String,
+    pub message: Symbol,
     pub location: DiagnosticLocation,
     pub kind: DiagnosticKind,
 }

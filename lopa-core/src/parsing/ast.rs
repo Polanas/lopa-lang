@@ -265,7 +265,7 @@ structs! {
         root_token: T![root],
         use_tree: UseTree,
     },
-    USE_SELF_NAME = UseSelfName {
+    USE_SELF_NAME = UseSelf {
         self_token: T![self],
     },
     USE_PATH = UsePath {
@@ -989,7 +989,7 @@ enums! {
     UseTree {
         UseRootPath,
         UseSuperPath,
-        UseSelfName,
+        UseSelf,
         UsePath,
         UseName,
         UseGlobal,

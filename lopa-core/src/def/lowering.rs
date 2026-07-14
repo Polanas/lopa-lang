@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use itertools::Itertools as _;
+use notify_rust::Notification;
 
 use crate::{
-    def::{AstIdMap, ContentsMap, Symbol, UseTreeMap, body_map::BodyMap, hir::*},
+    def::{AstIdMap, ContentsMap, ItemsMap, Symbol, UseTreeMap, body_map::BodyMap, hir::*},
     ide::File,
     parsing::{self},
 };
@@ -28,8 +29,7 @@ impl<'db, 's> BodyCtx<'db, 's> {
     fn fn_item(mut self, item: Function<'db>) -> Option<FunctionBody<'db>> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
-        let ast_item =
-            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
+        let ast_item = parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
 
         let params = ast_item
             .params()
@@ -460,6 +460,7 @@ struct Ctx<'db, 'ast, 's> {
     ast_file: parsing::File<'ast>,
     file: File,
     ast_id_map: AstIdMap,
+    items_map: ItemsMap<'db>,
 }
 
 impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
@@ -475,12 +476,17 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             ast_file,
             file,
             ast_id_map: AstIdMap::new(),
+            items_map: ItemsMap::default(),
         }
     }
 
-    fn lower(mut self) -> (Vec<Item<'db>>, AstIdMap) {
+    fn lower(mut self) -> (Vec<Item<'db>>, AstIdMap, ItemsMap<'db>) {
         let items = self.ast_file.items().collect_vec();
-        (self.items(items.into_iter()), self.ast_id_map)
+        (
+            self.items(items.into_iter()),
+            self.ast_id_map,
+            self.items_map,
+        )
     }
 
     fn items(&mut self, items_iter: impl Iterator<Item = parsing::Item<'ast>>) -> Vec<Item<'db>> {
@@ -525,11 +531,9 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
     fn use_item(&mut self, use_item: parsing::UseItem<'ast>) -> Option<UseItem<'db>> {
         use_item.use_keyword()?;
         use_item.use_tree()?;
-        Some(UseItem::new(
-            self.db,
-            self.file,
-            self.ast_id_map.insert(use_item),
-        ))
+        let item = UseItem::new(self.db, self.file, self.ast_id_map.insert(use_item));
+        self.items_map.insert_use(self.db, item);
+        Some(item)
     }
 
     fn enum_item(&mut self, enum_item: parsing::EnumItem<'ast>) -> Option<Enum<'db>> {
@@ -537,13 +541,15 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         let name = enum_item.name()?.text(self.source)?;
         let items = self.inner_items(enum_item.elements());
 
-        Some(Enum::new(
+        let item = Enum::new(
             self.db,
             Symbol::new(self.db, name),
             self.file,
             items,
             self.ast_id_map.insert(enum_item),
-        ))
+        );
+        self.items_map.insert_enum(self.db, item);
+        Some(item)
     }
 
     fn struct_item(&mut self, struct_item: parsing::StructItem<'ast>) -> Option<Struct<'db>> {
@@ -551,13 +557,15 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         let name = struct_item.name()?.text(self.source)?;
         let items = self.inner_items(struct_item.elements());
 
-        Some(Struct::new(
+        let item = Struct::new(
             self.db,
             Symbol::new(self.db, name),
             self.file,
             items,
             self.ast_id_map.insert(struct_item),
-        ))
+        );
+        self.items_map.insert_struct(self.db, item);
+        Some(item)
     }
 
     fn inner_items(
@@ -600,45 +608,32 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             .functions()
             .filter_map(|item| self.fn_item(item))
             .collect_vec();
-        Some(ImplBlock::new(
+        let item = ImplBlock::new(
             self.db,
             self.file,
             ImplItems::new(self.db, items),
             self.ast_id_map.insert(impl_item),
-        ))
-        // let first = impl_item.first_type().and_then(|ty| self.type_expr(ty));
-        // let second = impl_item.second_type().and_then(|ty| self.type_expr(ty));
-        // let types = match (first, second) {
-        //     (Some(inherent), None) => ImplTypes::Inherent(inherent),
-        //     (Some(trait_ty), Some(impl_ty)) => ImplTypes::Trait { trait_ty, impl_ty },
-        //     _ => return None,
-        // };
-        // let fn_items = impl_item
-        //     .functions()
-        //     .filter_map(|fn_item| self.fn_item(fn_item))
-        //     .collect_vec();
-        // Some(ImplBlock::new(
-        //     self.db,
-        //     types,
-        //     fn_items,
-        //     self.ast_id_map.insert(impl_item),
-        // ))
+        );
+        self.items_map.insert_impl(self.db, item);
+        Some(item)
     }
 
     fn fn_item(&mut self, fn_item: parsing::FnItem<'ast>) -> Option<Function<'db>> {
         let name = fn_item.name()?.text(self.source)?;
-        Some(Function::new(
+        let item = Function::new(
             self.db,
             Symbol::new(self.db, name),
             self.file,
             self.ast_id_map.insert(fn_item),
-        ))
+        );
+        self.items_map.insert_fn(self.db, item);
+        Some(item)
     }
 
     fn mod_item(&mut self, mod_item: parsing::ModItem<'ast>) -> Option<Module<'db>> {
         let id = self.ast_id_map.insert(mod_item);
         let name = mod_item.name().and_then(|n| n.text(self.source))?;
-        Some(Module::new(
+        let item = Module::new(
             self.db,
             Symbol::new(self.db, name),
             match mod_item.semi() {
@@ -648,8 +643,10 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
                     items: self.items(mod_item.items()).into(),
                 },
             },
-            self.file,
-        ))
+            self.file.root(self.db),
+        );
+        self.items_map.insert_module(self.db, item);
+        Some(item)
     }
 }
 
@@ -673,8 +670,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
     fn impl_contents(mut self, item: ImplBlock<'db>) -> Option<ImplContents<'db>> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
-        let ast_item =
-            parse.cast::<parsing::ImplItem>(self.db, ast_map.get(item.id(self.db))?)?;
+        let ast_item = parse.cast::<parsing::ImplItem>(self.db, ast_map.get(item.id(self.db))?)?;
 
         let first = ast_item.first_type().and_then(|ty| self.type_expr(ty));
         let second = ast_item.second_type().and_then(|ty| self.type_expr(ty));
@@ -699,8 +695,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
     fn fn_contents(mut self, item: Function<'db>) -> Option<FunctionContents<'db>> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
-        let ast_item =
-            parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
+        let ast_item = parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
         let params = ast_item
             .params()
             .and_then(|p| self.fn_param_list(p))
@@ -725,8 +720,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
     fn enum_item(mut self, item: Enum<'db>) -> Option<EnumContents<'db>> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
-        let ast_item =
-            parse.cast::<parsing::EnumItem>(self.db, ast_map.get(item.id(self.db))?)?;
+        let ast_item = parse.cast::<parsing::EnumItem>(self.db, ast_map.get(item.id(self.db))?)?;
         let elems = ast_item
             .elements()
             .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
@@ -1072,13 +1066,14 @@ impl<'db> Function<'db> {
 #[salsa::tracked]
 impl<'db> UseItem<'db> {
     #[salsa::tracked]
-    pub fn use_tree_map(self, db: &'db dyn salsa::Database, file: File) -> Option<Arc<UseTreeMap>> {
-        self.use_tree_and_map(db, file).map(|(map, _)| map)
+    pub fn use_tree_map(self, db: &'db dyn salsa::Database) -> Option<Arc<UseTreeMap>> {
+        self.use_tree_and_map(db, self.file(db)).map(|(map, _)| map)
     }
 
     #[salsa::tracked]
-    pub fn use_tree(self, db: &'db dyn salsa::Database, file: File) -> Option<UseTree> {
-        self.use_tree_and_map(db, file).map(|(_, tree)| tree)
+    pub fn use_tree(self, db: &'db dyn salsa::Database) -> Option<UseTree> {
+        self.use_tree_and_map(db, self.file(db))
+            .map(|(_, tree)| tree)
     }
 
     #[salsa::tracked]
@@ -1097,9 +1092,15 @@ impl<'db> UseItem<'db> {
             Some(UseTree::new(
                 db,
                 match use_tree {
-                    parsing::UseTree::UseRootPath(_) => UseTreeKind::Root,
-                    parsing::UseTree::UseSuperPath(_) => UseTreeKind::Super,
-                    parsing::UseTree::UseSelfName(_) => UseTreeKind::SelfUse,
+                    parsing::UseTree::UseRootPath(root_path) => {
+                        let use_tree = use_tree_inner(db, root_path.use_tree()?, map, source)?;
+                        UseTreeKind::Root { use_tree }
+                    }
+                    parsing::UseTree::UseSuperPath(super_path) => {
+                        let use_tree = use_tree_inner(db, super_path.use_tree()?, map, source)?;
+                        UseTreeKind::Super { use_tree }
+                    }
+                    parsing::UseTree::UseSelf(_) => UseTreeKind::SelfUse,
                     parsing::UseTree::UseGlobal(_) => UseTreeKind::Global,
                     parsing::UseTree::UsePath(use_path) => {
                         let name = use_path
@@ -1131,8 +1132,9 @@ impl<'db> UseItem<'db> {
         let parse = file.parse(db);
         let source = file.contents(db);
 
-        let use_node_id = file.ast_map(db)[self.id(db)];
-        let use_tree = parse.cast::<parsing::UseTree>(db, use_node_id)?;
+        let use_item = file.ast_map(db)[self.id(db)];
+        let use_item = parse.cast::<parsing::UseItem>(db, use_item)?;
+        let use_tree = use_item.use_tree()?;
         let use_tree = use_tree_inner(db, use_tree, &mut map, source)?;
 
         Some((Arc::new(map), use_tree))
@@ -1141,21 +1143,29 @@ impl<'db> UseItem<'db> {
 
 #[salsa::tracked]
 impl<'db> File {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(ref))]
     pub fn items(self, db: &'db dyn salsa::Database) -> Arc<Vec<Item<'db>>> {
         self.lower(db).0
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(ref))]
     pub fn ast_map(self, db: &dyn salsa::Database) -> Arc<AstIdMap> {
         self.lower(db).1
     }
 
+    #[salsa::tracked(returns(ref))]
+    pub fn items_map(self, db: &'db dyn salsa::Database) -> Arc<ItemsMap<'db>> {
+        self.lower(db).2
+    }
+
     #[salsa::tracked]
-    fn lower(self, db: &'db dyn salsa::Database) -> (Arc<Vec<Item<'db>>>, Arc<AstIdMap>) {
+    fn lower(
+        self,
+        db: &'db dyn salsa::Database,
+    ) -> (Arc<Vec<Item<'db>>>, Arc<AstIdMap>, Arc<ItemsMap<'db>>) {
         let parse = self.parse(db);
         let ctx = Ctx::new(db, self.contents(db), parse.file(db).unwrap(), self);
-        let (items, id_map) = ctx.lower();
-        (items.into(), id_map.into())
+        let (items, id_map, items_map) = ctx.lower();
+        (items.into(), id_map.into(), items_map.into())
     }
 }

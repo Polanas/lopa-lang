@@ -188,6 +188,18 @@ pub enum Item<'db> {
     Impl(ImplBlock<'db>),
 }
 
+impl<'db> Item<'db> {
+    pub fn name(&self, db: &'db dyn salsa::Database) -> Option<Symbol> {
+        Some(match self {
+            Item::Function(item) => item.name(db),
+            Item::Struct(item) => item.name(db),
+            Item::Enum(item) => item.name(db),
+            Item::Module(item) => Symbol::new(db, "some mod"),
+            Item::Use(_) | Item::Impl(_) => return None,
+        })
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
 pub enum InnerItem<'db> {
     Struct(Struct<'db>),
@@ -374,13 +386,13 @@ pub struct UseTree {
 
 #[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
 pub enum UseTreeKind {
-    Root,
-    Super,
-    SelfUse,
     Path { name: Symbol, use_tree: UseTree },
-    Name(Symbol),
-    Global,
+    Super { use_tree: UseTree },
+    Root { use_tree: UseTree },
     TreeList(UseTreeList),
+    Name(Symbol),
+    SelfUse,
+    Global,
 }
 
 #[salsa::interned(no_lifetime, debug)]
@@ -408,7 +420,7 @@ pub struct Module<'db> {
     pub name: Symbol,
     #[returns(ref)]
     pub kind: ModuleKind<'db>,
-    pub file: ide::File,
+    pub root: ide::Root,
 }
 
 impl<'db> Module<'db> {
