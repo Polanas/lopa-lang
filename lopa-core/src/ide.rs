@@ -5,6 +5,7 @@ mod scope;
 pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
 };
+use notify_rust::Notification;
 pub use resolve::*;
 pub use scope::*;
 
@@ -269,11 +270,6 @@ pub fn module_diagnostics<'db>(
     module: hir::Module<'db>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
-    diagnostics.extend(
-        module_scope::accumulated::<Diagnostic>(db, module)
-            .into_iter()
-            .cloned(),
-    );
     diagnostics.extend(resolve_module(db, module));
     for child in module.children(db).iter() {
         if matches!(child.kind(db), hir::ModuleKind::Declaration { .. }) {

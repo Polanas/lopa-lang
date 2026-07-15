@@ -16,6 +16,7 @@ notify-rust = "4.13.1"
 identity-hash = "0.1.0"
 bimap = "0.6.3"
 hashbrown = "0.17.1"
+rand = "0.10.2"
 
 [dev-dependencies]
 insta.workspace = true
