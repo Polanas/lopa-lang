@@ -120,7 +120,6 @@ pub fn resolve_type_path<'db>(
 pub fn resolve_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
 
-    Notification::new().body("here").show().unwrap();
     for item in module.items(db).items(db).iter() {
         let hir::Item::Use(use_item) = item else {
             continue;
@@ -384,7 +383,6 @@ impl<'db, 'a> ResolveUseTree<'db, 'a> {
                 let Some(parent) = self.module.parent(self.db) else {
                     return;
                 };
-                Notification::new().body("here").show().unwrap();
                 self.module = parent;
                 let path = parent.absolute_path(self.db);
                 self.resolve(super_use_tree, path);

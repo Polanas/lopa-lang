@@ -228,7 +228,7 @@ impl<'db> hir::Module<'db> {
         if self.is_root_module(db) {
             return SymbolList::new(db, [Symbol::new(db, "root")]);
         };
-        let mut path = vec![];
+        let mut path = vec![self.name(db)];
         let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
 
         let mut current = self;

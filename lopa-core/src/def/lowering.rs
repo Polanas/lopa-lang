@@ -1120,7 +1120,7 @@ impl<'db> UseItem<'db> {
     }
 
     #[salsa::tracked]
-    pub fn use_tree(self, db: &'db dyn salsa::Database) -> Option<UseTree> {
+    pub fn use_tree(self, db: &'db dyn salsa::Database) -> Option<UseTree<'db>> {
         self.use_tree_and_map(db, self.file(db))
             .map(|(_, tree)| tree)
     }
@@ -1130,13 +1130,13 @@ impl<'db> UseItem<'db> {
         self,
         db: &'db dyn salsa::Database,
         file: File,
-    ) -> Option<(Arc<UseTreeMap>, UseTree)> {
+    ) -> Option<(Arc<UseTreeMap>, UseTree<'db>)> {
         fn use_tree_inner<'a, 'db>(
             db: &'db dyn salsa::Database,
             use_tree: parsing::UseTree<'a>,
             map: &mut UseTreeMap,
             source: &str,
-        ) -> Option<UseTree> {
+        ) -> Option<UseTree<'db>> {
             let id = map.insert(use_tree);
             Some(UseTree::new(
                 db,
