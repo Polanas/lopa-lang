@@ -417,7 +417,7 @@ structs! {
     },
     DYN_TYPE = DynType {
         dyn_keyword: T![dyn],
-        path: Path,
+        bounds: [Path],
     },
     PAREN_TYPE = ParenType {
         left_paren_token: T!["("],

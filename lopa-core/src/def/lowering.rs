@@ -13,6 +13,7 @@ struct BodyCtx<'db, 's> {
     db: &'db dyn salsa::Database,
     source: &'s str,
     map: BodyMap,
+    id_source: Option<IdSource<'db>>,
     file: File,
 }
 
@@ -23,6 +24,7 @@ impl<'db, 's> BodyCtx<'db, 's> {
             source,
             file,
             map: Default::default(),
+            id_source: None,
         }
     }
 
@@ -30,6 +32,8 @@ impl<'db, 's> BodyCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item = parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
+
+        self.id_source = Some(IdSource::BodySource(BodyMapSource::Function(item)));
 
         let params = ast_item
             .params()
@@ -345,8 +349,8 @@ impl<'db, 's> BodyCtx<'db, 's> {
     fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> Option<TypeExpr<'db>> {
         Some(match type_expr {
             parsing::TypeExpr::DynType(dyn_type) => {
-                let path = self.path(dyn_type.path()?)?;
-                self.alloc_type_expr(TypeExprKind::Dyn(path), type_expr)
+                let bounds = dyn_type.bounds().filter_map(|b| self.path(b)).collect_vec();
+                self.alloc_type_expr(TypeExprKind::Dyn(PathList::new(self.db, bounds)), type_expr)
             }
             parsing::TypeExpr::ParenType(paren_type) => {
                 let ty = paren_type.type_expr().and_then(|ty| self.type_expr(ty))?;
@@ -435,7 +439,7 @@ impl<'db, 's> BodyCtx<'db, 's> {
         type_expr_ast: parsing::TypeExpr,
     ) -> TypeExpr<'db> {
         let id = self.map.insert_type_expr(type_expr_ast);
-        TypeExpr::new(self.db, id, type_expr)
+        TypeExpr::new(self.db, id, self.id_source.unwrap(), type_expr)
     }
 
     fn alloc_pat(&mut self, pat: PatKind<'db>, pat_ast: parsing::Pattern) -> Pat<'db> {
@@ -646,7 +650,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
                 },
                 None => ModuleKind::Definition {
                     id: ModuleId::new(id, self.file),
-                    items: self.items(mod_item.items()).into(),
+                    items: Items::new(self.db, self.items(mod_item.items())),
                 },
             },
             self.file.root(self.db),
@@ -656,20 +660,22 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
     }
 }
 
-struct ItemMapCtx<'db, 's> {
+struct ContentsMapCtx<'db, 's> {
     db: &'db dyn salsa::Database,
     source: &'s str,
+    id_source: Option<IdSource<'db>>,
     map: ContentsMap,
     file: File,
 }
 
-impl<'db, 's> ItemMapCtx<'db, 's> {
+impl<'db, 's> ContentsMapCtx<'db, 's> {
     fn new(db: &'db dyn salsa::Database, source: &'s str, file: File) -> Self {
         Self {
             db,
             file,
             source,
             map: ContentsMap::default(),
+            id_source: None,
         }
     }
 
@@ -677,6 +683,8 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item = parse.cast::<parsing::ImplItem>(self.db, ast_map.get(item.id(self.db))?)?;
+
+        self.id_source = Some(IdSource::ContentsSource(ContentsMapSource::Impl(item)));
 
         let first = ast_item.first_type().and_then(|ty| self.type_expr(ty));
         let second = ast_item.second_type().and_then(|ty| self.type_expr(ty));
@@ -702,6 +710,9 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item = parse.cast::<parsing::FnItem>(self.db, ast_map.get(item.id(self.db))?)?;
+
+        self.id_source = Some(IdSource::ContentsSource(ContentsMapSource::Function(item)));
+
         let params = ast_item
             .params()
             .and_then(|p| self.fn_param_list(p))
@@ -723,14 +734,20 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         })
     }
 
+    //TODO: enums dont need whole body maps, if they wont *also* support fields. otherwise the
+    //maximum they gonna have is a number: `MyValue = 0`
     fn enum_item(mut self, item: Enum<'db>) -> Option<EnumContents<'db>> {
         let ast_map = self.file.ast_map(self.db);
         let parse = self.file.parse(self.db);
         let ast_item = parse.cast::<parsing::EnumItem>(self.db, ast_map.get(item.id(self.db))?)?;
+
+        self.id_source = Some(IdSource::ContentsSource(ContentsMapSource::Enum(item)));
+
         let elems = ast_item
             .elements()
-            .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
-            .collect_vec();
+            .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e, None));
+
+        let (elems, _): (Vec<_>, Vec<_>) = elems.unzip();
 
         Some(EnumContents {
             item_map: self.map.into(),
@@ -743,19 +760,39 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         let parse = self.file.parse(self.db);
         let ast_item =
             parse.cast::<parsing::StructItem>(self.db, ast_map.get(item.id(self.db))?)?;
+
+        self.id_source = Some(IdSource::ContentsSource(ContentsMapSource::Struct(item)));
+
         let parent = ast_item
             .parent()
             .and_then(|p| p.path())
             .and_then(|p| self.path(p));
-        let elems = ast_item
-            .elements()
-            .filter_map(|e| self.elem(item.inner_items(self.db).iter().cloned(), e))
-            .collect_vec();
+        let elems = ast_item.elements().filter_map(|e| {
+            self.elem(
+                item.inner_items(self.db).iter().cloned(),
+                e,
+                Some(item.id(self.db)),
+            )
+        });
+
+        let (elems, bodies): (Vec<_>, Vec<_>) = elems.unzip();
+
+        let field_bodies = bodies
+            .into_iter()
+            .zip(elems.iter())
+            .filter_map(|(body, elem)| -> Option<_> {
+                match elem.kind(self.db) {
+                    ElemKind::Field(field) => body.map(|b| (field, Arc::new(b))),
+                    ElemKind::Function(_) => None,
+                }
+            })
+            .collect();
 
         Some(StructContents {
             item_map: self.map.into(),
             parent,
             elems: ElemList::new(self.db, elems),
+            field_bodies,
         })
     }
 
@@ -763,23 +800,29 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         &mut self,
         mut items: impl Iterator<Item = InnerItem<'db>>,
         elem: parsing::Elem,
-    ) -> Option<Elem<'db>> {
+        struct_id: Option<StructId>,
+    ) -> Option<(Elem<'db>, Option<FieldBody<'db>>)> {
         Some(match elem {
-            parsing::Elem::Field(field) => {
-                let name = field
+            parsing::Elem::Field(field_ast) => {
+                let name = field_ast
                     .name()
                     .and_then(|n| n.text(self.source))
                     .map(|n| Symbol::new(self.db, n));
-                let ty = field.ty().and_then(|ty| self.item_type_expr(items, ty));
-                let body = field.default_value().and_then(|e| {
+                let ty = field_ast.ty().and_then(|ty| self.item_type_expr(items, ty));
+                let field = Field::new(self.db, name, ty);
+                let body = field_ast.default_value().and_then(|e| {
                     let mut ctx = BodyCtx::new(self.db, self.source, self.file);
+                    ctx.id_source = Some(IdSource::BodySource(BodyMapSource::Field {
+                        struct_id: struct_id.unwrap(),
+                        field,
+                    }));
                     let body_expr = ctx.expr(e)?;
                     Some(FieldBody {
                         body_map: ctx.map.into(),
                         body_expr,
                     })
                 });
-                self.alloc_elem(ElemKind::Field(Field::new(self.db, name, ty, body)), elem)
+                (self.alloc_elem(ElemKind::Field(field), elem), body)
             }
             parsing::Elem::FnItem(fn_item) => {
                 let name = Symbol::new(self.db, fn_item.name().and_then(|n| n.text(self.source))?);
@@ -787,7 +830,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
                 let InnerItem::Function(item) = item else {
                     return None;
                 };
-                self.alloc_elem(ElemKind::Function(item), elem)
+                (self.alloc_elem(ElemKind::Function(item), elem), None)
             }
         })
     }
@@ -859,8 +902,8 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
     fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> Option<TypeExpr<'db>> {
         Some(match type_expr {
             parsing::TypeExpr::DynType(dyn_type) => {
-                let path = self.path(dyn_type.path()?)?;
-                self.alloc_type_expr(TypeExprKind::Dyn(path), type_expr)
+                let bounds = dyn_type.bounds().filter_map(|b| self.path(b)).collect_vec();
+                self.alloc_type_expr(TypeExprKind::Dyn(PathList::new(self.db, bounds)), type_expr)
             }
             parsing::TypeExpr::ParenType(paren_type) => {
                 let ty = paren_type.type_expr().and_then(|ty| self.type_expr(ty))?;
@@ -980,7 +1023,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
         type_expr_ast: parsing::TypeExpr,
     ) -> TypeExpr<'db> {
         let id = self.map.insert_type_expr(type_expr_ast);
-        TypeExpr::new(self.db, id, type_expr)
+        TypeExpr::new(self.db, id, self.id_source.unwrap(), type_expr)
     }
 
     fn alloc_pat(&mut self, pat: PatKind<'db>, pat_ast: parsing::Pattern) -> Pat<'db> {
@@ -1017,9 +1060,9 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
     }
 }
 
-fn item_map_ctx<'db>(db: &'db dyn salsa::Database, file: File) -> ItemMapCtx<'db, 'db> {
+fn item_map_ctx<'db>(db: &'db dyn salsa::Database, file: File) -> ContentsMapCtx<'db, 'db> {
     let source = file.contents(db);
-    ItemMapCtx::new(db, source, file)
+    ContentsMapCtx::new(db, source, file)
 }
 
 fn body_ctx<'db>(db: &'db dyn salsa::Database, file: File) -> BodyCtx<'db, 'db> {
@@ -1029,16 +1072,16 @@ fn body_ctx<'db>(db: &'db dyn salsa::Database, file: File) -> BodyCtx<'db, 'db> 
 
 #[salsa::tracked]
 impl<'db> ImplBlock<'db> {
-    #[salsa::tracked]
-    pub fn contents(self, db: &'db dyn salsa::Database) -> Option<ImplContents<'db>> {
+    #[salsa::tracked(returns(ref))]
+    pub fn contents(self, db: &'db dyn salsa::Database) -> ImplContents<'db> {
         let ctx = item_map_ctx(db, self.file(db));
-        ctx.impl_contents(self)
+        ctx.impl_contents(self).unwrap()
     }
 }
 
 #[salsa::tracked]
 impl<'db> Struct<'db> {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(ref))]
     pub fn contents(self, db: &'db dyn salsa::Database) -> StructContents<'db> {
         let ctx = item_map_ctx(db, self.file(db));
         ctx.struct_item(self).unwrap()
@@ -1047,7 +1090,7 @@ impl<'db> Struct<'db> {
 
 #[salsa::tracked]
 impl<'db> Enum<'db> {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(ref))]
     pub fn contents(self, db: &'db dyn salsa::Database) -> EnumContents<'db> {
         let ctx = item_map_ctx(db, self.file(db));
         ctx.enum_item(self).unwrap()
@@ -1056,16 +1099,16 @@ impl<'db> Enum<'db> {
 
 #[salsa::tracked]
 impl<'db> Function<'db> {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(ref))]
     pub fn contents(self, db: &'db dyn salsa::Database) -> FunctionContents<'db> {
         let ctx = item_map_ctx(db, self.file(db));
         ctx.fn_contents(self).unwrap()
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(ref))]
     pub fn body(self, db: &'db dyn salsa::Database) -> FunctionBody<'db> {
         let ctx = body_ctx(db, self.file(db));
-        todo!()
+        ctx.fn_item(self).unwrap()
     }
 }
 
@@ -1150,7 +1193,7 @@ impl<'db> UseItem<'db> {
 #[salsa::tracked]
 impl<'db> File {
     #[salsa::tracked(returns(ref))]
-    pub fn items(self, db: &'db dyn salsa::Database) -> Arc<Vec<Item<'db>>> {
+    pub fn items(self, db: &'db dyn salsa::Database) -> Items<'db> {
         self.lower(db).0
     }
 
@@ -1168,10 +1211,11 @@ impl<'db> File {
     fn lower(
         self,
         db: &'db dyn salsa::Database,
-    ) -> (Arc<Vec<Item<'db>>>, Arc<AstIdMap>, Arc<ItemsMap<'db>>) {
+    ) -> (Items<'db>, Arc<AstIdMap>, Arc<ItemsMap<'db>>) {
         let parse = self.parse(db);
         let ctx = Ctx::new(db, self.contents(db), parse.file(db).unwrap(), self);
         let (items, id_map, items_map) = ctx.lower();
+        let items = Items::new(db, items);
         (items.into(), id_map.into(), items_map.into())
     }
 }

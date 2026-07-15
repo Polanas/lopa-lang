@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use crate::def::{
-    UseTreeId,
-    hir::{EnumId, FunctionId, ModuleId, StructId, UseItemId},
+    TypeExprId, UseTreeId,
+    hir::{EnumId, FunctionId, IdSource, IdSourcePure, ModuleId, StructId, UseItemId},
 };
 
 //TODO: refactor this (add more kinds for each class of error like in rust)
@@ -27,6 +27,10 @@ pub enum DiagnosticLocation {
     Param {
         fn_item: FunctionId,
         param_num: usize,
+    },
+    TypeExpr {
+        id: TypeExprId,
+        source: IdSourcePure,
     },
     Range(Range<usize>),
 }

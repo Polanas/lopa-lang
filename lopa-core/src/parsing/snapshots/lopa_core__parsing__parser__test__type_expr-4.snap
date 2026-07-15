@@ -1,15 +1,49 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"(dyn Debug)?\", |p| p.type_expr())"
+expression: "parse(\"(dyn Debug + Foo<T> + Bar<X,Y>)?\", |p| p.type_expr())"
 ---
-NILABLE_TYPE: 0..12 
-  PAREN_TYPE: 0..11 
+NILABLE_TYPE: 0..32 
+  PAREN_TYPE: 0..31 
     L_PAREN: 0..1 "("
-    DYN_TYPE: 1..10 
+    DYN_TYPE: 1..30 
       DYN_KW: 1..4 "dyn"
       WHITESPACE: 4..5 
-      PATH: 5..10 
-        PATH_SEGMENT: 5..10 
-          IDENT: 5..10 "Debug"
-    R_PAREN: 10..11 ")"
-  MARK: 11..12 "?"
+      PATH_TYPE: 5..10 
+        PATH: 5..10 
+          PATH_SEGMENT: 5..10 
+            IDENT: 5..10 "Debug"
+      WHITESPACE: 10..11 
+      PLUS: 11..12 "+"
+      WHITESPACE: 12..13 
+      PATH_TYPE: 13..19 
+        PATH: 13..19 
+          PATH_SEGMENT: 13..19 
+            IDENT: 13..16 "Foo"
+            GENERIC_ARGUMENTS: 16..19 
+              LT: 16..17 "<"
+              PATH_TYPE: 17..18 
+                PATH: 17..18 
+                  PATH_SEGMENT: 17..18 
+                    IDENT: 17..18 "T"
+              GT: 18..19 ">"
+      WHITESPACE: 19..20 
+      PLUS: 20..21 "+"
+      WHITESPACE: 21..22 
+      PATH_TYPE: 22..30 
+        PATH: 22..30 
+          PATH_SEGMENT: 22..30 
+            IDENT: 22..25 "Bar"
+            GENERIC_ARGUMENTS: 25..30 
+              LT: 25..26 "<"
+              PATH_TYPE: 26..27 
+                PATH: 26..27 
+                  PATH_SEGMENT: 26..27 
+                    IDENT: 26..27 "X"
+              COMMA: 27..28 ","
+              PATH_TYPE: 28..29 
+                PATH: 28..29 
+                  PATH_SEGMENT: 28..29 
+                    IDENT: 28..29 "Y"
+              GT: 29..30 ">"
+    R_PAREN: 30..31 ")"
+  MARK: 31..32 "?"

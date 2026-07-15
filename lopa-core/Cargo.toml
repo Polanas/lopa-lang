@@ -9,7 +9,7 @@ anyhow.workspace = true
 itertools.workspace = true
 indexmap.workspace = true
 
-salsa = { path = "../salsa" }
+salsa = "0.26.2"
 syntree = { path = "../syntree" }
 la-arena = { path = "../la-arena" }
 notify-rust = "4.13.1"

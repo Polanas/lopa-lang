@@ -2,10 +2,10 @@ use la_arena::{Arena, Idx};
 
 use crate::parsing::{self, AstNode};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::Update)]
 pub struct UseTreeId(Idx<parsing::NodeId>);
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, salsa::Update)]
 pub struct UseTreeMap {
     arena: Arena<parsing::NodeId>,
 }

@@ -17,7 +17,7 @@ pub use items_map::*;
 use itertools::Itertools;
 pub use use_tree_map_mod::*;
 
-use crate::{def::body_map::BodyMap, parsing};
+use crate::{def::{body_map::BodyMap, hir::{FieldBody, FunctionBody}}, parsing};
 use la_arena::Idx;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -25,18 +25,6 @@ pub struct ItemTypeExprId(pub Idx<parsing::NodeId>);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct TypeExprId(pub Idx<parsing::NodeId>);
-
-#[salsa::interned(debug)]
-pub struct TypeExprIdSource {
-    pub id: TypeExprId,
-    pub source: TypeExprSource,
-}
-
-#[derive(Debug, Clone, PartialEq, salsa::Update, Hash, Eq)]
-pub enum TypeExprSource {
-    BodyMap(Arc<BodyMap>),
-    ContentsMap(Arc<ContentsMap>),
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ElemId(pub Idx<parsing::NodeId>);

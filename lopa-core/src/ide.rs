@@ -133,7 +133,7 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
                     tree.files_by_modules.insert(module, *file);
 
                     let mut children = vec![];
-                    for item in file.items(db).iter() {
+                    for item in file.items(db).items(db).iter() {
                         if let hir::Item::Module(child) = item {
                             children.push(*child);
                             tree.parents.insert(*child, module);
@@ -158,7 +158,7 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
             }
             hir::ModuleKind::Definition { items, .. } => {
                 let mut children = vec![];
-                for item in items.iter() {
+                for item in items.items(db).iter() {
                     if let hir::Item::Module(child) = item {
                         children.push(*child);
                         tree.parents.insert(*child, module);
@@ -172,7 +172,7 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
                 tree.modules_by_files.insert(root_file, module);
                 tree.files_by_modules.insert(module, root_file);
                 let mut children = vec![];
-                for item in items.iter() {
+                for item in items.items(db).iter() {
                     if let hir::Item::Module(child) = item {
                         children.push(*child);
                         tree.parents.insert(*child, module);
@@ -199,16 +199,16 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
 
 #[salsa::tracked]
 impl<'db> hir::Module<'db> {
-    #[salsa::tracked(returns(ref))]
-    pub fn items(self, db: &'db dyn salsa::Database) -> Arc<Vec<hir::Item<'db>>> {
+    #[salsa::tracked]
+    pub fn items(self, db: &'db dyn salsa::Database) -> hir::Items<'db> {
         match self.kind(db) {
-            hir::ModuleKind::Root { items } => items.clone(),
-            hir::ModuleKind::Definition { items, .. } => items.clone(),
+            hir::ModuleKind::Root { items } => *items,
+            hir::ModuleKind::Definition { items, .. } => *items,
             hir::ModuleKind::Declaration { .. } => self
                 .file(db)
                 .map(|f| f.items(db).clone())
                 //TODO: replace with interned list?
-                .unwrap_or_else(|| Arc::new(vec![])),
+                .unwrap_or_else(|| hir::Items::new(db, [])),
         }
     }
 
@@ -339,6 +339,18 @@ impl<'db> File {
         diagnostics
             .into_iter()
             .filter_map(|d| match d.location {
+                DiagnosticLocation::TypeExpr { id, source } => {
+                    let id = match source {
+                        hir::IdSourcePure::BodySource(body_map) => body_map[id],
+                        hir::IdSourcePure::ContentsSource(contents_map) => contents_map[id],
+                    };
+                    let node = tree.get(id)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: node.range(),
+                        kind: d.kind,
+                    })
+                }
                 DiagnosticLocation::Struct(ast_id) => {
                     let id = ast_id.file.ast_map(db)[ast_id];
                     let node = tree.get(id).and_then(parsing::StructItem::cast)?;

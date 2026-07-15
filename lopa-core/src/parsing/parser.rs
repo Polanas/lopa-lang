@@ -771,7 +771,7 @@ impl<'a> Parser<'a> {
                 }),
                 T![dyn] => self.with(DYN_TYPE, |this| {
                     this.expect(T![dyn]);
-                    this.type_path();
+                    this.dyn_bounds();
                 }),
                 T!["("] => {
                     self.expect(T!["("]);
@@ -836,6 +836,13 @@ impl<'a> Parser<'a> {
             }
         } else {
             self.advance_with_error(SyntaxErrorKind::ExpectedType);
+        }
+    }
+
+    fn dyn_bounds(&mut self) {
+        self.type_expr();
+        while self.ate(T![+]) {
+            self.type_expr();
         }
     }
 
@@ -2257,7 +2264,7 @@ mod test {
         insta::assert_snapshot!(parse("int", |p| p.type_expr()));
         insta::assert_snapshot!(parse("NotInt", |p| p.type_expr()));
         insta::assert_snapshot!(parse("fn(a : int, string) -> Result", |p| p.type_expr()));
-        insta::assert_snapshot!(parse("(dyn Debug)?", |p| p.type_expr()));
+        insta::assert_snapshot!(parse("(dyn Debug + Foo<T> + Bar<X,Y>)?", |p| p.type_expr()));
         insta::assert_snapshot!(parse("Generic::Path<A,B>::Yay", |p| p.type_expr()));
         insta::assert_snapshot!(parse("(int, string, yo,)", |p| p.type_expr()));
         insta::assert_snapshot!(parse("((),)", |p| p.type_expr()));

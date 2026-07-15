@@ -1,4 +1,6 @@
-use crate::def::{Symbol, TypeExprId, TypeExprSource};
+use itertools::Itertools;
+
+use crate::def::Symbol;
 use crate::{common::LitKind, def::hir};
 
 #[salsa::interned(debug)]
@@ -13,12 +15,12 @@ pub struct PathSegment<'db> {
     pub generics: TypeList<'db>,
 }
 
-#[salsa::interned(debug)]
-pub struct TypeWithId<'db> {
-    pub ty: Type<'db>,
-    pub id: TypeExprId,
-    pub source: TypeExprSource,
-}
+// #[salsa::interned(debug)]
+// pub struct TypeWithId<'db> {
+//     pub ty: Type<'db>,
+//     pub id: TypeExprId,
+//     pub source: TypeExprSourced,
+// }
 
 #[salsa::interned(debug)]
 pub struct Type<'db> {
@@ -46,7 +48,7 @@ pub enum TypeKind<'db> {
         generics: TypeList<'db>,
     },
     BareFn(BareFn<'db>),
-    Dyn(DynBounds<'db>),
+    Dyn(TypeList<'db>),
     Tuple(TypeList<'db>),
     Nilable(Type<'db>),
 }
@@ -70,21 +72,26 @@ pub struct BareFnParam<'db> {
 }
 
 #[salsa::interned(debug)]
-pub struct DynBounds<'db> {
-    #[returns(ref)]
-    pub bounds: Vec<DynBound<'db>>,
-}
-
-#[salsa::interned(debug)]
-pub struct DynBound<'db> {
-    pub struct_item: hir::Struct<'db>,
-    pub generics: TypeList<'db>,
-}
-
-#[salsa::interned(debug)]
 pub struct TypeList<'db> {
     #[returns(ref)]
     pub types: Vec<Type<'db>>,
+}
+
+impl<'db> TypeList<'db> {
+    pub fn from_generics(db: &'db dyn salsa::Database, generics: Generics<'db>) -> Self {
+        if generics.params(db).is_empty() {
+            return Self::new(db, []);
+        }
+
+        Self::new(
+            db,
+            generics
+                .params(db)
+                .iter()
+                .map(|p| Type::new(db, TypeKind::Generic(p.name(db))))
+                .collect_vec(),
+        )
+    }
 }
 
 #[salsa::interned(debug)]
@@ -103,4 +110,24 @@ impl<'db> Generics<'db> {
 pub struct GenericParam<'db> {
     pub name: Symbol,
     pub bounds: TypeList<'db>,
+}
+
+#[salsa::interned(debug)]
+pub struct FnParam<'db> {
+    pub name: Option<Symbol>,
+    pub ty: Type<'db>,
+}
+
+#[salsa::interned(debug)]
+pub struct FnParams<'db> {
+    pub params: Vec<FnParam<'db>>,
+}
+
+#[salsa::tracked]
+impl<'db> hir::Function<'db> {
+    #[salsa::tracked]
+    pub fn params(self, db: &'db dyn salsa::Database) -> FnParams<'db> {
+        // let mut params = vec![];
+        todo!()
+    }
 }
