@@ -104,6 +104,10 @@ impl<'db> Generics<'db> {
     pub fn empty(db: &'db dyn salsa::Database) -> Self {
         Self::new(db, [])
     }
+
+    pub fn param(&self, db: &'db dyn salsa::Database, name: Symbol) -> Option<&GenericParam<'db>> {
+        self.params(db).iter().find(|p| p.name(db) == name)
+    }
 }
 
 #[salsa::interned(debug)]

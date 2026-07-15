@@ -2359,6 +2359,7 @@ mod test {
         insta::assert_snapshot!(parse("std::Vec<int>::new()", |p| p.expr()));
         insta::assert_snapshot!(parse("(1,2,3)", |p| p.expr()));
         insta::assert_snapshot!(parse("((),)", |p| p.expr()));
+        insta::assert_snapshot!(parse("Foo<i32>::bar<string>()", |p| p.expr()));
     }
 
     #[test]

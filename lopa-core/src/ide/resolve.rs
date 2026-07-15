@@ -22,101 +22,6 @@ pub enum ResolveItemResult<'db> {
 }
 
 #[salsa::tracked]
-pub fn resolve_type_expr<'db>(
-    db: &'db dyn salsa::Database,
-    ty: hir::TypeExpr<'db>,
-    generics: Option<mir::Generics<'db>>,
-    self_ty: Option<Type<'db>>,
-) -> Type<'db> {
-    match ty.kind(db) {
-        hir::TypeExprKind::Fn { params, output } => Type::new(
-            db,
-            TypeKind::BareFn(BareFn::new(
-                db,
-                BareFnParams::new(
-                    db,
-                    params
-                        .params(db)
-                        .iter()
-                        .map(|p| {
-                            BareFnParam::new(
-                                db,
-                                p.name(db),
-                                p.ty(db)
-                                    .map(|t| resolve_type_expr(db, t, generics, self_ty))
-                                    .unwrap_or_else(|| Type::new(db, TypeKind::Unit)),
-                            )
-                        })
-                        .collect_vec(),
-                ),
-                output
-                    .map(|t| resolve_type_expr(db, t, generics, self_ty))
-                    .unwrap_or_else(|| Type::new(db, TypeKind::Unit)),
-            )),
-        ),
-        hir::TypeExprKind::Tuple(types) => Type::new(
-            db,
-            TypeKind::Tuple(TypeList::new(
-                db,
-                types
-                    .types(db)
-                    .iter()
-                    .map(|t| resolve_type_expr(db, *t, generics, self_ty))
-                    .collect_vec(),
-            )),
-        ),
-        hir::TypeExprKind::Path(path) => resolve_type_path(db, path, generics, self_ty),
-        hir::TypeExprKind::Dyn(bounds) => Type::new(
-            db,
-            TypeKind::Dyn(TypeList::new(
-                db,
-                bounds
-                    .paths(db)
-                    .iter()
-                    .map(|p| resolve_type_path(db, *p, generics, self_ty))
-                    .collect_vec(),
-            )),
-        ),
-        hir::TypeExprKind::Nilable(type_expr) => Type::new(
-            db,
-            TypeKind::Nilable(resolve_type_expr(db, type_expr, generics, self_ty)),
-        ),
-        hir::TypeExprKind::Paren(type_expr) => resolve_type_expr(db, type_expr, generics, self_ty),
-        hir::TypeExprKind::Lit(lit_kind) => Type::new(db, TypeKind::Lit(lit_kind)),
-        hir::TypeExprKind::Any => Type::new(db, TypeKind::Any),
-        hir::TypeExprKind::Unit => Type::new(db, TypeKind::Unit),
-        hir::TypeExprKind::Never => Type::new(db, TypeKind::Never),
-        hir::TypeExprKind::SelfTy => {
-            if let Some(self_ty) = self_ty {
-                self_ty
-            } else {
-                Diagnostic {
-                    message: "cannot find type `Self` in this scope".to_string(),
-                    location: DiagnosticLocation::TypeExpr {
-                        id: ty.id(db),
-                        source: ty.source(db).get_pure(db),
-                    },
-                    kind: DiagnosticKind::TypeError,
-                }
-                .accumulate(db);
-                Type::new(db, TypeKind::Unknown)
-            }
-        }
-    }
-}
-
-#[salsa::tracked]
-pub fn resolve_type_path<'db>(
-    db: &'db dyn salsa::Database,
-    path: hir::Path<'db>,
-    generics: Option<mir::Generics<'db>>,
-    self_ty: Option<Type<'db>>,
-) -> Type<'db> {
-    todo!()
-    // if let [first] = path.
-}
-
-#[salsa::tracked]
 pub fn resolve_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
 
@@ -150,6 +55,184 @@ fn resolve_path_cycle_result<'db>(
 
 #[salsa::tracked]
 impl<'db> Module<'db> {
+    #[salsa::tracked]
+    pub fn resolve_type_expr(
+        self,
+        db: &'db dyn salsa::Database,
+        ty: hir::TypeExpr<'db>,
+        generics: Option<mir::Generics<'db>>,
+        self_ty: Option<Type<'db>>,
+    ) -> Type<'db> {
+        match ty.kind(db) {
+            hir::TypeExprKind::Fn { params, output } => Type::new(
+                db,
+                TypeKind::BareFn(BareFn::new(
+                    db,
+                    BareFnParams::new(
+                        db,
+                        params
+                            .params(db)
+                            .iter()
+                            .map(|p| {
+                                BareFnParam::new(
+                                    db,
+                                    p.name(db),
+                                    p.ty(db)
+                                        .map(|t| self.resolve_type_expr(db, t, generics, self_ty))
+                                        .unwrap_or_else(|| Type::new(db, TypeKind::Unit)),
+                                )
+                            })
+                            .collect_vec(),
+                    ),
+                    output
+                        .map(|t| self.resolve_type_expr(db, t, generics, self_ty))
+                        .unwrap_or_else(|| Type::new(db, TypeKind::Unit)),
+                )),
+            ),
+            hir::TypeExprKind::Tuple(types) => Type::new(
+                db,
+                TypeKind::Tuple(TypeList::new(
+                    db,
+                    types
+                        .types(db)
+                        .iter()
+                        .map(|t| self.resolve_type_expr(db, *t, generics, self_ty))
+                        .collect_vec(),
+                )),
+            ),
+            hir::TypeExprKind::Path(_) => self.resolve_type_path(db, ty, generics, self_ty),
+            hir::TypeExprKind::Dyn(bounds) => Type::new(
+                db,
+                TypeKind::Dyn(TypeList::new(
+                    db,
+                    bounds
+                        .types(db)
+                        .iter()
+                        .map(|ty| self.resolve_type_path(db, *ty, generics, self_ty))
+                        .collect_vec(),
+                )),
+            ),
+            hir::TypeExprKind::Nilable(type_expr) => Type::new(
+                db,
+                TypeKind::Nilable(self.resolve_type_expr(db, type_expr, generics, self_ty)),
+            ),
+            hir::TypeExprKind::Paren(type_expr) => {
+                self.resolve_type_expr(db, type_expr, generics, self_ty)
+            }
+            hir::TypeExprKind::Lit(lit_kind) => Type::new(db, TypeKind::Lit(lit_kind)),
+            hir::TypeExprKind::Any => Type::new(db, TypeKind::Any),
+            hir::TypeExprKind::Unit => Type::new(db, TypeKind::Unit),
+            hir::TypeExprKind::Never => Type::new(db, TypeKind::Never),
+            hir::TypeExprKind::SelfTy => {
+                if let Some(self_ty) = self_ty {
+                    self_ty
+                } else {
+                    Diagnostic {
+                        message: "cannot find type `Self` in this scope".to_string(),
+                        location: DiagnosticLocation::TypeExpr {
+                            id: ty.id(db),
+                            source: ty.source(db).get_pure(db),
+                        },
+                        kind: DiagnosticKind::TypeError,
+                    }
+                    .accumulate(db);
+                    Type::new(db, TypeKind::Unknown)
+                }
+            }
+        }
+    }
+
+    #[salsa::tracked]
+    pub fn resolve_type_path(
+        self,
+        db: &'db dyn salsa::Database,
+        path_expr: hir::TypeExpr<'db>,
+        generics: Option<mir::Generics<'db>>,
+        self_ty: Option<Type<'db>>,
+    ) -> Type<'db> {
+        let hir::TypeExprKind::Path(path) = path_expr.kind(db) else {
+            unreachable!();
+        };
+        if let [first] = path.segments(db).as_slice()
+            && let Some(generics) = generics
+            && let Some(param) = generics.param(db, first.name(db))
+        {
+            return Type::new(db, TypeKind::Generic(param.name(db)));
+        }
+
+        //TODO: figure out what to do with stuff like
+        //Vec<i32>::new
+        // let generic_args = path.segments()
+
+        let Some(item) = self.resolve_path_item(db, path.as_symbol_list(db)) else {
+            Diagnostic {
+                message: format!(
+                    "cannot find type `{} in this scope",
+                    path.segments(db).last().unwrap().name(db).value(db)
+                ),
+                location: DiagnosticLocation::TypeExpr {
+                    id: path_expr.id(db),
+                    source: path_expr.source(db).get_pure(db),
+                },
+                kind: DiagnosticKind::TypeError,
+            }
+            .accumulate(db);
+            return Type::new(db, TypeKind::Unknown);
+        };
+        match item {
+            ResolveItemResult::Type(ty) | ResolveItemResult::Both { ty, .. } => match ty {
+                ModuleDef::Struct(item) => Type::new(
+                    db,
+                    TypeKind::Struct {
+                        value: item,
+                        generics: TypeList::new(db, []),
+                    },
+                ),
+                ModuleDef::Enum(item) => Type::new(
+                    db,
+                    TypeKind::Enum {
+                        value: item,
+                        generics: TypeList::new(db, []),
+                    },
+                ),
+                ModuleDef::Module(module) => {
+                    Diagnostic {
+                        message: format!(
+                            "expected type, got module `{}`",
+                            module.name(db).value(db)
+                        ),
+                        location: DiagnosticLocation::TypeExpr {
+                            id: path_expr.id(db),
+                            source: path_expr.source(db).get_pure(db),
+                        },
+                        kind: DiagnosticKind::TypeError,
+                    }
+                    .accumulate(db);
+                    Type::new(db, TypeKind::Unknown)
+                }
+                ModuleDef::Function(function) => unreachable!(),
+            },
+            ResolveItemResult::Value(value) => match value {
+                ModuleDef::Function(function) => {
+                    Diagnostic {
+                        message: format!(
+                            "expected type, got function `{}`",
+                            function.name(db).value(db)
+                        ),
+                        location: DiagnosticLocation::TypeExpr {
+                            id: path_expr.id(db),
+                            source: path_expr.source(db).get_pure(db),
+                        },
+                        kind: DiagnosticKind::TypeError,
+                    }
+                    .accumulate(db);
+                    Type::new(db, TypeKind::Unknown)
+                }
+                ModuleDef::Struct(_) | ModuleDef::Enum(_) | ModuleDef::Module(_) => todo!(),
+            },
+        }
+    }
+
     #[salsa::tracked(cycle_result=resolve_path_cycle_result)]
     pub fn resolve_path_item(
         self,

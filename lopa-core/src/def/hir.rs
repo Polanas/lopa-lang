@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
+
 use crate::{
     common::{BinaryOpKind, LitKind, UnaryOpKind},
     def::{
-        AstId, ContentsMap, ElemId, ExprId, ItemTypeExprId, PatId, StmtId, Symbol, TypeExprId,
-        UseTreeId, body_map::BodyMap,
+        AstId, ContentsMap, ElemId, ExprId, ItemTypeExprId, PatId, StmtId, Symbol, SymbolList,
+        TypeExprId, UseTreeId, body_map::BodyMap,
     },
     ide::{self, InFile},
     parsing::{self},
@@ -528,7 +530,7 @@ pub enum TypeExprKind<'db> {
     Tuple(TypeExprList<'db>),
     Lit(LitKind),
     Path(Path<'db>),
-    Dyn(PathList<'db>),
+    Dyn(TypeExprList<'db>),
     Nilable(TypeExpr<'db>),
     Paren(TypeExpr<'db>),
     Fn {
@@ -581,6 +583,15 @@ pub struct Path<'db> {
     pub segments: Vec<PathSegment<'db>>,
 }
 
+impl<'db> Path<'db> {
+    pub fn as_symbol_list(&self, db: &'db dyn salsa::Database) -> SymbolList {
+        SymbolList::new(
+            db,
+            self.segments(db).iter().map(|s| s.name(db)).collect_vec(),
+        )
+    }
+}
+
 #[salsa::tracked(debug)]
 pub struct PathList<'db> {
     #[returns(ref)]
@@ -589,7 +600,7 @@ pub struct PathList<'db> {
 
 #[salsa::tracked(debug)]
 pub struct PathSegment<'db> {
-    pub ident: Symbol,
+    pub name: Symbol,
     pub args: GenericArgs<'db>,
 }
 

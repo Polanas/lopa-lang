@@ -349,8 +349,14 @@ impl<'db, 's> BodyCtx<'db, 's> {
     fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> Option<TypeExpr<'db>> {
         Some(match type_expr {
             parsing::TypeExpr::DynType(dyn_type) => {
-                let bounds = dyn_type.bounds().filter_map(|b| self.path(b)).collect_vec();
-                self.alloc_type_expr(TypeExprKind::Dyn(PathList::new(self.db, bounds)), type_expr)
+                let bounds = dyn_type
+                    .bounds()
+                    .filter_map(|b| self.type_expr(b))
+                    .collect_vec();
+                self.alloc_type_expr(
+                    TypeExprKind::Dyn(TypeExprList::new(self.db, bounds)),
+                    type_expr,
+                )
             }
             parsing::TypeExpr::ParenType(paren_type) => {
                 let ty = paren_type.type_expr().and_then(|ty| self.type_expr(ty))?;
@@ -902,8 +908,14 @@ impl<'db, 's> ContentsMapCtx<'db, 's> {
     fn type_expr(&mut self, type_expr: parsing::TypeExpr) -> Option<TypeExpr<'db>> {
         Some(match type_expr {
             parsing::TypeExpr::DynType(dyn_type) => {
-                let bounds = dyn_type.bounds().filter_map(|b| self.path(b)).collect_vec();
-                self.alloc_type_expr(TypeExprKind::Dyn(PathList::new(self.db, bounds)), type_expr)
+                let bounds = dyn_type
+                    .bounds()
+                    .filter_map(|b| self.type_expr(b))
+                    .collect_vec();
+                self.alloc_type_expr(
+                    TypeExprKind::Dyn(TypeExprList::new(self.db, bounds)),
+                    type_expr,
+                )
             }
             parsing::TypeExpr::ParenType(paren_type) => {
                 let ty = paren_type.type_expr().and_then(|ty| self.type_expr(ty))?;
