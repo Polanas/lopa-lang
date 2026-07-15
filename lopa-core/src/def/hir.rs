@@ -76,7 +76,7 @@ impl<'db> BodyMapSource<'db> {
     }
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Expr<'db> {
     pub id: ExprId,
     pub kind: ExprKind<'db>,
@@ -152,43 +152,43 @@ pub enum ExprKind<'db> {
     },
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct ExprList<'db> {
     #[returns(ref)]
     pub types: Vec<Expr<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct ClosureParams<'db> {
     #[returns(ref)]
     pub params: Vec<ClosureParam<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct ClosureParam<'db> {
     pub pattern: Pat<'db>,
     pub ty: Option<TypeExpr<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct RecordFields<'db> {
     #[returns(ref)]
     pub fields: Vec<RecordField<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct RecordField<'db> {
     pub name: Symbol,
     pub expr: Expr<'db>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Args<'db> {
     #[returns(ref)]
     pub args: Vec<Arg<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Arg<'db> {
     pub kind: ArgKind<'db>,
 }
@@ -238,7 +238,7 @@ pub enum PatKind<'db> {
     Wildcard,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Pat<'db> {
     pub id: PatId,
     pub kind: PatKind<'db>,
@@ -261,7 +261,7 @@ pub enum Item<'db> {
     Impl(ImplBlock<'db>),
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Items<'db> {
     #[returns(ref)]
     pub items: Vec<Item<'db>>,
@@ -356,7 +356,7 @@ pub struct FnBodyParams<'db> {
     pub params: Vec<FnBodyParam<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct FnBodyParam<'db> {
     pub kind: FnBodyParamKind<'db>,
 }
@@ -399,14 +399,14 @@ pub struct Generics<'db> {
     pub params: Vec<GenericParam<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct GenericParam<'db> {
     pub ident: Symbol,
     #[returns(ref)]
     pub bounds: Vec<TypeExpr<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Elem<'db> {
     pub id: ElemId,
     pub kind: ElemKind<'db>,
@@ -418,7 +418,7 @@ pub enum ElemKind<'db> {
     Function(Function<'db>),
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Field<'db> {
     pub name: Option<Symbol>,
     pub ty: Option<ItemTypeExpr<'db>>,
@@ -445,41 +445,41 @@ pub struct UseItem<'db> {
     pub id: UseItemId,
 }
 
-#[salsa::interned(no_lifetime, debug)]
-pub struct UseTree {
-    pub kind: UseTreeKind,
+#[salsa::tracked(debug)]
+pub struct UseTree<'db> {
+    pub kind: UseTreeKind<'db>,
     pub id: UseTreeId,
 }
 
 #[derive(salsa::Update, PartialEq, Clone, Copy, Hash, Debug, Eq)]
-pub enum UseTreeKind {
-    Path { name: Symbol, use_tree: UseTree },
-    Super { use_tree: UseTree },
-    Root { use_tree: UseTree },
-    TreeList(UseTreeList),
+pub enum UseTreeKind<'db> {
+    Path {
+        name: Symbol,
+        use_tree: UseTree<'db>,
+    },
+    Super {
+        use_tree: UseTree<'db>,
+    },
+    Root {
+        use_tree: UseTree<'db>,
+    },
+    TreeList(UseTreeList<'db>),
     Name(Symbol),
     SelfUse,
     Global,
 }
 
-#[salsa::interned(no_lifetime, debug)]
-pub struct UseTreeList {
+#[salsa::tracked(debug)]
+pub struct UseTreeList<'db> {
     #[returns(ref)]
-    pub items: Vec<UseTree>,
+    pub items: Vec<UseTree<'db>>,
 }
 
 #[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
 pub enum ModuleKind<'db> {
-    Root {
-        items: Items<'db>,
-    },
-    Definition {
-        items: Items<'db>,
-        id: ModuleId,
-    },
-    Declaration {
-        id: ModuleId,
-    },
+    Root { items: Items<'db> },
+    Definition { items: Items<'db>, id: ModuleId },
+    Declaration { id: ModuleId },
 }
 
 #[salsa::tracked(debug)]
@@ -499,7 +499,7 @@ impl<'db> Module<'db> {
     }
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct ItemTypeExpr<'db> {
     pub id: ItemTypeExprId,
     pub kind: ItemTypeExprKind<'db>,
@@ -512,7 +512,7 @@ pub enum ItemTypeExprKind<'db> {
     Enum(Enum<'db>),
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct TypeExpr<'db> {
     pub id: TypeExprId,
     pub source: IdSource<'db>,
@@ -537,19 +537,19 @@ pub enum TypeExprKind<'db> {
     },
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct TypeExprList<'db> {
     #[returns(ref)]
     pub types: Vec<TypeExpr<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct FnParamList<'db> {
     #[returns(ref)]
     pub params: Vec<FnParam<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct FnParam<'db> {
     pub kind: FnParamKind<'db>,
 }
@@ -563,37 +563,37 @@ pub enum FnParamKind<'db> {
     },
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct FnTypeParam<'db> {
     pub name: Option<Symbol>,
     pub ty: Option<TypeExpr<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct FnTypeParamList<'db> {
     #[returns(ref)]
     pub params: Vec<FnTypeParam<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct Path<'db> {
     #[returns(ref)]
     pub segments: Vec<PathSegment<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct PathList<'db> {
     #[returns(ref)]
     pub paths: Vec<Path<'db>>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct PathSegment<'db> {
     pub ident: Symbol,
     pub args: GenericArgs<'db>,
 }
 
-#[salsa::interned(debug)]
+#[salsa::tracked(debug)]
 pub struct GenericArgs<'db> {
     #[returns(ref)]
     pub generic_args: Vec<Option<TypeExpr<'db>>>,

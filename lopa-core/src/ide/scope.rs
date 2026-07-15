@@ -24,8 +24,8 @@ pub struct ModuleScope<'db> {
     pub values: indexmap::IndexMap<Symbol, ModuleDef<'db>>,
     pub types: indexmap::IndexMap<Symbol, ModuleDef<'db>>,
 
-    pub visible_values: indexmap::IndexMap<Symbol, ScopeName>,
-    pub visible_types: indexmap::IndexMap<Symbol, ScopeName>,
+    pub visible_values: indexmap::IndexMap<Symbol, ScopeName<'db>>,
+    pub visible_types: indexmap::IndexMap<Symbol, ScopeName<'db>>,
 
     pub global_imports: Vec<SymbolList>,
 }
@@ -56,16 +56,16 @@ impl<'db> ModuleScope<'db> {
     }
 }
 
-#[salsa::interned(debug, no_lifetime)]
-pub struct ScopeName {
+#[salsa::tracked(debug)]
+pub struct ScopeName<'db> {
     pub path: SymbolList,
     pub location: DiagnosticLocation,
 }
 
 struct ScopeNames<'db> {
     db: &'db dyn salsa::Database,
-    values: indexmap::IndexMap<Symbol, ScopeName>,
-    types: indexmap::IndexMap<Symbol, ScopeName>,
+    values: indexmap::IndexMap<Symbol, ScopeName<'db>>,
+    types: indexmap::IndexMap<Symbol, ScopeName<'db>>,
 }
 
 impl<'db> ScopeNames<'db> {
@@ -79,9 +79,9 @@ impl<'db> ScopeNames<'db> {
 
     fn insert(
         name: Symbol,
-        scope_name: ScopeName,
+        scope_name: ScopeName<'db>,
         db: &dyn salsa::Database,
-        names: &mut indexmap::IndexMap<Symbol, ScopeName>,
+        names: &mut indexmap::IndexMap<Symbol, ScopeName<'db>>,
     ) {
         //TODO: try to choose order based on id number (id bigger -> item lower)
         if let Some(old) = names.insert(name, scope_name) {
@@ -94,16 +94,16 @@ impl<'db> ScopeNames<'db> {
         }
     }
 
-    fn insert_value_type(&mut self, name: Symbol, scope_name: ScopeName) {
+    fn insert_value_type(&mut self, name: Symbol, scope_name: ScopeName<'db>) {
         self.insert_value(name, scope_name);
         self.insert_type(name, scope_name);
     }
 
-    fn insert_value(&mut self, name: Symbol, scope_name: ScopeName) {
+    fn insert_value(&mut self, name: Symbol, scope_name: ScopeName<'db>) {
         Self::insert(name, scope_name, self.db, &mut self.values);
     }
 
-    fn insert_type(&mut self, name: Symbol, scope_name: ScopeName) {
+    fn insert_type(&mut self, name: Symbol, scope_name: ScopeName<'db>) {
         Self::insert(name, scope_name, self.db, &mut self.types);
     }
 }

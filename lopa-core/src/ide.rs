@@ -207,8 +207,7 @@ impl<'db> hir::Module<'db> {
             hir::ModuleKind::Declaration { .. } => self
                 .file(db)
                 .map(|f| f.items(db).clone())
-                //TODO: replace with interned list?
-                .unwrap_or_else(|| hir::Items::new(db, [])),
+                .unwrap_or_else(|| hir::Items::new(db, vec![])),
         }
     }
 
