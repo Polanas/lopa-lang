@@ -1,13 +1,14 @@
 mod diagnostics;
-mod resolver;
+mod resolve;
 mod scope;
 
 pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
 };
+pub use resolve::*;
+pub use scope::*;
 
 use itertools::Itertools;
-use notify_rust::Notification;
 use salsa::Accumulator;
 
 use crate::{
@@ -17,14 +18,20 @@ use crate::{
     },
     parsing::{self, AstNode},
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{fmt::Debug, path::PathBuf, sync::Arc};
 
-#[salsa::input(debug)]
+#[salsa::input]
 pub struct Root {
     #[returns(ref)]
     pub files: Vec<File>,
     #[returns(ref)]
     pub root_dir: PathBuf,
+}
+
+impl std::fmt::Debug for Root {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Root").field(&self.0).finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, salsa::Update)]
@@ -76,12 +83,32 @@ impl<'db> Root {
     }
 }
 
-#[salsa::input(debug)]
+#[salsa::input]
 pub struct File {
     #[returns(ref)]
     pub contents: Arc<str>,
     pub path: PathBuf,
     pub root: Root,
+}
+
+impl std::fmt::Debug for File {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("File").field(&self.0).finish()
+    }
+}
+
+#[derive(Clone, salsa::Update, PartialEq, Eq, Hash, Debug)]
+pub struct InFile<T> {
+    pub value: T,
+    pub file: File,
+}
+
+impl<T: Copy> Copy for InFile<T> {}
+
+impl<T> InFile<T> {
+    pub fn new(value: T, file: File) -> Self {
+        Self { value, file }
+    }
 }
 
 #[salsa::tracked(returns(ref))]
@@ -121,7 +148,7 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
                     tree.children.insert(module, children.into());
                 } else {
                     Diagnostic {
-                        message: Symbol::new(db, format!("unresolved module: `{}`", mod_name)),
+                        message: format!("unresolved module: `{}`", mod_name),
                         location: DiagnosticLocation::Module(*id),
                         kind: DiagnosticKind::ModuleError,
                     }
@@ -243,11 +270,15 @@ pub fn module_diagnostics<'db>(
 ) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
     diagnostics.extend(
-        scope::module_scope::accumulated::<Diagnostic>(db, module)
+        module_scope::accumulated::<Diagnostic>(db, module)
             .into_iter()
             .cloned(),
     );
+    diagnostics.extend(resolve_module(db, module));
     for child in module.children(db).iter() {
+        if matches!(child.kind(db), hir::ModuleKind::Declaration { .. }) {
+            continue;
+        }
         let mut child_diagnostics = module_diagnostics(db, *child);
         diagnostics.append(&mut child_diagnostics);
     }
@@ -278,7 +309,7 @@ impl<'db> File {
         let mut diagnostics = vec![];
         let parse = self.parse(db);
         diagnostics.extend(parse.errors(db).clone().into_iter().map(|e| Diagnostic {
-            message: Symbol::new(db, e.kind.to_string()),
+            message: e.kind.to_string(),
             location: DiagnosticLocation::Range(e.range.clone()),
             kind: DiagnosticKind::SyntaxError,
         }));
@@ -308,17 +339,15 @@ impl<'db> File {
     pub fn rendered_diagnostics(self, db: &'db dyn salsa::Database) -> Vec<RenderedDiagnostic> {
         let parse = self.parse(db);
         let tree = parse.tree(db);
-        let ast_map = self.ast_map(db);
-        let items_map = self.items_map(db);
         let diagnostics = self.diagnostics(db);
         diagnostics
             .into_iter()
             .filter_map(|d| match d.location {
                 DiagnosticLocation::Struct(ast_id) => {
-                    let id = ast_map[ast_id];
+                    let id = ast_id.file.ast_map(db)[ast_id];
                     let node = tree.get(id).and_then(parsing::StructItem::cast)?;
                     Some(RenderedDiagnostic {
-                        message: d.message.value(db).clone(),
+                        message: d.message,
                         range: {
                             if let Some(struct_token) = node.struct_token()
                                 && let Some(name) = node.name()
@@ -332,10 +361,10 @@ impl<'db> File {
                     })
                 }
                 DiagnosticLocation::Enum(ast_id) => {
-                    let id = ast_map[ast_id];
+                    let id = ast_id.file.ast_map(db)[ast_id];
                     let node = tree.get(id).and_then(parsing::EnumItem::cast)?;
                     Some(RenderedDiagnostic {
-                        message: d.message.value(db).clone(),
+                        message: d.message,
                         range: {
                             if let Some(struct_token) = node.enum_token()
                                 && let Some(name) = node.name()
@@ -349,10 +378,10 @@ impl<'db> File {
                     })
                 }
                 DiagnosticLocation::Function(ast_id) => {
-                    let id = ast_map[ast_id];
+                    let id = ast_id.file.ast_map(db)[ast_id];
                     let node = tree.get(id).and_then(parsing::FnItem::cast)?;
                     Some(RenderedDiagnostic {
-                        message: d.message.value(db).clone(),
+                        message: d.message,
                         range: {
                             if let Some(struct_token) = node.fn_token()
                                 && let Some(name) = node.name()
@@ -365,28 +394,28 @@ impl<'db> File {
                         kind: d.kind,
                     })
                 }
-                DiagnosticLocation::UseTree { use_id, tree_id } => {
-                    let use_item = items_map[use_id];
-                    let use_tree_map = use_item.use_tree_map(db)?;
-                    let use_tree = use_tree_map[tree_id];
-                    let node = tree.get(use_tree)?;
-                    Some(RenderedDiagnostic {
-                        message: d.message.value(db).clone(),
-                        range: node.range(),
-                        kind: d.kind,
-                    })
-                }
-                DiagnosticLocation::Module(id) => {
-                    let id = ast_map[id];
+                DiagnosticLocation::Module(ast_id) => {
+                    let id = ast_id.file.ast_map(db)[ast_id];
                     let node = tree.get(id).and_then(parsing::ModItem::cast)?;
                     Some(RenderedDiagnostic {
-                        message: d.message.value(db).clone(),
+                        message: d.message,
                         range: node.syntax().range(),
                         kind: d.kind,
                     })
                 }
+                DiagnosticLocation::UseTree { use_id, tree_id } => {
+                    let use_item = use_id.file.items_map(db)[use_id];
+                    let use_tree_map = use_item.use_tree_map(db)?;
+                    let use_tree = use_tree_map[tree_id];
+                    let node = tree.get(use_tree)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: node.range(),
+                        kind: d.kind,
+                    })
+                }
                 DiagnosticLocation::Range(range) => Some(RenderedDiagnostic {
-                    message: d.message.value(db).clone(),
+                    message: d.message,
                     range,
                     kind: d.kind,
                 }),

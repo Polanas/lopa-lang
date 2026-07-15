@@ -1,6 +1,9 @@
 use std::ops::Range;
 
-use crate::{def::{AstId, Symbol, UseTreeId}, parsing};
+use crate::def::{
+    UseTreeId,
+    hir::{EnumId, FunctionId, ModuleId, StructId, UseItemId},
+};
 
 //TODO: refactor this (add more kinds for each class of error like in rust)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -13,16 +16,16 @@ pub enum DiagnosticKind {
 
 #[derive(Clone, PartialEq, Debug, Eq, Hash)]
 pub enum DiagnosticLocation {
-    Module(AstId<parsing::ModItem<'static>>),
-    Struct(AstId<parsing::StructItem<'static>>),
-    Enum(AstId<parsing::EnumItem<'static>>),
-    Function(AstId<parsing::FnItem<'static>>),
+    Module(ModuleId),
+    Struct(StructId),
+    Enum(EnumId),
+    Function(FunctionId),
     UseTree {
-        use_id: AstId<parsing::UseItem<'static>>,
+        use_id: UseItemId,
         tree_id: UseTreeId,
     },
     Param {
-        fn_item: AstId<parsing::FnItem<'static>>,
+        fn_item: FunctionId,
         param_num: usize,
     },
     Range(Range<usize>),
@@ -31,7 +34,7 @@ pub enum DiagnosticLocation {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[salsa::accumulator]
 pub struct Diagnostic {
-    pub message: Symbol,
+    pub message: String,
     pub location: DiagnosticLocation,
     pub kind: DiagnosticKind,
 }

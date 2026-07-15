@@ -3,7 +3,10 @@ use std::{fmt::Debug, marker::PhantomData, process::Output};
 use itertools::Itertools;
 use la_arena::{Arena, Idx};
 
-use crate::parsing::{self, AstNode};
+use crate::{
+    ide::InFile,
+    parsing::{self, AstNode},
+};
 
 pub type ErasedAstId = Idx<parsing::NodeId>;
 
@@ -75,12 +78,12 @@ macro_rules! impl_ast_id_item {
                 }
             }
 
-            impl std::ops::Index<AstId<parsing::$ty<'static>>> for AstIdMap {
+            impl std::ops::Index<InFile<AstId<parsing::$ty<'static>>>> for AstIdMap {
                 type Output = parsing::NodeId;
 
-                fn index(&self, index: AstId<parsing::$ty<'static>>) -> &Self::Output {
+                fn index(&self, index: InFile<AstId<parsing::$ty<'static>>>) -> &Self::Output {
                     let arena = &self.arenas[AstIdKind::$kind as u8 as usize];
-                    &arena[index.0]
+                    &arena[index.value.0]
                 }
             }
         )*
@@ -115,9 +118,9 @@ impl AstIdMap {
         A::as_ast_id(arena.alloc(item.id()))
     }
 
-    pub fn get<A: AstIdItem<'static>>(&self, id: AstId<A>) -> Option<parsing::NodeId> {
+    pub fn get<A: AstIdItem<'static>>(&self, id: InFile<AstId<A>>) -> Option<parsing::NodeId> {
         let arena = &self.arenas[A::KIND as u8 as usize];
-        arena.get(id.0).copied()
+        arena.get(id.value.0).copied()
     }
 }
 

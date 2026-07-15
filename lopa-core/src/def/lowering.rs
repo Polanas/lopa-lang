@@ -42,7 +42,7 @@ impl<'db, 's> BodyCtx<'db, 's> {
         let body_expr = ast_item.body().map(|b| self.block_expr(b))?;
 
         Some(FunctionBody {
-            body_map: self.map,
+            body_map: self.map.into(),
             body_expr,
             params: FnBodyParams::new(self.db, params),
         })
@@ -531,7 +531,11 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
     fn use_item(&mut self, use_item: parsing::UseItem<'ast>) -> Option<UseItem<'db>> {
         use_item.use_keyword()?;
         use_item.use_tree()?;
-        let item = UseItem::new(self.db, self.file, self.ast_id_map.insert(use_item));
+        let item = UseItem::new(
+            self.db,
+            self.file,
+            UseItemId::new(self.ast_id_map.insert(use_item), self.file),
+        );
         self.items_map.insert_use(self.db, item);
         Some(item)
     }
@@ -546,7 +550,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             Symbol::new(self.db, name),
             self.file,
             items,
-            self.ast_id_map.insert(enum_item),
+            EnumId::new(self.ast_id_map.insert(enum_item), self.file),
         );
         self.items_map.insert_enum(self.db, item);
         Some(item)
@@ -562,7 +566,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             Symbol::new(self.db, name),
             self.file,
             items,
-            self.ast_id_map.insert(struct_item),
+            StructId::new(self.ast_id_map.insert(struct_item), self.file),
         );
         self.items_map.insert_struct(self.db, item);
         Some(item)
@@ -612,7 +616,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             self.db,
             self.file,
             ImplItems::new(self.db, items),
-            self.ast_id_map.insert(impl_item),
+            ImplBlockId::new(self.ast_id_map.insert(impl_item), self.file),
         );
         self.items_map.insert_impl(self.db, item);
         Some(item)
@@ -624,7 +628,7 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             self.db,
             Symbol::new(self.db, name),
             self.file,
-            self.ast_id_map.insert(fn_item),
+            FunctionId::new(self.ast_id_map.insert(fn_item), self.file),
         );
         self.items_map.insert_fn(self.db, item);
         Some(item)
@@ -637,9 +641,11 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             self.db,
             Symbol::new(self.db, name),
             match mod_item.semi() {
-                Some(_) => ModuleKind::Declaration { id },
+                Some(_) => ModuleKind::Declaration {
+                    id: ModuleId::new(id, self.file),
+                },
                 None => ModuleKind::Definition {
-                    id,
+                    id: ModuleId::new(id, self.file),
                     items: self.items(mod_item.items()).into(),
                 },
             },
@@ -686,7 +692,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .unwrap_or_else(|| Generics::new(self.db, vec![]));
 
         Some(ImplContents {
-            item_map: self.map,
+            item_map: self.map.into(),
             generics,
             impl_types,
         })
@@ -710,7 +716,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .and_then(|ty| self.type_expr(ty));
 
         Some(FunctionContents {
-            item_map: self.map,
+            item_map: self.map.into(),
             params,
             generics,
             output,
@@ -727,7 +733,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .collect_vec();
 
         Some(EnumContents {
-            item_map: self.map,
+            item_map: self.map.into(),
             elems: ElemList::new(self.db, elems),
         })
     }
@@ -747,7 +753,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
             .collect_vec();
 
         Some(StructContents {
-            item_map: self.map,
+            item_map: self.map.into(),
             parent,
             elems: ElemList::new(self.db, elems),
         })
@@ -769,7 +775,7 @@ impl<'db, 's> ItemMapCtx<'db, 's> {
                     let mut ctx = BodyCtx::new(self.db, self.source, self.file);
                     let body_expr = ctx.expr(e)?;
                     Some(FieldBody {
-                        body_map: ctx.map,
+                        body_map: ctx.map.into(),
                         body_expr,
                     })
                 });

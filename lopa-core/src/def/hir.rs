@@ -6,7 +6,7 @@ use crate::{
         AstId, ContentsMap, ElemId, ExprId, ItemTypeExprId, PatId, StmtId, Symbol, TypeExprId,
         UseTreeId, body_map::BodyMap,
     },
-    ide::{self},
+    ide::{self, InFile},
     parsing::{self},
 };
 
@@ -178,26 +178,22 @@ pub struct Pat<'db> {
     pub kind: PatKind<'db>,
 }
 
+pub type FunctionId = InFile<AstId<parsing::FnItem<'static>>>;
+pub type StructId = InFile<AstId<parsing::StructItem<'static>>>;
+pub type EnumId = InFile<AstId<parsing::EnumItem<'static>>>;
+pub type UseItemId = InFile<AstId<parsing::UseItem<'static>>>;
+pub type ModuleId = InFile<AstId<parsing::ModItem<'static>>>;
+pub type ImplBlockId = InFile<AstId<parsing::ImplItem<'static>>>;
+
 #[derive(salsa::Supertype, PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
 pub enum Item<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
     Enum(Enum<'db>),
     Use(UseItem<'db>),
+
     Module(Module<'db>),
     Impl(ImplBlock<'db>),
-}
-
-impl<'db> Item<'db> {
-    pub fn name(&self, db: &'db dyn salsa::Database) -> Option<Symbol> {
-        Some(match self {
-            Item::Function(item) => item.name(db),
-            Item::Struct(item) => item.name(db),
-            Item::Enum(item) => item.name(db),
-            Item::Module(item) => Symbol::new(db, "some mod"),
-            Item::Use(_) | Item::Impl(_) => return None,
-        })
-    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
@@ -221,7 +217,7 @@ impl<'db> InnerItem<'db> {
 pub struct ImplBlock<'db> {
     pub file: ide::File,
     pub items: ImplItems<'db>,
-    pub id: AstId<parsing::ImplItem<'static>>,
+    pub id: ImplBlockId,
 }
 
 #[salsa::tracked(debug)]
@@ -232,7 +228,7 @@ pub struct ImplItems<'db> {
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct ImplContents<'db> {
-    pub item_map: ContentsMap,
+    pub item_map: Arc<ContentsMap>,
     pub generics: Generics<'db>,
     pub impl_types: ImplTypes<'db>,
 }
@@ -250,12 +246,12 @@ pub enum ImplTypes<'db> {
 pub struct Function<'db> {
     pub name: Symbol,
     pub file: ide::File,
-    pub id: AstId<parsing::FnItem<'static>>,
+    pub id: FunctionId,
 }
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct FunctionContents<'db> {
-    pub item_map: ContentsMap,
+    pub item_map: Arc<ContentsMap>,
     pub params: FnParamList<'db>,
     pub generics: Generics<'db>,
     pub output: Option<TypeExpr<'db>>,
@@ -272,14 +268,14 @@ pub enum ItemFnParam<'db> {
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct FunctionBody<'db> {
-    pub body_map: BodyMap,
+    pub body_map: Arc<BodyMap>,
     pub body_expr: Expr<'db>,
     pub params: FnBodyParams<'db>,
 }
 
 #[derive(salsa::Update, PartialEq, Clone, Hash, Eq, Debug)]
 pub struct FieldBody<'db> {
-    pub body_map: BodyMap,
+    pub body_map: Arc<BodyMap>,
     pub body_expr: Expr<'db>,
 }
 
@@ -309,12 +305,12 @@ pub struct Struct<'db> {
     pub file: ide::File,
     #[returns(ref)]
     pub inner_items: Vec<InnerItem<'db>>,
-    pub id: AstId<parsing::StructItem<'static>>,
+    pub id: StructId,
 }
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct StructContents<'db> {
-    pub item_map: ContentsMap,
+    pub item_map: Arc<ContentsMap>,
     pub parent: Option<Path<'db>>,
     pub elems: ElemList<'db>,
 }
@@ -363,19 +359,19 @@ pub struct Enum<'db> {
     pub file: ide::File,
     #[returns(ref)]
     pub inner_items: Vec<InnerItem<'db>>,
-    pub id: AstId<parsing::EnumItem<'static>>,
+    pub id: EnumId,
 }
 
 #[derive(salsa::Update, PartialEq, Clone)]
 pub struct EnumContents<'db> {
-    pub item_map: ContentsMap,
+    pub item_map: Arc<ContentsMap>,
     pub elems: ElemList<'db>,
 }
 
 #[salsa::tracked(debug)]
 pub struct UseItem<'db> {
     pub file: ide::File,
-    pub id: AstId<parsing::UseItem<'static>>,
+    pub id: UseItemId,
 }
 
 #[salsa::interned(no_lifetime, debug)]
@@ -408,10 +404,10 @@ pub enum ModuleKind<'db> {
     },
     Definition {
         items: Arc<Vec<Item<'db>>>,
-        id: AstId<parsing::ModItem<'static>>,
+        id: ModuleId,
     },
     Declaration {
-        id: AstId<parsing::ModItem<'static>>,
+        id: ModuleId,
     },
 }
 
@@ -424,7 +420,10 @@ pub struct Module<'db> {
 }
 
 impl<'db> Module<'db> {
-    pub fn id(&self, db: &'db dyn salsa::Database) -> Option<AstId<parsing::ModItem<'static>>> {
+    pub fn id(
+        &self,
+        db: &'db dyn salsa::Database,
+    ) -> Option<ModuleId> {
         Some(match self.kind(db) {
             ModuleKind::Definition { id, .. } | ModuleKind::Declaration { id } => *id,
             _ => return None,
