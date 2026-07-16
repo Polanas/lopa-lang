@@ -83,8 +83,7 @@ impl<'db> ScopeNames<'db> {
         db: &dyn salsa::Database,
         names: &mut indexmap::IndexMap<Symbol, ScopeName<'db>>,
     ) {
-        //TODO: try to choose order based on id number (id bigger -> item lower)
-        if let Some(old) = names.insert(name, scope_name) {
+        if let Some(_) = names.insert(name, scope_name) {
             Diagnostic {
                 message: format!("the name `{}` is defined multiple times", name.value(db)),
                 location: scope_name.location(db),

@@ -161,7 +161,7 @@ impl<'db> Module<'db> {
         }
 
         //TODO: figure out what to do with stuff like
-        //Vec<i32>::new
+        //Foo<i32>::bar<Baz>
         // let generic_args = path.segments()
 
         let Some(item) = self.resolve_path_item(db, path.as_symbol_list(db)) else {

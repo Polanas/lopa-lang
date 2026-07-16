@@ -84,7 +84,6 @@ pub struct Expr<'db> {
     pub kind: ExprKind<'db>,
 }
 
-//TODO: replace most Expr with Option<Expr> (alternative of Expr::Missing). Also same with Pat
 #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
 pub enum ExprKind<'db> {
     Unit,
