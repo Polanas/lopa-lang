@@ -65,9 +65,8 @@ impl<'db> Root {
         Some(hir::Module::new(
             db,
             Symbol::new(db, "root"),
-            hir::ModuleKind::Root {
-                items: items.clone(),
-            },
+            hir::ModuleData::Root { items },
+            hir::ModuleKind::Root,
             root_file.root(db),
         ))
     }
@@ -116,6 +115,7 @@ impl<T> InFile<T> {
 #[salsa::tracked(returns(ref))]
 pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<ModuleTree<'db>>> {
     let files_by_names = root.files_by_names(db);
+    Notification::new().body("here").show().unwrap();
     fn traverse_module<'db>(
         db: &'db dyn salsa::Database,
         module: hir::Module<'db>,
@@ -124,7 +124,7 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
         files_by_names: &indexmap::IndexMap<PathBuf, File>,
     ) {
         match module.kind(db) {
-            hir::ModuleKind::Declaration { id } => {
+            hir::ModuleKind::Declaration => {
                 let mut file_path = module_dir_path.clone();
                 let mod_name = module.name(db).value(db);
                 module_dir_path.push(mod_name);
@@ -151,34 +151,32 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
                 } else {
                     Diagnostic {
                         message: format!("unresolved module: `{}`", mod_name),
-                        location: DiagnosticLocation::Module(id),
+                        location: DiagnosticLocation::Module(
+                            module.id(db).expect("declaration modules must have ids"),
+                        ),
                         kind: DiagnosticKind::ModuleError,
                     }
                     .accumulate(db);
                 }
             }
-            hir::ModuleKind::Definition { items, .. } => {
+            hir::ModuleKind::Definition => {
                 let mut children = vec![];
-                for item in items.items(db).iter() {
-                    if let hir::Item::Module(child) = item {
-                        children.push(*child);
-                        tree.parents.insert(*child, module);
-                        traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
-                    }
+                for child in module.modules(db).modules(db).iter() {
+                    children.push(*child);
+                    tree.parents.insert(*child, module);
+                    traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
                 }
                 tree.children.insert(module, children.into());
             }
-            hir::ModuleKind::Root { items } => {
+            hir::ModuleKind::Root => {
                 let root_file = module.root(db).root_file(db).unwrap();
                 tree.modules_by_files.insert(root_file, module);
                 tree.files_by_modules.insert(module, root_file);
                 let mut children = vec![];
-                for item in items.items(db).iter() {
-                    if let hir::Item::Module(child) = item {
-                        children.push(*child);
-                        tree.parents.insert(*child, module);
-                        traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
-                    }
+                for child in module.modules(db).modules(db).iter() {
+                    children.push(*child);
+                    tree.parents.insert(*child, module);
+                    traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
                 }
                 tree.children.insert(module, children.into());
             }
@@ -201,22 +199,39 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
 #[salsa::tracked]
 impl<'db> hir::Module<'db> {
     #[salsa::tracked(returns(copy))]
+    pub fn modules(self, db: &'db dyn salsa::Database) -> hir::Modules<'db> {
+        hir::Modules::new(
+            db,
+            self.items(db)
+                .items(db)
+                .iter()
+                .filter_map(|item| {
+                    if let hir::Item::Module(item) = item {
+                        Some(*item)
+                    } else {
+                        None
+                    }
+                })
+                .collect_vec(),
+        )
+    }
+    #[salsa::tracked(returns(copy))]
     pub fn items(self, db: &'db dyn salsa::Database) -> hir::Items<'db> {
-        match self.kind(db) {
-            hir::ModuleKind::Root { items } => items,
-            hir::ModuleKind::Definition { items, .. } => items,
-            hir::ModuleKind::Declaration { .. } => self
+        match self.data(db) {
+            hir::ModuleData::Root { items } => items,
+            hir::ModuleData::Definition { items, .. } => items,
+            hir::ModuleData::Declaration { .. } => self
                 .file(db)
-                .map(|f| f.items(db).clone())
+                .map(|f| f.items(db))
                 .unwrap_or_else(|| hir::Items::new(db, vec![])),
         }
     }
 
     pub fn file(self, db: &'db dyn salsa::Database) -> Option<File> {
-        match self.kind(db) {
-            hir::ModuleKind::Root { .. } => self.root(db).root_file(db),
-            hir::ModuleKind::Definition { .. } => None,
-            hir::ModuleKind::Declaration { .. } => {
+        match self.data(db) {
+            hir::ModuleData::Root { .. } => self.root(db).root_file(db),
+            hir::ModuleData::Definition { .. } => None,
+            hir::ModuleData::Declaration { .. } => {
                 let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
                 module_tree.files_by_modules.get(&self).cloned()
             }
@@ -263,7 +278,6 @@ impl<'db> hir::Module<'db> {
     }
 }
 
-//TODO: push diagnostics for all items
 #[salsa::tracked(returns(clone))]
 pub fn module_diagnostics<'db>(
     db: &'db dyn salsa::Database,
@@ -271,8 +285,10 @@ pub fn module_diagnostics<'db>(
 ) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
     diagnostics.extend(resolve_module(db, module));
+    diagnostics.extend(&mut module_scope::accumulated(db, module).into_iter().cloned());
+
     for child in module.children(db).iter() {
-        if matches!(child.kind(db), hir::ModuleKind::Declaration { .. }) {
+        if matches!(child.data(db), hir::ModuleData::Declaration { .. }) {
             continue;
         }
         let mut child_diagnostics = module_diagnostics(db, *child);
@@ -300,6 +316,12 @@ impl<'db> File {
         parsing::Parse::new(db, tree, errors)
     }
 
+    //So, here's an issue. Currently diagnostics rely on accumulated values. That's a problem,
+    //because if some query produces a diagnostic and ends up being nested into other queries (as is
+    //the case with `module_tree`), diagnostics become duplicated.
+    //Solution 1: abandon accumulators in favor of manual diagnostic collection.
+    //Solution 2: dedup them at the end.
+
     #[salsa::tracked(returns(clone))]
     pub fn diagnostics(self, db: &dyn salsa::Database) -> Vec<Diagnostic> {
         let mut diagnostics = vec![];
@@ -310,11 +332,7 @@ impl<'db> File {
             kind: DiagnosticKind::SyntaxError,
         }));
 
-        diagnostics.extend(
-            module_tree_diagnostics::accumulated::<Diagnostic>(db, self.root(db))
-                .into_iter()
-                .cloned(),
-        );
+        diagnostics.extend(module_tree_diagnostics(db, self.root(db)).iter().cloned());
 
         if let Some(module) = self.module(db) {
             diagnostics.extend(module_diagnostics(db, module));

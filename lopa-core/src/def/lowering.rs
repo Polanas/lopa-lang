@@ -651,13 +651,17 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             self.db,
             Symbol::new(self.db, name),
             match mod_item.semi() {
-                Some(_) => ModuleKind::Declaration {
+                Some(_) => ModuleData::Declaration {
                     id: ModuleId::new(id, self.file),
                 },
-                None => ModuleKind::Definition {
+                None => ModuleData::Definition {
                     id: ModuleId::new(id, self.file),
                     items: Items::new(self.db, self.items(mod_item.items())),
                 },
+            },
+            match mod_item.semi() {
+                Some(_) => ModuleKind::Declaration,
+                None => ModuleKind::Definition,
             },
             self.file.root(self.db),
         );

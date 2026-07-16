@@ -279,6 +279,12 @@ pub struct Items<'db> {
     pub items: Vec<Item<'db>>,
 }
 
+#[salsa::tracked(debug)]
+pub struct Modules<'db> {
+    #[returns(deref)]
+    pub modules: Vec<Module<'db>>,
+}
+
 #[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum InnerItem<'db> {
     Struct(Struct<'db>),
@@ -517,26 +523,37 @@ pub struct UseTreeList<'db> {
 }
 
 #[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
-pub enum ModuleKind<'db> {
+pub enum ModuleData<'db> {
     Root { items: Items<'db> },
     Definition { items: Items<'db>, id: ModuleId },
     Declaration { id: ModuleId },
+}
+
+#[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
+pub enum ModuleKind {
+    Root,
+    Definition,
+    Declaration,
 }
 
 #[salsa::tracked(debug)]
 pub struct Module<'db> {
     #[returns(copy)]
     pub name: Symbol,
+    #[tracked]
     #[returns(copy)]
-    pub kind: ModuleKind<'db>,
+    pub data: ModuleData<'db>,
+    #[tracked]
+    #[returns(copy)]
+    pub kind: ModuleKind,
     #[returns(copy)]
     pub root: ide::Root,
 }
 
 impl<'db> Module<'db> {
     pub fn id(&self, db: &'db dyn salsa::Database) -> Option<ModuleId> {
-        Some(match self.kind(db) {
-            ModuleKind::Definition { id, .. } | ModuleKind::Declaration { id } => id,
+        Some(match self.data(db) {
+            ModuleData::Definition { id, .. } | ModuleData::Declaration { id } => id,
             _ => return None,
         })
     }

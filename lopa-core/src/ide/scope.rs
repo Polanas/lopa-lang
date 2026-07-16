@@ -120,7 +120,7 @@ pub fn module_scope<'db>(
     let mut scope_names = ScopeNames::new(db);
 
     if let Some(parent) = module.parent(db)
-        && matches!(module.kind(db), hir::ModuleKind::Definition { .. })
+        && matches!(module.data(db), hir::ModuleData::Definition { .. })
     {
         let parent_scope = module_scope(db, parent);
         for (k, v) in parent_scope.visible_values.iter() {

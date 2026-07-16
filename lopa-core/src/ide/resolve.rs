@@ -266,7 +266,7 @@ impl<'db> Module<'db> {
                     })?,
             };
             for (id, segment) in path.symbols(db).iter().skip(1).enumerate() {
-                match current_item.clone() {
+                match current_item {
                     ResolveItemResult::Type(module_def) => match module_def {
                         ModuleDef::Struct(item) => {
                             if id == path.symbols(db).len() - 1 {
@@ -289,8 +289,7 @@ impl<'db> Module<'db> {
                             // }
 
                             //TODO: public/private imports
-                            let mod_path = SymbolList::new(db, [*segment]);
-                            current_item = item.resolve_path_item(db, mod_path)?;
+                            current_item = item.resolve_item_name(db, *segment)?;
                         }
                         ModuleDef::Function(_) => unreachable!(),
                     },
@@ -330,8 +329,7 @@ impl<'db> Module<'db> {
                                     // }
 
                                     //TODO: public/private imports
-                                    let mod_path = SymbolList::new(db, [*segment]);
-                                    current_item = item.resolve_path_item(db, mod_path)?;
+                                    current_item = item.resolve_item_name(db, *segment)?;
                                     None
                                 }
                             }
@@ -414,6 +412,7 @@ struct ResolveUseTree<'db, 'a> {
 
 impl<'db, 'a> ResolveUseTree<'db, 'a> {
     fn push_diagnostic(&mut self, message: String, use_tree: hir::UseTree) {
+        Notification::new().body(&message).show().unwrap();
         self.diagnostics.push(Diagnostic {
             message,
             location: DiagnosticLocation::UseTree {
