@@ -7,9 +7,9 @@ edition = "2024"
 tokio = { version = "1.50.0", features = ["full"] }
 tower-lsp-server = "0.23.0"
 lopa-core = { path = "../lopa-core" }
-salsa = "0.26.2"
 
 itertools.workspace = true
+salsa.workspace = true
 anyhow.workspace = true
 walkdir.workspace = true
 

@@ -13,7 +13,7 @@ pub type ErasedAstId = Idx<parsing::NodeId>;
 //Primary purpose of AstId is to be used for diagnostics.
 //The ids themselves are stored inside items.
 //They can then be sent via accumulators to then be converted into NodeId's
-#[derive(salsa::Update, Clone, Copy)]
+#[derive(salsa::SalsaValue, Clone, Copy)]
 pub struct AstId<A: parsing::AstNode<'static>>(ErasedAstId, PhantomData<A>);
 
 impl<A: parsing::AstNode<'static>> AstId<A> {
@@ -48,7 +48,7 @@ impl<A: parsing::AstNode<'static>> Debug for AstId<A> {
     }
 }
 
-#[derive(salsa::Update, PartialEq, Clone, Copy)]
+#[derive(salsa::SalsaValue, PartialEq, Clone, Copy)]
 #[repr(u8)]
 pub enum AstIdKind {
     Function,
@@ -99,7 +99,7 @@ impl_ast_id_item! {
     [UseItem, Use]
 }
 
-#[derive(salsa::Update, PartialEq, Clone)]
+#[derive(salsa::SalsaValue, PartialEq, Clone)]
 pub struct AstIdMap {
     arenas: Vec<Arena<parsing::NodeId>>,
 }

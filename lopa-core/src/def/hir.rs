@@ -12,7 +12,7 @@ use crate::{
     parsing::{self},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub enum IdSource<'db> {
     BodySource(BodyMapSource<'db>),
     ContentsSource(ContentsMapSource<'db>),
@@ -30,13 +30,13 @@ impl<'db> IdSource<'db> {
 }
 
 //if you have better ideas for the name of this type, tell me
-#[derive(Debug, Clone, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub enum IdSourcePure {
     BodySource(Arc<BodyMap>),
     ContentsSource(Arc<ContentsMap>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub enum ContentsMapSource<'db> {
     Struct(Struct<'db>),
     Enum(Enum<'db>),
@@ -55,7 +55,7 @@ impl<'db> ContentsMapSource<'db> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub enum BodyMapSource<'db> {
     Function(Function<'db>),
     Field {
@@ -80,11 +80,13 @@ impl<'db> BodyMapSource<'db> {
 
 #[salsa::tracked(debug)]
 pub struct Expr<'db> {
+    #[returns(copy)]
     pub id: ExprId,
+    #[returns(copy)]
     pub kind: ExprKind<'db>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum ExprKind<'db> {
     Unit,
     Lit(LitKind),
@@ -155,46 +157,51 @@ pub enum ExprKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ExprList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub types: Vec<Expr<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct ClosureParams<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub params: Vec<ClosureParam<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct ClosureParam<'db> {
+    #[returns(copy)]
     pub pattern: Pat<'db>,
+    #[returns(copy)]
     pub ty: Option<TypeExpr<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct RecordFields<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub fields: Vec<RecordField<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct RecordField<'db> {
+    #[returns(copy)]
     pub name: Symbol,
+    #[returns(copy)]
     pub expr: Expr<'db>,
 }
 
 #[salsa::tracked(debug)]
 pub struct Args<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub args: Vec<Arg<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct Arg<'db> {
+    #[returns(copy)]
     pub kind: ArgKind<'db>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum ArgKind<'db> {
     Labeled { label: Symbol, value: Expr<'db> },
     NonLabeled { value: Expr<'db> },
@@ -209,17 +216,19 @@ impl<'db> ArgKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct StmtList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub stmts: Vec<Stmt<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct Stmt<'db> {
+    #[returns(copy)]
     pub id: StmtId,
+    #[returns(copy)]
     pub kind: StmtKind<'db>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum StmtKind<'db> {
     Let {
         pat: Pat<'db>,
@@ -232,7 +241,7 @@ pub enum StmtKind<'db> {
     },
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum PatKind<'db> {
     Path(Path<'db>),
     Name(Symbol),
@@ -241,7 +250,9 @@ pub enum PatKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct Pat<'db> {
+    #[returns(copy)]
     pub id: PatId,
+    #[returns(copy)]
     pub kind: PatKind<'db>,
 }
 
@@ -252,7 +263,7 @@ pub type UseItemId = InFile<AstId<parsing::UseItem<'static>>>;
 pub type ModuleId = InFile<AstId<parsing::ModItem<'static>>>;
 pub type ImplBlockId = InFile<AstId<parsing::ImplItem<'static>>>;
 
-#[derive(salsa::Supertype, PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(salsa::Supertype, PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum Item<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
@@ -264,11 +275,11 @@ pub enum Item<'db> {
 
 #[salsa::tracked(debug)]
 pub struct Items<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub items: Vec<Item<'db>>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum InnerItem<'db> {
     Struct(Struct<'db>),
     Enum(Enum<'db>),
@@ -287,25 +298,31 @@ impl<'db> InnerItem<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ImplBlock<'db> {
+    #[returns(copy)]
     pub file: ide::File,
+    #[tracked]
+    #[returns(copy)]
+    //TODO: replace these with Vecs directly
     pub items: ImplItems<'db>,
+    #[tracked]
+    #[returns(copy)]
     pub id: ImplBlockId,
 }
 
 #[salsa::tracked(debug)]
 pub struct ImplItems<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub items: Vec<Function<'db>>,
 }
 
-#[derive(Debug, Clone, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub struct ImplContents<'db> {
     pub item_map: Arc<ContentsMap>,
     pub generics: Generics<'db>,
     pub impl_types: ImplTypes<'db>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum ImplTypes<'db> {
     Inherent(TypeExpr<'db>),
     Trait {
@@ -316,12 +333,16 @@ pub enum ImplTypes<'db> {
 
 #[salsa::tracked(debug)]
 pub struct Function<'db> {
+    #[returns(copy)]
     pub name: Symbol,
+    #[returns(copy)]
     pub file: ide::File,
+    #[tracked]
+    #[returns(copy)]
     pub id: FunctionId,
 }
 
-#[derive(Debug, Clone, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub struct FunctionContents<'db> {
     pub item_map: Arc<ContentsMap>,
     pub params: FnParamList<'db>,
@@ -329,7 +350,7 @@ pub struct FunctionContents<'db> {
     pub output: Option<TypeExpr<'db>>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum ItemFnParam<'db> {
     SelfParam,
     PatParam {
@@ -338,14 +359,14 @@ pub enum ItemFnParam<'db> {
     },
 }
 
-#[derive(salsa::Update, PartialEq, Clone, Hash, Eq, Debug)]
+#[derive(salsa::SalsaValue, PartialEq, Clone, Hash, Eq, Debug)]
 pub struct FunctionBody<'db> {
     pub body_map: Arc<BodyMap>,
     pub body_expr: Expr<'db>,
     pub params: FnBodyParams<'db>,
 }
 
-#[derive(salsa::Update, PartialEq, Clone, Hash, Eq, Debug)]
+#[derive(salsa::SalsaValue, PartialEq, Clone, Hash, Eq, Debug)]
 pub struct FieldBody<'db> {
     pub body_map: Arc<BodyMap>,
     pub body_expr: Expr<'db>,
@@ -353,16 +374,17 @@ pub struct FieldBody<'db> {
 
 #[salsa::tracked(debug)]
 pub struct FnBodyParams<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub params: Vec<FnBodyParam<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct FnBodyParam<'db> {
+    #[returns(copy)]
     pub kind: FnBodyParamKind<'db>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum FnBodyParamKind<'db> {
     SelfParam,
     Pat {
@@ -373,14 +395,19 @@ pub enum FnBodyParamKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct Struct<'db> {
+    #[returns(copy)]
     pub name: Symbol,
+    #[returns(copy)]
     pub file: ide::File,
-    #[returns(ref)]
+    #[tracked]
+    #[returns(deref)]
     pub inner_items: Vec<InnerItem<'db>>,
+    #[tracked]
+    #[returns(copy)]
     pub id: StructId,
 }
 
-#[derive(Debug, Clone, PartialEq, salsa::Update, Eq)]
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Eq)]
 pub struct StructContents<'db> {
     pub item_map: Arc<ContentsMap>,
     pub parent: Option<Path<'db>>,
@@ -390,30 +417,34 @@ pub struct StructContents<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ElemList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub elems: Vec<Elem<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct Generics<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub params: Vec<GenericParam<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct GenericParam<'db> {
+    #[returns(copy)]
     pub ident: Symbol,
-    #[returns(ref)]
+    #[returns(deref)]
     pub bounds: Vec<TypeExpr<'db>>,
 }
+//TODO: add #[tracked] annotations
 
 #[salsa::tracked(debug)]
 pub struct Elem<'db> {
+    #[returns(copy)]
     pub id: ElemId,
+    #[returns(copy)]
     pub kind: ElemKind<'db>,
 }
 
-#[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
+#[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
 pub enum ElemKind<'db> {
     Field(Field<'db>),
     Function(Function<'db>),
@@ -427,14 +458,19 @@ pub struct Field<'db> {
 
 #[salsa::tracked(debug)]
 pub struct Enum<'db> {
+    #[returns(copy)]
     pub name: Symbol,
+    #[returns(copy)]
     pub file: ide::File,
-    #[returns(ref)]
+    #[returns(deref)]
+    #[tracked]
     pub inner_items: Vec<InnerItem<'db>>,
+    #[tracked]
+    #[returns(copy)]
     pub id: EnumId,
 }
 
-#[derive(Debug, Clone, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub struct EnumContents<'db> {
     pub item_map: Arc<ContentsMap>,
     pub elems: ElemList<'db>,
@@ -442,17 +478,21 @@ pub struct EnumContents<'db> {
 
 #[salsa::tracked(debug)]
 pub struct UseItem<'db> {
+    #[returns(copy)]
     pub file: ide::File,
+    #[returns(copy)]
     pub id: UseItemId,
 }
 
 #[salsa::tracked(debug)]
 pub struct UseTree<'db> {
+    #[returns(copy)]
     pub kind: UseTreeKind<'db>,
+    #[returns(copy)]
     pub id: UseTreeId,
 }
 
-#[derive(salsa::Update, PartialEq, Clone, Copy, Hash, Debug, Eq)]
+#[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
 pub enum UseTreeKind<'db> {
     Path {
         name: Symbol,
@@ -472,11 +512,11 @@ pub enum UseTreeKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct UseTreeList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub items: Vec<UseTree<'db>>,
 }
 
-#[derive(salsa::Update, PartialEq, Clone, Hash, Debug, Eq)]
+#[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
 pub enum ModuleKind<'db> {
     Root { items: Items<'db> },
     Definition { items: Items<'db>, id: ModuleId },
@@ -485,16 +525,18 @@ pub enum ModuleKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct Module<'db> {
+    #[returns(copy)]
     pub name: Symbol,
-    #[returns(ref)]
+    #[returns(copy)]
     pub kind: ModuleKind<'db>,
+    #[returns(copy)]
     pub root: ide::Root,
 }
 
 impl<'db> Module<'db> {
     pub fn id(&self, db: &'db dyn salsa::Database) -> Option<ModuleId> {
         Some(match self.kind(db) {
-            ModuleKind::Definition { id, .. } | ModuleKind::Declaration { id } => *id,
+            ModuleKind::Definition { id, .. } | ModuleKind::Declaration { id } => id,
             _ => return None,
         })
     }
@@ -502,11 +544,13 @@ impl<'db> Module<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ItemTypeExpr<'db> {
+    #[returns(copy)]
     pub id: ItemTypeExprId,
+    #[returns(copy)]
     pub kind: ItemTypeExprKind<'db>,
 }
 
-#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(salsa::SalsaValue, Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ItemTypeExprKind<'db> {
     TypeExpr(TypeExpr<'db>),
     Struct(Struct<'db>),
@@ -515,12 +559,15 @@ pub enum ItemTypeExprKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct TypeExpr<'db> {
+    #[returns(copy)]
     pub id: TypeExprId,
+    #[returns(copy)]
     pub source: IdSource<'db>,
+    #[returns(copy)]
     pub kind: TypeExprKind<'db>,
 }
 
-#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(salsa::SalsaValue, Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TypeExprKind<'db> {
     Any,
     Unit,
@@ -540,22 +587,23 @@ pub enum TypeExprKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct TypeExprList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub types: Vec<TypeExpr<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct FnParamList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub params: Vec<FnParam<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct FnParam<'db> {
+    #[returns(copy)]
     pub kind: FnParamKind<'db>,
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum FnParamKind<'db> {
     SelfParam,
     Pat {
@@ -566,19 +614,21 @@ pub enum FnParamKind<'db> {
 
 #[salsa::tracked(debug)]
 pub struct FnTypeParam<'db> {
+    #[returns(copy)]
     pub name: Option<Symbol>,
+    #[returns(copy)]
     pub ty: Option<TypeExpr<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct FnTypeParamList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub params: Vec<FnTypeParam<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct Path<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub segments: Vec<PathSegment<'db>>,
 }
 
@@ -586,42 +636,31 @@ impl<'db> Path<'db> {
     pub fn as_symbol_list(&self, db: &'db dyn salsa::Database) -> SymbolList {
         SymbolList::new(
             db,
-            self.segments(db).iter().map(|s| s.name(db)).collect_vec(),
+            self.segments(db)
+                .iter()
+                .map(|s| s.name(db))
+                .collect_vec()
+                .as_slice(),
         )
     }
 }
 
 #[salsa::tracked(debug)]
 pub struct PathList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub paths: Vec<Path<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct PathSegment<'db> {
+    #[returns(copy)]
     pub name: Symbol,
+    #[returns(copy)]
     pub args: GenericArgs<'db>,
 }
 
 #[salsa::tracked(debug)]
 pub struct GenericArgs<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub generic_args: Vec<Option<TypeExpr<'db>>>,
 }
-
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub struct FnTypeParam {
-//     pub name: Symbol,
-//     pub ty: TypeExprId,
-// }
-//
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub struct Path {
-//     pub segments: Vec<PathSegment>,
-// }
-//
-// #[derive(PartialEq, Eq, Clone, Debug, salsa::Update, Hash)]
-// pub struct PathSegment {
-//     pub ident: Symbol,
-//     pub generic_args: Vec<TypeExprId>,
-// }

@@ -11,7 +11,7 @@ use crate::{
     ide::{self, Diagnostic, DiagnosticKind, DiagnosticLocation, diagnostics},
 };
 
-#[derive(salsa::Supertype, Clone, PartialEq, Eq, Hash, Debug, salsa::Update)]
+#[derive(salsa::Supertype, Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub enum ModuleDef<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
@@ -19,7 +19,7 @@ pub enum ModuleDef<'db> {
     Module(Module<'db>),
 }
 
-#[derive(Clone, PartialEq, Default, salsa::Update)]
+#[derive(Clone, PartialEq, Default, salsa::SalsaValue)]
 pub struct ModuleScope<'db> {
     pub values: indexmap::IndexMap<Symbol, ModuleDef<'db>>,
     pub types: indexmap::IndexMap<Symbol, ModuleDef<'db>>,
@@ -58,7 +58,9 @@ impl<'db> ModuleScope<'db> {
 
 #[salsa::tracked(debug)]
 pub struct ScopeName<'db> {
+    #[returns(copy)]
     pub path: SymbolList,
+    #[returns(clone)]
     pub location: DiagnosticLocation,
 }
 

@@ -3,7 +3,7 @@ use la_arena::{Arena, Idx};
 use crate::def::{ElemId, ItemTypeExprId, PatId, TypeExprId};
 use crate::parsing::{self, AstNode};
 
-#[derive(Debug, Clone, Default, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub struct ContentsMap {
     elems: Arena<parsing::NodeId>,
     type_exprs: Arena<parsing::NodeId>,

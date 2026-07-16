@@ -10,7 +10,7 @@
 # See Cargo.toml.orig for the original contents.
 
 [dependencies]
-salsa = "0.26.2"
+salsa = "0.28.0"
 
 [package]
 edition = "2021"

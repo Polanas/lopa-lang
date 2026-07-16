@@ -7,9 +7,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use itertools::Itertools as _;
 use lopa_core::{analysis::Analysis, ide::Root, vfs::Vfs};
-use notify_rust::{Notification, NotificationId};
 use salsa::Setter;
 use tokio::task::{self, AbortHandle};
 use tower_lsp_server::{Client, LanguageServer, jsonrpc::Result, ls_types::*};

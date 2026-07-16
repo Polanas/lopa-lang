@@ -9,7 +9,7 @@ use crate::{
     parsing,
 };
 
-#[derive(Debug, Clone, Default, PartialEq, salsa::Update)]
+#[derive(Debug, Clone, Default, PartialEq, salsa::SalsaValue)]
 pub struct ItemsMap<'db> {
     fn_items: ArenaMap<ErasedAstId, Function<'db>>,
     struct_items: ArenaMap<ErasedAstId, Struct<'db>>,

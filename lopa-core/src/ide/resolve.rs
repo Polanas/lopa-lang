@@ -11,7 +11,7 @@ use crate::{
     ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleDef, module_scope},
 };
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq, salsa::Update)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
 pub enum ResolveItemResult<'db> {
     Type(ModuleDef<'db>),
     Value(ModuleDef<'db>),
@@ -21,7 +21,7 @@ pub enum ResolveItemResult<'db> {
     },
 }
 
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn resolve_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
 
@@ -55,7 +55,7 @@ fn resolve_path_cycle_result<'db>(
 
 #[salsa::tracked]
 impl<'db> Module<'db> {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn resolve_type_expr(
         self,
         db: &'db dyn salsa::Database,
@@ -142,7 +142,7 @@ impl<'db> Module<'db> {
         }
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn resolve_type_path(
         self,
         db: &'db dyn salsa::Database,
@@ -153,7 +153,7 @@ impl<'db> Module<'db> {
         let hir::TypeExprKind::Path(path) = path_expr.kind(db) else {
             unreachable!();
         };
-        if let [first] = path.segments(db).as_slice()
+        if let [first] = path.segments(db)
             && let Some(generics) = generics
             && let Some(param) = generics.param(db, first.name(db))
         {
@@ -233,7 +233,7 @@ impl<'db> Module<'db> {
         }
     }
 
-    #[salsa::tracked(cycle_result=resolve_path_cycle_result)]
+    #[salsa::tracked(cycle_result=resolve_path_cycle_result, returns(copy))]
     pub fn resolve_path_item(
         self,
         db: &'db dyn salsa::Database,
@@ -245,7 +245,7 @@ impl<'db> Module<'db> {
             path: SymbolList,
         ) -> Option<ResolveItemResult<'db>> {
             let first = path.symbols(db).first()?;
-            let mut current_item = match first.value(db).as_str() {
+            let mut current_item = match first.value(db) {
                 "root" => {
                     ResolveItemResult::Type(ModuleDef::Module(module.root(db).root_module(db)?))
                 }
@@ -254,7 +254,7 @@ impl<'db> Module<'db> {
                     .or_else(|| {
                         let scope = module_scope(db, module);
                         for global_path in scope.global_imports() {
-                            let mut global_path_clone = global_path.symbols(db).clone();
+                            let mut global_path_clone = global_path.symbols(db).to_vec();
                             global_path_clone.push(*path.symbols(db).first()?);
                             if let Some(output) = module.resolve_path_item(db, *global_path) {
                                 return Some(output);
@@ -370,7 +370,7 @@ impl<'db> Module<'db> {
             .visible_type(*first)
             .or_else(|| scope.visible_value(*first))
         {
-            let mut outer = scope_name.path(db).symbols(db).clone();
+            let mut outer = scope_name.path(db).symbols(db).to_vec();
             outer.remove(outer.len() - 1);
             for symbol in path.symbols(db).iter() {
                 outer.push(*symbol);
@@ -387,7 +387,7 @@ impl<'db> Module<'db> {
         }
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn resolve_item_name(
         self,
         db: &'db dyn salsa::Database,
@@ -427,6 +427,7 @@ impl<'db, 'a> ResolveUseTree<'db, 'a> {
     fn resolve(&mut self, use_tree: hir::UseTree, path: SymbolList) {
         match use_tree.kind(self.db) {
             hir::UseTreeKind::Name(name) => {
+                Notification::new().body("here").show().unwrap();
                 let path = path.push(self.db, name);
 
                 if self.module.resolve_path_item(self.db, path).is_none() {

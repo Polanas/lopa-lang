@@ -5,13 +5,15 @@ use crate::{common::LitKind, def::hir};
 
 #[salsa::interned(debug)]
 pub struct Path<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub segments: Vec<PathSegment<'db>>,
 }
 
 #[salsa::interned(debug)]
 pub struct PathSegment<'db> {
+    #[returns(copy)]
     pub ident: Symbol,
+    #[returns(copy)]
     pub generics: TypeList<'db>,
 }
 
@@ -24,10 +26,11 @@ pub struct PathSegment<'db> {
 
 #[salsa::interned(debug)]
 pub struct Type<'db> {
+    #[returns(copy)]
     pub kind: TypeKind<'db>,
 }
 
-#[derive(salsa::Update, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(salsa::SalsaValue, Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum TypeKind<'db> {
     Unknown,
     Any,
@@ -55,25 +58,29 @@ pub enum TypeKind<'db> {
 
 #[salsa::interned(debug)]
 pub struct BareFn<'db> {
+    #[returns(copy)]
     pub params: BareFnParams<'db>,
+    #[returns(copy)]
     pub output: Type<'db>,
 }
 
 #[salsa::interned(debug)]
 pub struct BareFnParams<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub params: Vec<BareFnParam<'db>>,
 }
 
 #[salsa::interned(debug)]
 pub struct BareFnParam<'db> {
+    #[returns(copy)]
     pub name: Option<Symbol>,
+    #[returns(copy)]
     pub ty: Type<'db>,
 }
 
 #[salsa::interned(debug)]
 pub struct TypeList<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub types: Vec<Type<'db>>,
 }
 
@@ -96,7 +103,7 @@ impl<'db> TypeList<'db> {
 
 #[salsa::interned(debug)]
 pub struct Generics<'db> {
-    #[returns(ref)]
+    #[returns(deref)]
     pub params: Vec<GenericParam<'db>>,
 }
 
@@ -112,18 +119,23 @@ impl<'db> Generics<'db> {
 
 #[salsa::interned(debug)]
 pub struct GenericParam<'db> {
+    #[returns(copy)]
     pub name: Symbol,
+    #[returns(copy)]
     pub bounds: TypeList<'db>,
 }
 
 #[salsa::interned(debug)]
 pub struct FnParam<'db> {
+    #[returns(copy)]
     pub name: Option<Symbol>,
+    #[returns(copy)]
     pub ty: Type<'db>,
 }
 
 #[salsa::interned(debug)]
 pub struct FnParams<'db> {
+    #[returns(deref)]
     pub params: Vec<FnParam<'db>>,
 }
 

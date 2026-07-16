@@ -19,7 +19,7 @@ mod map;
 pub use map::{ArenaMap, Entry, OccupiedEntry, VacantEntry};
 
 /// The raw index of a value in an arena.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, salsa::Update)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, salsa::SalsaValue)]
 pub struct RawIdx(u32);
 
 impl<T> From<RawIdx> for Idx<T> {
@@ -71,43 +71,8 @@ pub struct Idx<T> {
     raw: RawIdx,
     _ty: PhantomData<fn() -> T>,
 }
-#[allow(clippy::all)]
-unsafe impl<T> salsa::Update for Idx<T> {
-    unsafe fn maybe_update(old_pointer_: *mut Self, new_value_: Self) -> bool {
-        let old_pointer_ = unsafe { &mut *old_pointer_ };
-        match old_pointer_ {
-            Idx {
-                raw: __binding_0,
-                _ty: __binding_1,
-            } => {
-                #[allow(unreachable_patterns)]
-                let new_value_ = match new_value_ {
-                    Idx {
-                        raw: __binding_0,
-                        _ty: __binding_1,
-                    } => (__binding_0, __binding_1),
-                    _ => {
-                        *old_pointer_ = new_value_;
-                        return true;
-                    }
-                };
-                false
-                    | unsafe {
-                        salsa::plumbing::UpdateDispatch::<RawIdx>::maybe_update(
-                            __binding_0,
-                            new_value_.0,
-                        )
-                    }
-                    | unsafe {
-                        salsa::plumbing::UpdateDispatch::<PhantomData<fn() -> T>>::maybe_update(
-                            __binding_1,
-                            new_value_.1,
-                        )
-                    }
-            }
-        }
-    }
-}
+
+unsafe impl<T> ::salsa::SalsaValue for Idx<T> where PhantomData<fn() -> T>: ::salsa::SalsaValue {}
 
 impl<T> Ord for Idx<T> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
@@ -117,7 +82,7 @@ impl<T> Ord for Idx<T> {
 
 impl<T> PartialOrd for Idx<T> {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.raw.partial_cmp(&other.raw)
+        Some(self.cmp(other))
     }
 }
 
@@ -305,7 +270,7 @@ impl<T> PartialEq for IdxRange<T> {
 impl<T> Eq for IdxRange<T> {}
 
 /// Yet another index-based arena.
-#[derive(Clone, PartialEq, Eq, Hash, salsa::Update)]
+#[derive(Clone, PartialEq, Eq, Hash, salsa::SalsaValue)]
 pub struct Arena<T> {
     data: Vec<T>,
 }

@@ -1126,18 +1126,18 @@ impl<'db> Function<'db> {
 
 #[salsa::tracked]
 impl<'db> UseItem<'db> {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn use_tree_map(self, db: &'db dyn salsa::Database) -> Option<Arc<UseTreeMap>> {
         self.use_tree_and_map(db, self.file(db)).map(|(map, _)| map)
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn use_tree(self, db: &'db dyn salsa::Database) -> Option<UseTree<'db>> {
         self.use_tree_and_map(db, self.file(db))
             .map(|(_, tree)| tree)
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn use_tree_and_map(
         self,
         db: &'db dyn salsa::Database,
@@ -1204,22 +1204,22 @@ impl<'db> UseItem<'db> {
 
 #[salsa::tracked]
 impl<'db> File {
-    #[salsa::tracked(returns(ref))]
+    #[salsa::tracked(returns(clone))]
     pub fn items(self, db: &'db dyn salsa::Database) -> Items<'db> {
         self.lower(db).0
     }
 
-    #[salsa::tracked(returns(ref))]
+    #[salsa::tracked(returns(clone))]
     pub fn ast_map(self, db: &dyn salsa::Database) -> Arc<AstIdMap> {
         self.lower(db).1
     }
 
-    #[salsa::tracked(returns(ref))]
+    #[salsa::tracked(returns(clone))]
     pub fn items_map(self, db: &'db dyn salsa::Database) -> Arc<ItemsMap<'db>> {
         self.lower(db).2
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     fn lower(
         self,
         db: &'db dyn salsa::Database,

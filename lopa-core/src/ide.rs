@@ -35,7 +35,7 @@ impl std::fmt::Debug for Root {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, salsa::Update)]
+#[derive(Clone, Debug, PartialEq, salsa::SalsaValue)]
 pub struct ModuleTree<'db> {
     pub parents: indexmap::IndexMap<hir::Module<'db>, hir::Module<'db>>,
     pub children: indexmap::IndexMap<hir::Module<'db>, Arc<Vec<hir::Module<'db>>>>,
@@ -45,20 +45,20 @@ pub struct ModuleTree<'db> {
 
 #[salsa::tracked]
 impl<'db> Root {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn root_file(self, db: &'db dyn salsa::Database) -> Option<File> {
         let mut root_file_path = self.root_dir(db).clone();
         root_file_path.push("src");
         root_file_path.push("main.lopa");
         for file in self.files(db) {
-            if file.path(db) == root_file_path {
+            if file.path(db) == &root_file_path {
                 return Some(*file);
             }
         }
         None
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn root_module(self, db: &'db dyn salsa::Database) -> Option<hir::Module<'db>> {
         let root_file = self.root_file(db)?;
         let items = root_file.items(db);
@@ -89,6 +89,7 @@ pub struct File {
     #[returns(ref)]
     pub contents: Arc<str>,
     pub path: PathBuf,
+    #[returns(clone)]
     pub root: Root,
 }
 
@@ -98,7 +99,7 @@ impl std::fmt::Debug for File {
     }
 }
 
-#[derive(Clone, salsa::Update, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, salsa::SalsaValue, PartialEq, Eq, Hash, Debug)]
 pub struct InFile<T> {
     pub value: T,
     pub file: File,
@@ -150,7 +151,7 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
                 } else {
                     Diagnostic {
                         message: format!("unresolved module: `{}`", mod_name),
-                        location: DiagnosticLocation::Module(*id),
+                        location: DiagnosticLocation::Module(id),
                         kind: DiagnosticKind::ModuleError,
                     }
                     .accumulate(db);
@@ -199,11 +200,11 @@ pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<
 
 #[salsa::tracked]
 impl<'db> hir::Module<'db> {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn items(self, db: &'db dyn salsa::Database) -> hir::Items<'db> {
         match self.kind(db) {
-            hir::ModuleKind::Root { items } => *items,
-            hir::ModuleKind::Definition { items, .. } => *items,
+            hir::ModuleKind::Root { items } => items,
+            hir::ModuleKind::Definition { items, .. } => items,
             hir::ModuleKind::Declaration { .. } => self
                 .file(db)
                 .map(|f| f.items(db).clone())
@@ -223,7 +224,7 @@ impl<'db> hir::Module<'db> {
     }
     //TODO: remove all unwraps
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn absolute_path(self, db: &'db dyn salsa::Database) -> def::SymbolList {
         if self.is_root_module(db) {
             return SymbolList::new(db, [Symbol::new(db, "root")]);
@@ -240,18 +241,18 @@ impl<'db> hir::Module<'db> {
         SymbolList::new(db, path)
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     fn is_root_module(self, db: &'db dyn salsa::Database) -> bool {
         self.file(db) == self.root(db).root_file(db)
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn parent(self, db: &'db dyn salsa::Database) -> Option<hir::Module<'db>> {
         let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
         module_tree.parents.get(&self).cloned()
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn children(self, db: &'db dyn salsa::Database) -> Arc<Vec<hir::Module<'db>>> {
         let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
         module_tree
@@ -263,7 +264,7 @@ impl<'db> hir::Module<'db> {
 }
 
 //TODO: push diagnostics for all items
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn module_diagnostics<'db>(
     db: &'db dyn salsa::Database,
     module: hir::Module<'db>,
@@ -293,13 +294,13 @@ pub fn module_tree_diagnostics(db: &dyn salsa::Database, root: Root) -> Vec<Diag
 
 #[salsa::tracked]
 impl<'db> File {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn parse(self, db: &'db dyn salsa::Database) -> parsing::Parse<'db> {
         let (tree, errors) = parsing::parse(self.contents(db));
         parsing::Parse::new(db, tree, errors)
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn diagnostics(self, db: &dyn salsa::Database) -> Vec<Diagnostic> {
         let mut diagnostics = vec![];
         let parse = self.parse(db);
@@ -324,13 +325,13 @@ impl<'db> File {
 
 #[salsa::tracked]
 impl<'db> File {
-    #[salsa::tracked]
+    #[salsa::tracked(returns(copy))]
     pub fn module(self, db: &'db dyn salsa::Database) -> Option<hir::Module<'db>> {
         let mod_tree = module_tree(db, self.root(db)).as_ref()?;
         mod_tree.modules_by_files.get(&self).cloned()
     }
 
-    #[salsa::tracked]
+    #[salsa::tracked(returns(clone))]
     pub fn rendered_diagnostics(self, db: &'db dyn salsa::Database) -> Vec<RenderedDiagnostic> {
         let parse = self.parse(db);
         let tree = parse.tree(db);

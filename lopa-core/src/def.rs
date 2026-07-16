@@ -17,7 +17,13 @@ pub use items_map::*;
 use itertools::Itertools;
 pub use use_tree_map_mod::*;
 
-use crate::{def::{body_map::BodyMap, hir::{FieldBody, FunctionBody}}, parsing};
+use crate::{
+    def::{
+        body_map::BodyMap,
+        hir::{FieldBody, FunctionBody},
+    },
+    parsing,
+};
 use la_arena::Idx;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -40,13 +46,13 @@ pub struct StmtId(pub Idx<parsing::NodeId>);
 
 #[salsa::interned(no_lifetime, debug)]
 pub struct Symbol {
-    #[returns(ref)]
+    #[returns(deref)]
     pub value: String,
 }
 
 #[salsa::interned(no_lifetime, debug)]
 pub struct SymbolList {
-    #[returns(ref)]
+    #[returns(deref)]
     pub symbols: Vec<Symbol>,
 }
 
@@ -56,7 +62,7 @@ impl SymbolList {
     }
 
     pub fn push(self, db: &dyn salsa::Database, symbol: Symbol) -> Self {
-        let mut symbols = self.symbols(db).clone();
+        let mut symbols = self.symbols(db).to_vec();
         symbols.push(symbol);
         Self::new(db, symbols)
     }

@@ -5,7 +5,7 @@ use crate::{
     parsing::{self, AstNode},
 };
 
-#[derive(Debug, Clone, Default, PartialEq, salsa::Update, Hash, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub struct BodyMap {
     exprs: Arena<parsing::NodeId>,
     pats: Arena<parsing::NodeId>,
