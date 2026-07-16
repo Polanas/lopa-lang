@@ -1,11 +1,15 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"((),)\", |p| p.expr())"
+expression: "parse(\"(1,2,3)\", |p| p.expr())"
 ---
-TUPLE_EXPR: 0..5 
+TUPLE_EXPR: 0..7 
   L_PAREN: 0..1 "("
-  UNIT_EXPR: 1..3 
-    L_PAREN: 1..2 "("
-    R_PAREN: 2..3 ")"
-  COMMA: 3..4 ","
-  R_PAREN: 4..5 ")"
+  LIT_EXPR: 1..2 
+    INT: 1..2 "1"
+  COMMA: 2..3 ","
+  LIT_EXPR: 3..4 
+    INT: 3..4 "2"
+  COMMA: 4..5 ","
+  LIT_EXPR: 5..6 
+    INT: 5..6 "3"
+  R_PAREN: 6..7 ")"

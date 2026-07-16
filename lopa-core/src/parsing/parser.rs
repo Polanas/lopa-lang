@@ -2357,6 +2357,8 @@ mod test {
         insta::assert_snapshot!(parse("foo?.bar?.baz()", |p| p.expr()));
         insta::assert_snapshot!(parse("x is value and x !is value", |p| p.expr()));
         insta::assert_snapshot!(parse("std::Vec<int>::new()", |p| p.expr()));
+        //this also parses as "((std::Vec::new < 1) + 2) > ()"
+        insta::assert_snapshot!(parse("std::Vec::new<1 + 2>()", |p| p.expr()));
         insta::assert_snapshot!(parse("(1,2,3)", |p| p.expr()));
         insta::assert_snapshot!(parse("((),)", |p| p.expr()));
         insta::assert_snapshot!(parse("Foo<i32>::bar<string>()", |p| p.expr()));

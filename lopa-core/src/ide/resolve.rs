@@ -427,7 +427,6 @@ impl<'db, 'a> ResolveUseTree<'db, 'a> {
     fn resolve(&mut self, use_tree: hir::UseTree, path: SymbolList) {
         match use_tree.kind(self.db) {
             hir::UseTreeKind::Name(name) => {
-                Notification::new().body("here").show().unwrap();
                 let path = path.push(self.db, name);
 
                 if self.module.resolve_path_item(self.db, path).is_none() {
