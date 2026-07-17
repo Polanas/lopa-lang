@@ -35,16 +35,103 @@ impl std::fmt::Debug for Root {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, salsa::SalsaValue)]
+#[derive(Clone, Debug, Default, PartialEq, salsa::SalsaValue)]
 pub struct ModuleTree<'db> {
     pub parents: indexmap::IndexMap<hir::Module<'db>, hir::Module<'db>>,
     pub children: indexmap::IndexMap<hir::Module<'db>, Arc<Vec<hir::Module<'db>>>>,
     pub modules_by_files: indexmap::IndexMap<File, hir::Module<'db>>,
     pub files_by_modules: indexmap::IndexMap<hir::Module<'db>, File>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[salsa::tracked]
 impl<'db> Root {
+    #[salsa::tracked(returns(ref))]
+    pub fn module_tree(self, db: &'db dyn salsa::Database) -> ModuleTree<'db> {
+        let files_by_names = self.files_by_names(db);
+        fn traverse_module<'db>(
+            db: &'db dyn salsa::Database,
+            module: hir::Module<'db>,
+            mut module_dir_path: PathBuf,
+            tree: &mut ModuleTree<'db>,
+            files_by_names: &indexmap::IndexMap<PathBuf, File>,
+        ) {
+            match module.kind(db) {
+                hir::ModuleKind::Declaration => {
+                    let mut file_path = module_dir_path.clone();
+                    let mod_name = module.name(db).value(db);
+                    module_dir_path.push(mod_name);
+                    file_path.push(format!("{}.lopa", mod_name));
+                    if let Some(file) = files_by_names.get(&file_path) {
+                        tree.modules_by_files.insert(*file, module);
+                        tree.files_by_modules.insert(module, *file);
+
+                        let mut children = vec![];
+                        for item in file.items(db).items(db).iter() {
+                            if let hir::Item::Module(child) = item {
+                                children.push(*child);
+                                tree.parents.insert(*child, module);
+                                traverse_module(
+                                    db,
+                                    *child,
+                                    module_dir_path.clone(),
+                                    tree,
+                                    files_by_names,
+                                );
+                            }
+                        }
+                        tree.children.insert(module, children.into());
+                    } else {
+                        tree.diagnostics.push(Diagnostic {
+                            message: format!("unresolved module: `{}`", mod_name),
+                            location: DiagnosticLocation::Module(
+                                module.id(db).expect("declaration modules must have ids"),
+                            ),
+                            kind: DiagnosticKind::ModuleError,
+                        });
+                    }
+                }
+                hir::ModuleKind::Definition => {
+                    let mut children = vec![];
+                    for child in module.modules(db).modules(db).iter() {
+                        children.push(*child);
+                        tree.parents.insert(*child, module);
+                        traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
+                    }
+                    tree.children.insert(module, children.into());
+                }
+                hir::ModuleKind::Root => {
+                    let root_file = module.root(db).root_file(db).unwrap();
+                    tree.modules_by_files.insert(root_file, module);
+                    tree.files_by_modules.insert(module, root_file);
+                    let mut children = vec![];
+                    for child in module.modules(db).modules(db).iter() {
+                        children.push(*child);
+                        tree.parents.insert(*child, module);
+                        traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
+                    }
+                    tree.children.insert(module, children.into());
+                }
+            }
+        }
+        let mut tree = ModuleTree {
+            parents: Default::default(),
+            children: Default::default(),
+            modules_by_files: Default::default(),
+            files_by_modules: Default::default(),
+            diagnostics: Default::default(),
+        };
+        let Some(root_module) = self.root_module(db) else {
+            return Default::default();
+        };
+        let mut root_dir = self.root_dir(db).clone();
+        root_dir.push("src");
+
+        traverse_module(db, root_module, root_dir, &mut tree, files_by_names);
+
+        tree
+    }
+
     #[salsa::tracked(returns(clone))]
     pub fn root_file(self, db: &'db dyn salsa::Database) -> Option<File> {
         let mut root_file_path = self.root_dir(db).clone();
@@ -78,9 +165,6 @@ impl<'db> Root {
             .map(|file| (file.path(db).clone(), *file))
             .collect::<_>()
     }
-    pub fn module_tree(self, db: &'db dyn salsa::Database) -> Option<&'db ModuleTree<'db>> {
-        module_tree(db, self).as_deref()
-    }
 }
 
 #[salsa::input]
@@ -110,90 +194,6 @@ impl<T> InFile<T> {
     pub fn new(value: T, file: File) -> Self {
         Self { value, file }
     }
-}
-
-#[salsa::tracked(returns(ref))]
-pub fn module_tree<'db>(db: &'db dyn salsa::Database, root: Root) -> Option<Arc<ModuleTree<'db>>> {
-    let files_by_names = root.files_by_names(db);
-    Notification::new().body("here").show().unwrap();
-    fn traverse_module<'db>(
-        db: &'db dyn salsa::Database,
-        module: hir::Module<'db>,
-        mut module_dir_path: PathBuf,
-        tree: &mut ModuleTree<'db>,
-        files_by_names: &indexmap::IndexMap<PathBuf, File>,
-    ) {
-        match module.kind(db) {
-            hir::ModuleKind::Declaration => {
-                let mut file_path = module_dir_path.clone();
-                let mod_name = module.name(db).value(db);
-                module_dir_path.push(mod_name);
-                file_path.push(format!("{}.lopa", mod_name));
-                if let Some(file) = files_by_names.get(&file_path) {
-                    tree.modules_by_files.insert(*file, module);
-                    tree.files_by_modules.insert(module, *file);
-
-                    let mut children = vec![];
-                    for item in file.items(db).items(db).iter() {
-                        if let hir::Item::Module(child) = item {
-                            children.push(*child);
-                            tree.parents.insert(*child, module);
-                            traverse_module(
-                                db,
-                                *child,
-                                module_dir_path.clone(),
-                                tree,
-                                files_by_names,
-                            );
-                        }
-                    }
-                    tree.children.insert(module, children.into());
-                } else {
-                    Diagnostic {
-                        message: format!("unresolved module: `{}`", mod_name),
-                        location: DiagnosticLocation::Module(
-                            module.id(db).expect("declaration modules must have ids"),
-                        ),
-                        kind: DiagnosticKind::ModuleError,
-                    }
-                    .accumulate(db);
-                }
-            }
-            hir::ModuleKind::Definition => {
-                let mut children = vec![];
-                for child in module.modules(db).modules(db).iter() {
-                    children.push(*child);
-                    tree.parents.insert(*child, module);
-                    traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
-                }
-                tree.children.insert(module, children.into());
-            }
-            hir::ModuleKind::Root => {
-                let root_file = module.root(db).root_file(db).unwrap();
-                tree.modules_by_files.insert(root_file, module);
-                tree.files_by_modules.insert(module, root_file);
-                let mut children = vec![];
-                for child in module.modules(db).modules(db).iter() {
-                    children.push(*child);
-                    tree.parents.insert(*child, module);
-                    traverse_module(db, *child, module_dir_path.clone(), tree, files_by_names);
-                }
-                tree.children.insert(module, children.into());
-            }
-        }
-    }
-    let mut tree = ModuleTree {
-        parents: Default::default(),
-        children: Default::default(),
-        modules_by_files: Default::default(),
-        files_by_modules: Default::default(),
-    };
-    let root_module = root.root_module(db)?;
-    let mut root_dir = root.root_dir(db).clone();
-    root_dir.push("src");
-
-    traverse_module(db, root_module, root_dir, &mut tree, files_by_names);
-    Some(tree.into())
 }
 
 #[salsa::tracked]
@@ -232,7 +232,7 @@ impl<'db> hir::Module<'db> {
             hir::ModuleData::Root { .. } => self.root(db).root_file(db),
             hir::ModuleData::Definition { .. } => None,
             hir::ModuleData::Declaration { .. } => {
-                let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
+                let module_tree = self.root(db).module_tree(db);
                 module_tree.files_by_modules.get(&self).cloned()
             }
         }
@@ -245,7 +245,7 @@ impl<'db> hir::Module<'db> {
             return SymbolList::new(db, [Symbol::new(db, "root")]);
         };
         let mut path = vec![self.name(db)];
-        let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
+        let module_tree = self.root(db).module_tree(db);
 
         let mut current = self;
         while let Some(parent) = module_tree.parents.get(&current) {
@@ -263,13 +263,13 @@ impl<'db> hir::Module<'db> {
 
     #[salsa::tracked(returns(copy))]
     pub fn parent(self, db: &'db dyn salsa::Database) -> Option<hir::Module<'db>> {
-        let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
+        let module_tree = self.root(db).module_tree(db);
         module_tree.parents.get(&self).cloned()
     }
 
     #[salsa::tracked(returns(clone))]
     pub fn children(self, db: &'db dyn salsa::Database) -> Arc<Vec<hir::Module<'db>>> {
-        let module_tree = module_tree(db, self.root(db)).as_ref().unwrap();
+        let module_tree = self.root(db).module_tree(db);
         module_tree
             .children
             .get(&self)
@@ -298,17 +298,6 @@ pub fn module_diagnostics<'db>(
 }
 
 #[salsa::tracked]
-pub fn module_tree_diagnostics(db: &dyn salsa::Database, root: Root) -> Vec<Diagnostic> {
-    let mut diagnostics = vec![];
-    diagnostics.extend(
-        module_tree::accumulated::<Diagnostic>(db, root)
-            .into_iter()
-            .cloned(),
-    );
-    diagnostics
-}
-
-#[salsa::tracked]
 impl<'db> File {
     #[salsa::tracked(returns(copy))]
     pub fn parse(self, db: &'db dyn salsa::Database) -> parsing::Parse<'db> {
@@ -326,13 +315,14 @@ impl<'db> File {
     pub fn diagnostics(self, db: &dyn salsa::Database) -> Vec<Diagnostic> {
         let mut diagnostics = vec![];
         let parse = self.parse(db);
+        let module_tree = self.root(db).module_tree(db);
         diagnostics.extend(parse.errors(db).clone().into_iter().map(|e| Diagnostic {
             message: e.kind.to_string(),
             location: DiagnosticLocation::Range(e.range.clone()),
             kind: DiagnosticKind::SyntaxError,
         }));
 
-        diagnostics.extend(module_tree_diagnostics(db, self.root(db)).iter().cloned());
+        diagnostics.extend(module_tree.diagnostics.clone());
 
         if let Some(module) = self.module(db) {
             diagnostics.extend(module_diagnostics(db, module));
@@ -345,8 +335,8 @@ impl<'db> File {
 impl<'db> File {
     #[salsa::tracked(returns(copy))]
     pub fn module(self, db: &'db dyn salsa::Database) -> Option<hir::Module<'db>> {
-        let mod_tree = module_tree(db, self.root(db)).as_ref()?;
-        mod_tree.modules_by_files.get(&self).cloned()
+        let module_tree = self.root(db).module_tree(db);
+        module_tree.modules_by_files.get(&self).cloned()
     }
 
     #[salsa::tracked(returns(clone))]

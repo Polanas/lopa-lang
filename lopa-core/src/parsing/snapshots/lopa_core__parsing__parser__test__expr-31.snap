@@ -1,0 +1,21 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"loop { panic(); }\", |p| p.expr())"
+---
+LOOP_EXPR: 0..17 
+  LOOP_KW: 0..4 "loop"
+  WHITESPACE: 4..5 
+  BLOCK_EXPR: 5..17 
+    L_BRACE: 5..6 "{"
+    WHITESPACE: 6..7 
+    EXPR_STMT: 7..15 
+      CALL_EXPR: 7..14 
+        PATH_EXPR: 7..12 
+          PATH: 7..12 
+            PATH_SEGMENT: 7..12 
+              IDENT: 7..12 "panic"
+        L_PAREN: 12..13 "("
+        R_PAREN: 13..14 ")"
+      SEMI: 14..15 ";"
+    WHITESPACE: 15..16 
+    R_BRACE: 16..17 "}"

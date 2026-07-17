@@ -1,0 +1,48 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"for x in range(1,2) { print(x); }\", |p| p.expr())"
+---
+FOR_EXPR: 0..33 
+  FOR_KW: 0..3 "for"
+  WHITESPACE: 3..4 
+  PATH_EXPR: 4..5 
+    PATH: 4..5 
+      PATH_SEGMENT: 4..5 
+        IDENT: 4..5 "x"
+  WHITESPACE: 5..6 
+  IN_KW: 6..8 "in"
+  WHITESPACE: 8..9 
+  CALL_EXPR: 9..19 
+    PATH_EXPR: 9..14 
+      PATH: 9..14 
+        PATH_SEGMENT: 9..14 
+          IDENT: 9..14 "range"
+    L_PAREN: 14..15 "("
+    ARG: 15..16 
+      LIT_EXPR: 15..16 
+        INT: 15..16 "1"
+    COMMA: 16..17 ","
+    ARG: 17..18 
+      LIT_EXPR: 17..18 
+        INT: 17..18 "2"
+    R_PAREN: 18..19 ")"
+  WHITESPACE: 19..20 
+  BLOCK_EXPR: 20..33 
+    L_BRACE: 20..21 "{"
+    WHITESPACE: 21..22 
+    EXPR_STMT: 22..31 
+      CALL_EXPR: 22..30 
+        PATH_EXPR: 22..27 
+          PATH: 22..27 
+            PATH_SEGMENT: 22..27 
+              IDENT: 22..27 "print"
+        L_PAREN: 27..28 "("
+        ARG: 28..29 
+          PATH_EXPR: 28..29 
+            PATH: 28..29 
+              PATH_SEGMENT: 28..29 
+                IDENT: 28..29 "x"
+        R_PAREN: 29..30 ")"
+      SEMI: 30..31 ";"
+    WHITESPACE: 31..32 
+    R_BRACE: 32..33 "}"

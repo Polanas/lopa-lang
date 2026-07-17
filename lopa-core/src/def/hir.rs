@@ -132,9 +132,6 @@ pub enum ExprKind<'db> {
         expr: Expr<'db>,
         kind: UnaryOpKind,
     },
-    Block {
-        stmts: StmtList<'db>,
-    },
     Index {
         base: Expr<'db>,
         index: Expr<'db>,
@@ -143,16 +140,43 @@ pub enum ExprKind<'db> {
         func: Expr<'db>,
         agrs: Args<'db>,
     },
+    Block {
+        stmts: StmtList<'db>,
+    },
     Paren(Expr<'db>),
     Return(Expr<'db>),
-    If {
+    If(IfExpr<'db>),
+    Loop {
+        block:Expr<'db>,
+    },
+    While {
         cond: Expr<'db>,
-        if_branch: Expr<'db>,
-        else_branch: Option<Expr<'db>>,
+        block: Expr<'db>,
+    },
+    For {
+        loop_expr: Expr<'db>,
+        iterable: Expr<'db>,
+        block: Expr<'db>,
     },
     Tuple {
         exprs: ExprList<'db>,
     },
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
+pub enum ElseBranch<'db> {
+    Block(Expr<'db>),
+    If(IfExpr<'db>),
+}
+
+#[salsa::tracked(debug)]
+pub struct IfExpr<'db> {
+    #[returns(copy)]
+    cond: Expr<'db>,
+    #[returns(copy)]
+    if_branch: Block<'db>,
+    #[returns(copy)]
+    else_branch: Option<ElseBranch<'db>>,
 }
 
 #[salsa::tracked(debug)]

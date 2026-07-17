@@ -569,12 +569,28 @@ structs! {
         stmts: [Stmt],
         right_curly: T!["}"],
     },
+    LOOP_EXPR = LoopExpr {
+        loop_token: T![loop],
+        block: Expr,
+    },
+    WHILE_EXPR = WhileExpr {
+        while_token: T![while],
+        cond[0]: Expr,
+        block[1]: Expr,
+    },
+    FOR_EXPR = ForExpr {
+        for_token: T![for],
+        loop_expr[0]: Expr,
+        in_token: T![in],
+        iterable[1]: Expr,
+        block[2]: Expr,
+    },
     IF_EXPR = IfExpr {
         if_token: T![if],
-        if_condition: Expr,
-        if_branch: BlockExpr,
+        if_condition[0]: Expr,
+        if_branch[1]: Expr,
         else_token: T![else],
-        else_branch[1]: BlockExpr,
+        else_branch[2]: Expr,
         else_if_expr: IfExpr,
     },
     SELF_EXPR = SelfExpr {
@@ -1083,5 +1099,17 @@ mod test {
             .unwrap()
             .syntax()
             .should_eq(source, "a?.b");
+    }
+
+    #[test]
+    fn if_expr() {
+        let source = "fn main() { if {true} {10} }";
+        let tree = parse(source).0;
+        let expr = first::<IfExpr>(&tree);
+        expr.if_condition()
+            .unwrap()
+            .syntax()
+            .should_eq(source, "{true}");
+        expr.if_branch().unwrap().syntax().should_eq(source, "{10}");
     }
 }

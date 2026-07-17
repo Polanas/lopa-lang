@@ -1,0 +1,31 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"Foo<i32>::bar<string>()\", |p| p.expr())"
+---
+CALL_EXPR: 0..23 
+  PATH_EXPR: 0..21 
+    PATH: 0..21 
+      PATH_SEGMENT: 0..8 
+        IDENT: 0..3 "Foo"
+        GENERIC_ARGUMENTS: 3..8 
+          LT: 3..4 "<"
+          PATH_TYPE: 4..7 
+            PATH: 4..7 
+              PATH_SEGMENT: 4..7 
+                IDENT: 4..7 "i32"
+          GT: 7..8 ">"
+      COLON: 8..9 ":"
+      COLON: 9..10 ":"
+      PATH_SEGMENT: 10..21 
+        IDENT: 10..13 "bar"
+        GENERIC_ARGUMENTS: 13..21 
+          LT: 13..14 "<"
+          LIT_TYPE: 14..20 
+            LIT_TYPE_STRING: 14..20 
+              PATH_TYPE: 14..20 
+                PATH: 14..20 
+                  PATH_SEGMENT: 14..20 
+                    IDENT: 14..20 "string"
+          GT: 20..21 ">"
+  L_PAREN: 21..22 "("
+  R_PAREN: 22..23 ")"

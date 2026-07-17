@@ -12,7 +12,16 @@ use crate::{
 };
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
-pub enum ResolveItemResult<'db> {
+pub enum ResolveItemError {
+    NotFound,
+    SelfNotFound,
+    GotModule,
+    GotFunction,
+    Cycle,
+}
+
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
+pub enum ResolveItem<'db> {
     Type(ModuleDef<'db>),
     Value(ModuleDef<'db>),
     Both {
@@ -49,7 +58,7 @@ fn resolve_path_cycle_result<'db>(
     _id: salsa::Id,
     _module: Module<'db>,
     _path: SymbolList,
-) -> Option<ResolveItemResult<'db>> {
+) -> Option<ResolveItem<'db>> {
     None
 }
 
@@ -127,15 +136,17 @@ impl<'db> Module<'db> {
                 if let Some(self_ty) = self_ty {
                     self_ty
                 } else {
-                    Diagnostic {
-                        message: "cannot find type `Self` in this scope".to_string(),
-                        location: DiagnosticLocation::TypeExpr {
-                            id: ty.id(db),
-                            source: ty.source(db).get_pure(db),
-                        },
-                        kind: DiagnosticKind::TypeError,
-                    }
-                    .accumulate(db);
+                    //TODO: this diagnostic needs to be moved somewhere else
+
+                    // Diagnostic {
+                    //     message: "cannot find type `Self` in this scope".to_string(),
+                    //     location: DiagnosticLocation::TypeExpr {
+                    //         id: ty.id(db),
+                    //         source: ty.source(db).get_pure(db),
+                    //     },
+                    //     kind: DiagnosticKind::TypeError,
+                    // }
+                    // .accumulate(db);
                     Type::new(db, TypeKind::Unknown)
                 }
             }
@@ -180,7 +191,7 @@ impl<'db> Module<'db> {
             return Type::new(db, TypeKind::Unknown);
         };
         match item {
-            ResolveItemResult::Type(ty) | ResolveItemResult::Both { ty, .. } => match ty {
+            ResolveItem::Type(ty) | ResolveItem::Both { ty, .. } => match ty {
                 ModuleDef::Struct(item) => Type::new(
                     db,
                     TypeKind::Struct {
@@ -212,7 +223,7 @@ impl<'db> Module<'db> {
                 }
                 ModuleDef::Function(function) => unreachable!(),
             },
-            ResolveItemResult::Value(value) => match value {
+            ResolveItem::Value(value) => match value {
                 ModuleDef::Function(function) => {
                     Diagnostic {
                         message: format!(
@@ -238,17 +249,15 @@ impl<'db> Module<'db> {
         self,
         db: &'db dyn salsa::Database,
         path: SymbolList,
-    ) -> Option<ResolveItemResult<'db>> {
+    ) -> Option<ResolveItem<'db>> {
         fn resolve_path_inner<'db>(
             db: &'db dyn salsa::Database,
             module: Module<'db>,
             path: SymbolList,
-        ) -> Option<ResolveItemResult<'db>> {
+        ) -> Option<ResolveItem<'db>> {
             let first = path.symbols(db).first()?;
             let mut current_item = match first.value(db) {
-                "root" => {
-                    ResolveItemResult::Type(ModuleDef::Module(module.root(db).root_module(db)?))
-                }
+                "root" => ResolveItem::Type(ModuleDef::Module(module.root(db).root_module(db)?)),
                 _ => module
                     .resolve_item_name(db, *path.symbols(db).first()?)
                     .or_else(|| {
@@ -267,22 +276,22 @@ impl<'db> Module<'db> {
             };
             for (id, segment) in path.symbols(db).iter().skip(1).enumerate() {
                 match current_item {
-                    ResolveItemResult::Type(module_def) => match module_def {
+                    ResolveItem::Type(module_def) => match module_def {
                         ModuleDef::Struct(item) => {
                             if id == path.symbols(db).len() - 1 {
-                                return Some(ResolveItemResult::Type(ModuleDef::Struct(item)));
+                                return Some(ResolveItem::Type(ModuleDef::Struct(item)));
                             }
                             return None;
                         }
                         ModuleDef::Enum(item) => {
                             if id == path.symbols(db).len() - 1 {
-                                return Some(ResolveItemResult::Type(ModuleDef::Enum(item)));
+                                return Some(ResolveItem::Type(ModuleDef::Enum(item)));
                             }
                             return None;
                         }
                         ModuleDef::Module(item) => {
                             if id == path.symbols(db).len() - 1 {
-                                return Some(ResolveItemResult::Type(ModuleDef::Module(item)));
+                                return Some(ResolveItem::Type(ModuleDef::Module(item)));
                             }
                             // if segment.value(db) == "self" {
                             //     continue;
@@ -293,10 +302,10 @@ impl<'db> Module<'db> {
                         }
                         ModuleDef::Function(_) => unreachable!(),
                     },
-                    ResolveItemResult::Value(module_def) => match module_def {
+                    ResolveItem::Value(module_def) => match module_def {
                         ModuleDef::Function(item) => {
                             if id == path.symbols(db).len() - 1 {
-                                return Some(ResolveItemResult::Value(ModuleDef::Function(item)));
+                                return Some(ResolveItem::Value(ModuleDef::Function(item)));
                             }
                             return None;
                         }
@@ -304,7 +313,7 @@ impl<'db> Module<'db> {
                             unreachable!()
                         }
                     },
-                    ResolveItemResult::Both { ty, value } => {
+                    ResolveItem::Both { ty, value } => {
                         let ty = match ty {
                             ModuleDef::Struct(item) => {
                                 if id == path.symbols(db).len() - 1 {
@@ -350,10 +359,10 @@ impl<'db> Module<'db> {
 
                         match (ty, value) {
                             (Some(ty), Some(value)) => {
-                                return Some(ResolveItemResult::Both { ty, value });
+                                return Some(ResolveItem::Both { ty, value });
                             }
-                            (Some(ty), None) => return Some(ResolveItemResult::Type(ty)),
-                            (None, Some(value)) => return Some(ResolveItemResult::Value(value)),
+                            (Some(ty), None) => return Some(ResolveItem::Type(ty)),
+                            (None, Some(value)) => return Some(ResolveItem::Value(value)),
                             _ => {}
                         }
                     }
@@ -390,14 +399,14 @@ impl<'db> Module<'db> {
         self,
         db: &'db dyn salsa::Database,
         name: Symbol,
-    ) -> Option<ResolveItemResult<'db>> {
+    ) -> Option<ResolveItem<'db>> {
         let scope = module_scope(db, self);
         let value = scope.value_item(name).cloned();
         let ty = scope.type_item(name).cloned();
         Some(match (value, ty) {
-            (Some(value), Some(ty)) => ResolveItemResult::Both { ty, value },
-            (Some(value), None) => ResolveItemResult::Value(value),
-            (None, Some(ty)) => ResolveItemResult::Type(ty),
+            (Some(value), Some(ty)) => ResolveItem::Both { ty, value },
+            (Some(value), None) => ResolveItem::Value(value),
+            (None, Some(ty)) => ResolveItem::Type(ty),
             _ => return None,
         })
     }

@@ -1,0 +1,24 @@
+---
+source: lopa-core/src/parsing/parser.rs
+expression: "parse(\"while true { idk(); }\", |p| p.expr())"
+---
+WHILE_EXPR: 0..21 
+  WHILE_KW: 0..5 "while"
+  WHITESPACE: 5..6 
+  LIT_EXPR: 6..10 
+    TRUE_KW: 6..10 "true"
+  WHITESPACE: 10..11 
+  BLOCK_EXPR: 11..21 
+    L_BRACE: 11..12 "{"
+    WHITESPACE: 12..13 
+    EXPR_STMT: 13..19 
+      CALL_EXPR: 13..18 
+        PATH_EXPR: 13..16 
+          PATH: 13..16 
+            PATH_SEGMENT: 13..16 
+              IDENT: 13..16 "idk"
+        L_PAREN: 16..17 "("
+        R_PAREN: 17..18 ")"
+      SEMI: 18..19 ";"
+    WHITESPACE: 19..20 
+    R_BRACE: 20..21 "}"

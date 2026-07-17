@@ -236,8 +236,8 @@ impl<'db, 's> BodyCtx<'db, 's> {
             }
             parsing::Expr::IfExpr(if_expr) => {
                 let cond = if_expr.if_condition().and_then(|e| self.expr(e))?;
-                let if_branch = if_expr.if_branch().map(|b| self.block_expr(b))?;
-                let else_branch = if_expr.else_branch().map(|b| self.block_expr(b));
+                let if_branch = if_expr.if_branch().and_then(|b| self.expr(b))?;
+                let else_branch = if_expr.else_branch().and_then(|b| self.expr(b));
                 self.alloc_expr(
                     ExprKind::If {
                         cond,

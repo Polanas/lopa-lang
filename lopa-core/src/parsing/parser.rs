@@ -1048,6 +1048,9 @@ impl<'a> Parser<'a> {
         let token = self.peek();
         let checkpoint = self.checkpoint();
         match token {
+            T![for] => self.for_expr(),
+            T![while] => self.while_expr(),
+            T![loop] => self.loop_expr(),
             T![return] => self.return_expr(),
             T![if] => self.if_expr(),
             INT | FLOAT | STRING | TRUE_KW | FALSE_KW | NIL_KW | SINGLE_STRING | BRACKET_STRING => {
@@ -1176,6 +1179,31 @@ impl<'a> Parser<'a> {
             _ => {}
         }
         Some(())
+    }
+
+    fn loop_expr(&mut self) {
+        self.with(LOOP_EXPR, |this| {
+            this.expect(T![loop]);
+            this.block();
+        });
+    }
+
+    fn while_expr(&mut self) {
+        self.with(WHILE_EXPR, |this| {
+            this.expect(T![while]);
+            this.expr();
+            this.block();
+        });
+    }
+
+    fn for_expr(&mut self) {
+        self.with(FOR_EXPR, |this| {
+            this.expect(T![for]);
+            this.expr();
+            this.expect(T![in]);
+            this.expr();
+            this.block();
+        })
     }
 
     fn tuple_expr(&mut self) {
@@ -2362,6 +2390,9 @@ mod test {
         insta::assert_snapshot!(parse("(1,2,3)", |p| p.expr()));
         insta::assert_snapshot!(parse("((),)", |p| p.expr()));
         insta::assert_snapshot!(parse("Foo<i32>::bar<string>()", |p| p.expr()));
+        insta::assert_snapshot!(parse("for x in range(1,2) { print(x); }", |p| p.expr()));
+        insta::assert_snapshot!(parse("while true { idk(); }", |p| p.expr()));
+        insta::assert_snapshot!(parse("loop { panic(); }", |p| p.expr()));
     }
 
     #[test]
