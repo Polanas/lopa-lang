@@ -421,7 +421,6 @@ struct ResolveUseTree<'db, 'a> {
 
 impl<'db, 'a> ResolveUseTree<'db, 'a> {
     fn push_diagnostic(&mut self, message: String, use_tree: hir::UseTree) {
-        Notification::new().body(&message).show().unwrap();
         self.diagnostics.push(Diagnostic {
             message,
             location: DiagnosticLocation::UseTree {

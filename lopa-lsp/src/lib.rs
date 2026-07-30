@@ -8,6 +8,7 @@ use std::{
 
 use dashmap::DashMap;
 use lopa_core::{analysis::Analysis, ide::Root, vfs::Vfs};
+use notify_rust::Notification;
 use salsa::Setter;
 use tokio::task::{self, AbortHandle};
 use tower_lsp_server::{Client, LanguageServer, jsonrpc::Result, ls_types::*};
@@ -41,7 +42,7 @@ impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
-                name: "lopa-ls".to_string(),
+                name: "lopa_ls".to_string(),
                 version: Some("0.0.1".to_string()),
             }),
             offset_encoding: None,

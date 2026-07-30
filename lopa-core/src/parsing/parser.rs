@@ -1,6 +1,7 @@
 use std::{cell::Cell, iter::Peekable, ops::Range};
 
 use itertools::Itertools as _;
+use notify_rust::Notification;
 
 use super::lexer;
 use crate::parsing::{
@@ -54,12 +55,12 @@ const FN_TYPE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T![")"], I
 const PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![->], T!["{"], T![;]]).union(ITEM_FIRST);
 const RECORD_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["}"], T![,]]);
 const ELEMENT_RECOVERY: TokenSet = TokenSet::new(&[T!["}"]]).union(ITEM_FIRST);
-const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"]]);
+const CLOSURE_PARAM_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![|], T!["{"], T![;]]);
 const STMT_EXPR_RECOVERY: TokenSet = TokenSet::new(&[T![let], T!["{"], T!["}"]]).union(ITEM_FIRST);
-const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"]]);
+const ARG_LIST_RECOVERY: TokenSet = TokenSet::new(&[T![let], T![")"], T![;], T!["}"]]);
 const COMPILER_ATTRIB_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![@]]).union(ITEM_FIRST);
-const GENERICS_RECOVERY: TokenSet = TokenSet::new(&[T!["{"], T![>]]).union(ITEM_FIRST);
-const TUPLE_RECOVERY: TokenSet = TokenSet::new(&[T![")"]]);
+const GENERICS_RECOVERY: TokenSet = TokenSet::new(&[T!["{"], T![>], T![;]]).union(ITEM_FIRST);
+const TUPLE_RECOVERY: TokenSet = TokenSet::new(&[T![")"], T![;]]);
 
 pub fn parse(input: &str) -> (Tree, Vec<ParseError>) {
     let mut p = Parser::new(input);
@@ -324,8 +325,8 @@ impl<'a> Parser<'a> {
     }
 
     fn advance_with_error(&mut self, kind: SyntaxErrorKind) {
-        self.advance(ERROR);
         self.error(kind);
+        self.advance(ERROR);
     }
 
     fn advance(&mut self, token: Syntax) {
@@ -2186,9 +2187,19 @@ mod test {
                 output.push_str(&format!("{:?}, token: {}", err.kind, &source[err.range]));
                 output.push('\n');
             }
-            panic!("{output}");
+            panic!("{result}\n{output}");
         }
         result
+    }
+
+    #[test]
+    fn temp() {
+        insta::assert_snapshot!(parse(
+            "fn main() {
+  let x = test(;
+}",
+            |p| p.fn_item()
+        ));
     }
 
     #[test]
