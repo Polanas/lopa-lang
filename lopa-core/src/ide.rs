@@ -348,10 +348,7 @@ impl<'db> File {
             .into_iter()
             .filter_map(|d| match d.location {
                 DiagnosticLocation::TypeExpr { id, source } => {
-                    let id = match source {
-                        hir::IdSourcePure::BodySource(body_map) => body_map[id],
-                        hir::IdSourcePure::ContentsSource(contents_map) => contents_map[id],
-                    };
+                    let id = source[id];
                     let node = tree.get(id)?;
                     Some(RenderedDiagnostic {
                         message: d.message,

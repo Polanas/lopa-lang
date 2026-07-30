@@ -1,8 +1,8 @@
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 use crate::def::{
-    TypeExprId, UseTreeId,
-    hir::{EnumId, FunctionId, IdSource, IdSourcePure, ModuleId, StructId, UseItemId},
+    BodyMap, TypeExprId, UseTreeId,
+    hir::{EnumId, FunctionId, ModuleId, StructId, UseItemId},
 };
 
 //TODO: refactor this (add more kinds for each class of error like in rust)
@@ -30,7 +30,7 @@ pub enum DiagnosticLocation {
     },
     TypeExpr {
         id: TypeExprId,
-        source: IdSourcePure,
+        source: Arc<BodyMap>,
     },
     Range(Range<usize>),
 }

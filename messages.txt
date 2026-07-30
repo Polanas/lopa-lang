@@ -1,0 +1,40 @@
+
+
+vim.tbl_add_reverse_lookup is deprecated. Run ":checkhealth vim.deprecated" for more information
+Decoration provider "conceal_line" (ns=nvim.treesitter.highlighter):
+Lua: /usr/share/nvim/runtime/lua/vim/treesitter.lua:197: attempt to call method 'range' (a nil value)
+stack traceback:
+	/usr/share/nvim/runtime/lua/vim/treesitter.lua:197: in function 'get_range'
+	/usr/share/nvim/runtime/lua/vim/treesitter.lua:239: in function 'get_node_text'
+	...nvim-treesitter/lua/nvim-treesitter/query_predicates.lua:141: in function 'handler'
+	/usr/share/nvim/runtime/lua/vim/treesitter/query.lua:864: in function '_apply_directives'
+	/usr/share/nvim/runtime/lua/vim/treesitter/query.lua:1085: in function '(for generator)'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:1125: in function '_get_injections'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:690: in function '_parse'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:639: in function 'parse'
+	/usr/share/nvim/runtime/lua/vim/treesitter/highlighter.lua:529: in function </usr/share/nvim/runtime/lua/vim/treesitter/highlighter.lua:52
+Decoration provider "conceal_line" (ns=nvim.treesitter.highlighter):
+Lua: /usr/share/nvim/runtime/lua/vim/treesitter.lua:197: attempt to call method 'range' (a nil value)
+stack traceback:
+	/usr/share/nvim/runtime/lua/vim/treesitter.lua:197: in function 'get_range'
+	/usr/share/nvim/runtime/lua/vim/treesitter.lua:239: in function 'get_node_text'
+	...nvim-treesitter/lua/nvim-treesitter/query_predicates.lua:141: in function 'handler'
+	/usr/share/nvim/runtime/lua/vim/treesitter/query.lua:864: in function '_apply_directives'
+	/usr/share/nvim/runtime/lua/vim/treesitter/query.lua:1085: in function '(for generator)'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:1125: in function '_get_injections'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:690: in function '_parse'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:639: in function 'parse'
+	/usr/share/nvim/runtime/lua/vim/treesitter/highlighter.lua:529: in function </usr/share/nvim/runtime/lua/vim/treesitter/highlighter.lua:52
+Decoration provider "conceal_line" (ns=nvim.treesitter.highlighter):
+Lua: /usr/share/nvim/runtime/lua/vim/treesitter.lua:197: attempt to call method 'range' (a nil value)
+stack traceback:
+	/usr/share/nvim/runtime/lua/vim/treesitter.lua:197: in function 'get_range'
+	/usr/share/nvim/runtime/lua/vim/treesitter.lua:239: in function 'get_node_text'
+	...nvim-treesitter/lua/nvim-treesitter/query_predicates.lua:141: in function 'handler'
+	/usr/share/nvim/runtime/lua/vim/treesitter/query.lua:864: in function '_apply_directives'
+	/usr/share/nvim/runtime/lua/vim/treesitter/query.lua:1085: in function '(for generator)'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:1125: in function '_get_injections'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:690: in function '_parse'
+	/usr/share/nvim/runtime/lua/vim/treesitter/languagetree.lua:639: in function 'parse'
+	/usr/share/nvim/runtime/lua/vim/treesitter/highlighter.lua:529: in function </usr/share/nvim/runtime/lua/vim/treesitter/highlighter.lua:52
+E475: Invalid argument: messages.txt

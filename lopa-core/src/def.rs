@@ -1,30 +1,23 @@
 mod ast_id_map;
+mod body_map;
+mod items_map;
 mod lowering;
 #[path = "def/use_tree_map.rs"]
 mod use_tree_map_mod;
 
-pub mod body_map;
-pub mod contents_map;
 pub mod hir;
-pub mod items_map;
 pub mod mir;
 
-use std::sync::Arc;
+use itertools::Itertools;
 
 pub use ast_id_map::*;
-pub use contents_map::*;
+pub use body_map::*;
 pub use items_map::*;
-use itertools::Itertools;
 pub use use_tree_map_mod::*;
 
-use crate::{
-    def::{
-        body_map::BodyMap,
-        hir::{FieldBody, FunctionBody},
-    },
-    parsing,
-};
 use la_arena::Idx;
+
+use crate::parsing;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct ItemTypeExprId(pub Idx<parsing::NodeId>);

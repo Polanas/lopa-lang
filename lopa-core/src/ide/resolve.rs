@@ -183,7 +183,7 @@ impl<'db> Module<'db> {
                 ),
                 location: DiagnosticLocation::TypeExpr {
                     id: path_expr.id(db),
-                    source: path_expr.source(db).get_pure(db),
+                    source: path_expr.source(db).body_map(db),
                 },
                 kind: DiagnosticKind::TypeError,
             }
@@ -214,7 +214,7 @@ impl<'db> Module<'db> {
                         ),
                         location: DiagnosticLocation::TypeExpr {
                             id: path_expr.id(db),
-                            source: path_expr.source(db).get_pure(db),
+                            source: path_expr.source(db).body_map(db),
                         },
                         kind: DiagnosticKind::TypeError,
                     }
@@ -232,7 +232,7 @@ impl<'db> Module<'db> {
                         ),
                         location: DiagnosticLocation::TypeExpr {
                             id: path_expr.id(db),
-                            source: path_expr.source(db).get_pure(db),
+                            source: path_expr.source(db).body_map(db),
                         },
                         kind: DiagnosticKind::TypeError,
                     }
