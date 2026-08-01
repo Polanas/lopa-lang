@@ -1,7 +1,6 @@
 use std::{cell::Cell, iter::Peekable, ops::Range};
 
 use itertools::Itertools as _;
-use notify_rust::Notification;
 
 use super::lexer;
 use crate::parsing::{

@@ -413,18 +413,8 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 self.alloc_expr(ExprKind::Lit(kind), expr)
             }
             parsing::Expr::IfExpr(if_expr) => {
-                let cond = if_expr.if_condition().and_then(|e| self.expr(e))?;
-                let if_branch = if_expr.if_branch().and_then(|b| self.expr(b))?;
-                let else_branch = if_expr.else_branch().and_then(|b| self.expr(b));
-                todo!()
-                // self.alloc_expr(
-                //     ExprKind::If {
-                //         cond,
-                //         if_branch,
-                //         else_branch,
-                //     },
-                //     expr,
-                // )
+                let kind = self.if_expr(if_expr)?;
+                self.alloc_expr(ExprKind::If(kind), expr)
             }
             parsing::Expr::TupleExpr(tuple_expr) => {
                 let exprs = tuple_expr
@@ -439,6 +429,19 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 )
             }
         })
+    }
+
+    fn if_expr(&mut self, expr: parsing::IfExpr) -> Option<IfExpr<'db>> {
+        let cond = expr.if_condition().and_then(|e| self.expr(e))?;
+        let if_branch = expr.if_branch().and_then(|b| self.expr(b))?;
+        let else_branch =
+            expr.else_token()
+                .and_then(|_| match (expr.else_branch(), expr.else_if_expr()) {
+                    (Some(else_branch), None) => self.expr(else_branch).map(ElseBranch::Block),
+                    (None, Some(else_if_expr)) => self.if_expr(else_if_expr).map(ElseBranch::If),
+                    _ => None,
+                });
+        Some(IfExpr::new(self.db, cond, if_branch, else_branch))
     }
 
     fn closure_param(&mut self, param: parsing::ClosureParam) -> Option<ClosureParam<'db>> {
