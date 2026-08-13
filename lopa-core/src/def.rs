@@ -1,9 +1,9 @@
 mod ast_id_map;
 mod body_map;
-mod items_map;
 mod lowering;
 #[path = "def/use_tree_map.rs"]
 mod use_tree_map_mod;
+mod items_map;
 
 pub mod hir;
 pub mod mir;
@@ -11,8 +11,8 @@ pub mod mir;
 use itertools::Itertools;
 
 pub use ast_id_map::*;
-pub use body_map::*;
 pub use items_map::*;
+pub use body_map::*;
 pub use use_tree_map_mod::*;
 
 use la_arena::Idx;

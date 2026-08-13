@@ -8,7 +8,7 @@ use crate::{
         AstId, BodyMap, ElemId, ExprId, ItemTypeExprId, ItemsMap, PatId, StmtId, Symbol,
         SymbolList, TypeExprId, UseTreeId,
     },
-    ide::{self, InFile},
+    ide::{self, DiagnosticLocation, InFile},
     parsing::{self},
 };
 
@@ -564,6 +564,15 @@ pub struct TypeExpr<'db> {
     pub source: BodyMapSource<'db>,
     #[returns(copy)]
     pub kind: TypeExprKind<'db>,
+}
+
+impl<'db> TypeExpr<'db> {
+    pub fn location(&self, db: &'db dyn salsa::Database) -> DiagnosticLocation {
+        DiagnosticLocation::TypeExpr {
+            id: self.id(db),
+            source: self.source(db).body_map(db),
+        }
+    }
 }
 
 #[derive(salsa::SalsaValue, Hash, PartialEq, Eq, Clone, Copy, Debug)]

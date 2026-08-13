@@ -2192,16 +2192,6 @@ mod test {
     }
 
     #[test]
-    fn temp() {
-        insta::assert_snapshot!(parse(
-            "fn main() {
-  let x = test(;
-}",
-            |p| p.fn_item()
-        ));
-    }
-
-    #[test]
     fn module() {
         insta::assert_snapshot!(parse("fn some_func(){}", |p| p.module()));
         insta::assert_snapshot!(parse(

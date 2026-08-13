@@ -17,7 +17,7 @@ use crate::{
         self, Symbol, SymbolList,
         hir::{self},
     },
-    parsing::{self, AstNode},
+    parsing::{self, AstNode, NodeExt},
 };
 use std::{fmt::Debug, path::PathBuf, sync::Arc};
 
@@ -284,8 +284,9 @@ pub fn module_diagnostics<'db>(
     module: hir::Module<'db>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = vec![];
-    diagnostics.extend(resolve_module(db, module));
-    diagnostics.extend(&mut module_scope::accumulated(db, module).into_iter().cloned());
+    //TODO: add resolve diagnosics
+    // diagnostics.extend(resolve_module(db, module));
+    diagnostics.extend(module.scope(db).diagnostics.clone());
 
     for child in module.children(db).iter() {
         if matches!(child.data(db), hir::ModuleData::Declaration { .. }) {
@@ -293,6 +294,16 @@ pub fn module_diagnostics<'db>(
         }
         let mut child_diagnostics = module_diagnostics(db, *child);
         diagnostics.append(&mut child_diagnostics);
+    }
+    for item in module.items(db).items(db) {
+        match item {
+            hir::Item::Struct(_) => {}
+            hir::Item::Function(function) => todo!(),
+            hir::Item::Enum(_) => todo!(),
+            hir::Item::Use(use_item) => todo!(),
+            hir::Item::Impl(impl_block) => todo!(),
+            hir::Item::Module(_) => {}
+        }
     }
     diagnostics
 }
@@ -347,6 +358,18 @@ impl<'db> File {
         diagnostics
             .into_iter()
             .filter_map(|d| match d.location {
+                DiagnosticLocation::PathSegment { id, source, offset } => {
+                    let id = source[id];
+                    let node = tree.get(id)?;
+                    let path = parsing::Path::cast(node).unwrap();
+                    let segment = path.segments().nth(offset).unwrap();
+                    let range = segment.0.children().next().unwrap().range();
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range,
+                        kind: d.kind,
+                    })
+                }
                 DiagnosticLocation::TypeExpr { id, source } => {
                     let id = source[id];
                     let node = tree.get(id)?;

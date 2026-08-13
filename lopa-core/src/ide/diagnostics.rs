@@ -32,6 +32,11 @@ pub enum DiagnosticLocation {
         id: TypeExprId,
         source: Arc<BodyMap>,
     },
+    PathSegment {
+        id: TypeExprId,
+        source: Arc<BodyMap>,
+        offset: usize,
+    },
     Range(Range<usize>),
 }
 
