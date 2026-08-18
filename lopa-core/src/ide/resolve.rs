@@ -4,7 +4,6 @@ use crate::{
     def::{
         Symbol, SymbolList,
         hir::{self, Elem, ElemKind, Enum, Function, Module, Struct, TypeExpr, UseItem},
-        mir::{self, BareFn, BareFnParam, BareFnParams, Type, TypeKind, TypeList},
     },
     ide::{self, Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleDef, diagnostics},
 };
@@ -83,13 +82,6 @@ pub struct PathMap<'db> {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-struct PathResolveCtx<'db> {
-    db: &'db dyn salsa::Database,
-    module: Module<'db>,
-    diagnostics: Vec<Diagnostic>,
-    items: indexmap::IndexMap<SymbolList, ResolveItem<'db>>,
-}
-
 struct ResolveUseTree<'db, 'a> {
     resolve_ctx: &'a mut PathResolveCtx<'db>,
     use_item: UseItem<'db>,
@@ -162,13 +154,36 @@ struct PathSegmentDiagnostic {
     message: String,
 }
 
+struct PathResolveCtx<'db> {
+    db: &'db dyn salsa::Database,
+    module: Module<'db>,
+    diagnostics: Vec<Diagnostic>,
+    items: indexmap::IndexMap<SymbolList, ResolveItem<'db>>,
+    global_import_modules: Vec<Module<'db>>,
+}
+
 impl<'db> PathResolveCtx<'db> {
     fn new(db: &'db dyn salsa::Database, module: Module<'db>) -> Self {
-        Self {
+        let mut ctx = Self {
             db,
             module,
             diagnostics: Default::default(),
             items: Default::default(),
+            global_import_modules: Default::default(),
+        };
+        ctx.collect_globals();
+        ctx
+    }
+
+    fn collect_globals(&mut self) {
+        let scope = self.module.scope(self.db);
+        for global in scope.global_imports.iter() {
+            if let Ok(ResolveItem::Type(ty) | ResolveItem::Both { ty, .. }) =
+                self.resolve_path(*global)
+                && let ModuleDef::Module(module) = ty
+            {
+                self.global_import_modules.push(module);
+            }
         }
     }
 
@@ -209,18 +224,18 @@ impl<'db> PathResolveCtx<'db> {
                 self.module.root(self.db).root_module(self.db).unwrap(),
             )),
             other => {
-                let Some(item) = self
-                    .module
-                    .defs(self.db)
-                    .resolve_item(Symbol::new(self.db, other))
-                    .or_else(|| {
-                        //TODO: globals
-                        None
-                    })
-                else {
+                let other = Symbol::new(self.db, other);
+                let Some(item) = self.module.defs(self.db).resolve_item(other).or_else(|| {
+                    for module in self.global_import_modules.iter() {
+                        if let Some(item) = module.defs(self.db).resolve_item(other) {
+                            return Some(item);
+                        }
+                    }
+                    None
+                }) else {
                     return Err(PathSegmentDiagnostic {
                         offset: 0,
-                        message: format!("could not find `{}` in this scope", other),
+                        message: format!("could not find `{}` in this scope", other.value(self.db)),
                     });
                 };
                 item
@@ -855,7 +870,7 @@ impl<'db> PathResolveCtx<'db> {
 mod test {
     use std::{path::PathBuf, sync::Arc};
 
-    use salsa::Database;
+    use salsa::{Database, Setter};
 
     use crate::{
         def::hir::{self, Module, ModuleData},
@@ -875,14 +890,25 @@ mod test {
     }
 
     fn assert_resolve_diagnostics(source: &str) {
-        let db = salsa::DatabaseImpl::default();
-        let root = ide::Root::new(&db, vec![], PathBuf::default());
-        let file = ide::File::new(&db, Arc::from(source), PathBuf::default(), root);
+        let mut db = salsa::DatabaseImpl::default();
+        let root = ide::Root::new(&db, vec![], PathBuf::from("test"));
+        let file = ide::File::new(
+            &db,
+            Arc::from(source),
+            PathBuf::from("test/src/main.lopa"),
+            root,
+        );
+
+        root.set_files(&mut db).to(vec![file]);
 
         for item in file.items(&db).items(&db) {
             if let hir::Item::Module(item) = item {
                 assert_module(&db, *item);
             }
+        }
+
+        if let Some(item) = file.module(&db) {
+            assert_module(&db, item);
         }
     }
 
@@ -922,6 +948,22 @@ mod test {
                         use super::super::X;
                     }
                 }
+        }",
+        );
+    }
+
+    #[test]
+    fn global_imports() {
+        assert_resolve_diagnostics(
+            "mod test {
+                mod foo {
+                    mod bar {
+                        struct X {}
+                    }
+                }
+
+                use bar::X;
+                use foo::*;
         }",
         );
     }
