@@ -958,11 +958,13 @@ mod test {
             "mod test {
                 mod foo {
                     mod bar {
-                        struct X {}
+                        struct X {
+                            idk: struct Y {}
+                        }
                     }
                 }
 
-                use bar::X;
+                use bar::Y;
                 use foo::*;
         }",
         );

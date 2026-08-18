@@ -203,7 +203,7 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 self.alloc_item_type_expr(
                     match item {
                         InnerItem::Struct(item) => ItemTypeExprKind::Struct(item),
-                        InnerItem::Enum(item) => ItemTypeExprKind::Enum(item),
+                        InnerItem::Enum(_) => return None,
                         InnerItem::Function(_) => return None,
                     },
                     item_type_expr,
@@ -215,7 +215,7 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 let item = items.find(|i| i.name(self.db) == name)?;
                 self.alloc_item_type_expr(
                     match item {
-                        InnerItem::Struct(item) => ItemTypeExprKind::Struct(item),
+                        InnerItem::Struct(_) => return None,
                         InnerItem::Enum(item) => ItemTypeExprKind::Enum(item),
                         InnerItem::Function(_) => return None,
                     },
@@ -717,11 +717,27 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
                 parsing::Item::StructItem(struct_item) => {
                     if let Some(struct_item) = self.struct_item(struct_item) {
                         items.push(Item::Struct(struct_item));
+
+                        for inner_item in struct_item.inner_items(self.db) {
+                            match inner_item {
+                                InnerItem::Struct(item) => items.push(Item::Struct(*item)),
+                                InnerItem::Enum(item) => items.push(Item::Enum(*item)),
+                                InnerItem::Function(_) => {}
+                            }
+                        }
                     }
                 }
                 parsing::Item::EnumItem(enum_item) => {
-                    if let Some(enum_item) = self.enum_item(enum_item) {
-                        items.push(Item::Enum(enum_item));
+                    if let Some(item) = self.enum_item(enum_item) {
+                        items.push(Item::Enum(item));
+
+                        for inner_item in item.inner_items(self.db) {
+                            match inner_item {
+                                InnerItem::Struct(item) => items.push(Item::Struct(*item)),
+                                InnerItem::Enum(item) => items.push(Item::Enum(*item)),
+                                InnerItem::Function(_) => {}
+                            }
+                        }
                     }
                 }
                 parsing::Item::UseItem(use_item) => {
