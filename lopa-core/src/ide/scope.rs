@@ -1,9 +1,11 @@
-use std::{path, sync::Arc};
+use std::collections::HashMap;
+
+use la_arena::{Arena, ArenaMap, Idx};
 
 use crate::{
     def::{
-        Symbol, SymbolList,
-        hir::{self, Enum, Function, Item, Module, Struct},
+        ExprId, PatId, Symbol, SymbolList, hir,
+        hir::{Enum, Expr, Function, Item, Module, Struct},
     },
     ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, ResolveItem},
 };
@@ -324,5 +326,238 @@ impl<'db, 'a> TraversUseTree<'db, 'a> {
             }
         }
         Some(())
+    }
+}
+
+pub struct ExprScopesCtx<'db> {
+    scopes: ExprScopes,
+    db: &'db dyn salsa::Database,
+}
+
+impl<'db> ExprScopesCtx<'db> {
+    fn new(db: &'db dyn salsa::Database) -> Self {
+        Self {
+            scopes: Default::default(),
+            db,
+        }
+    }
+
+    fn traverse_params(&mut self, params: hir::FnParamList<'db>) {
+        let root = self.root_scope();
+        for param in params.params(self.db) {
+            match param.kind(self.db) {
+                hir::FnParamKind::Pat { pat, .. } => {
+                    if let Some(pat) = pat {
+                        self.traverse_pat(pat, root);
+                    }
+                }
+                hir::FnParamKind::SelfParam => {}
+            }
+        }
+    }
+
+    fn traverse(mut self, expr: hir::Expr<'db>) -> ExprScopes {
+        let root = self.root_scope();
+        self.traverse_expr(expr, root);
+        self.scopes
+    }
+
+    fn traverse_expr(&mut self, expr: hir::Expr<'db>, scope: ScopeId) {
+        self.scopes.scope_by_expr.insert(expr.id(self.db), scope);
+        match expr.kind(self.db) {
+            hir::ExprKind::Unit
+            | hir::ExprKind::Lit(_)
+            | hir::ExprKind::Path(_)
+            | hir::ExprKind::SelfExpr => {}
+            hir::ExprKind::As { expr, .. } => {
+                self.traverse_expr(expr, scope);
+            }
+            hir::ExprKind::Is { expr, pat } => {
+                self.traverse_expr(expr, scope);
+                self.traverse_pat(pat, scope);
+            }
+            hir::ExprKind::IsNot { expr, pat } => {
+                self.traverse_expr(expr, scope);
+                self.traverse_pat(pat, scope);
+            }
+            hir::ExprKind::Closure { params, body, .. } => {
+                let scope = self.scopes.scopes.alloc(ScopeData::from_parent(scope));
+                for param in params.params(self.db).iter() {
+                    self.traverse_pat(param.pattern(self.db), scope);
+                }
+                self.traverse_expr(body, scope);
+            }
+            hir::ExprKind::Field { expr, .. } => {
+                self.traverse_expr(expr, scope);
+            }
+            hir::ExprKind::Method { expr, args, .. } => {
+                self.traverse_expr(expr, scope);
+                for arg in args.args(self.db).iter() {
+                    self.traverse_expr(arg.kind(self.db).value(), scope);
+                }
+            }
+            hir::ExprKind::Record { fields, .. } => {
+                for field in fields.fields(self.db).iter() {
+                    self.traverse_expr(field.expr(self.db), scope);
+                }
+            }
+            hir::ExprKind::Binary { lhs, rhs, .. } => {
+                self.traverse_expr(lhs, scope);
+                self.traverse_expr(rhs, scope);
+            }
+            hir::ExprKind::Unary { expr, .. } => {
+                self.traverse_expr(expr, scope);
+            }
+            hir::ExprKind::Index { base, index } => {
+                self.traverse_expr(base, scope);
+                self.traverse_expr(index, scope);
+            }
+            hir::ExprKind::Call { func, args } => {
+                self.traverse_expr(func, scope);
+                for arg in args.args(self.db).iter() {
+                    self.traverse_expr(arg.kind(self.db).value(), scope);
+                }
+            }
+            hir::ExprKind::Block { stmts } => {
+                let scope = self.scopes.scopes.alloc(ScopeData::from_parent(scope));
+                for stmt in stmts.stmts(self.db).iter() {
+                    self.traverse_stmt(*stmt, scope);
+                }
+            }
+            hir::ExprKind::Paren(expr) => {
+                self.traverse_expr(expr, scope);
+            }
+            hir::ExprKind::Return(expr) => {
+                self.traverse_expr(expr, scope);
+            }
+            hir::ExprKind::If(if_expr) => {
+                self.traverse_if_expr(if_expr, scope);
+            }
+            hir::ExprKind::Loop { block } => {
+                self.traverse_expr(block, scope);
+            }
+            hir::ExprKind::While { cond, block } => {
+                self.traverse_expr(cond, scope);
+                self.traverse_expr(block, scope);
+            }
+            hir::ExprKind::For {
+                loop_expr,
+                iterable,
+                block,
+            } => {
+                self.traverse_expr(loop_expr, scope);
+                self.traverse_expr(iterable, scope);
+                self.traverse_expr(block, scope);
+            }
+            hir::ExprKind::Tuple { exprs } => {
+                for expr in exprs.exprs(self.db).iter() {
+                    self.traverse_expr(*expr, scope);
+                }
+            }
+        }
+    }
+
+    fn traverse_if_expr(&mut self, expr: hir::IfExpr<'db>, scope: ScopeId) {
+        self.traverse_expr(expr.cond(self.db), scope);
+        self.traverse_expr(expr.if_branch(self.db), scope);
+        if let Some(else_branch) = expr.else_branch(self.db) {
+            match else_branch {
+                hir::ElseBranch::Block(expr) => self.traverse_expr(expr, scope),
+                hir::ElseBranch::If(if_expr) => self.traverse_if_expr(if_expr, scope),
+            }
+        }
+    }
+
+    fn traverse_stmt(&mut self, stmt: hir::Stmt<'db>, scope: ScopeId) {
+        match stmt.kind(self.db) {
+            hir::StmtKind::Let { pat, expr, .. } => {
+                self.traverse_pat(pat, scope);
+                self.traverse_expr(expr, scope);
+            }
+            hir::StmtKind::Expr { expr, .. } => {
+                self.traverse_expr(expr, scope);
+            }
+        }
+    }
+
+    fn traverse_pat(&mut self, pat: hir::Pat<'db>, scope: ScopeId) {
+        match pat.kind(self.db) {
+            hir::PatKind::Name(symbol) => {
+                self.scopes.scopes[scope].entries.push(ScopeEntry {
+                    name: symbol,
+                    pattern: pat.id(self.db),
+                });
+            }
+            hir::PatKind::Wildcard => {}
+            hir::PatKind::Path(_) => {}
+        }
+    }
+
+    fn root_scope(&mut self) -> ScopeId {
+        if !self.scopes.scopes.is_empty() {
+            return self.scopes.scopes.iter().next().unwrap().0;
+        }
+        self.scopes.scopes.alloc(ScopeData {
+            parent: None,
+            entries: vec![],
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Default, salsa::SalsaValue)]
+pub struct ExprScopes {
+    scopes: Arena<ScopeData>,
+    scope_by_expr: HashMap<ExprId, ScopeId>,
+}
+
+impl ExprScopes {
+    pub fn entries(&self, scope: ScopeId) -> &[ScopeEntry] {
+        &self.scopes[scope].entries
+    }
+
+    pub fn scope_for_expr(&self, expr_id: ExprId) -> Option<ScopeId> {
+        self.scope_by_expr.get(&expr_id).copied()
+    }
+
+    pub fn scope_chain(&self, scope: Option<ScopeId>) -> impl Iterator<Item = ScopeId> {
+        std::iter::successors(scope, move |&scope| self.scopes[scope].parent)
+    }
+
+    pub fn resolve_name_in_scope(&self, scope: ScopeId, name: Symbol) -> Option<&ScopeEntry> {
+        self.scope_chain(Some(scope))
+            .find_map(|scope| self.entries(scope).iter().rev().find(|it| it.name == name))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ScopeEntry {
+    name: Symbol,
+    pattern: PatId,
+}
+
+impl ScopeEntry {
+    pub fn name(&self) -> Symbol {
+        self.name
+    }
+
+    pub fn pattern(&self) -> PatId {
+        self.pattern
+    }
+}
+
+pub type ScopeId = Idx<ScopeData>;
+
+#[derive(Debug, PartialEq, Eq, salsa::SalsaValue)]
+pub struct ScopeData {
+    parent: Option<ScopeId>,
+    entries: Vec<ScopeEntry>,
+}
+
+impl ScopeData {
+    fn from_parent(parent: ScopeId) -> Self {
+        Self {
+            parent: Some(parent),
+            entries: Default::default(),
+        }
     }
 }

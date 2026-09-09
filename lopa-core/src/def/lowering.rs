@@ -395,7 +395,7 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 self.alloc_expr(
                     ExprKind::Call {
                         func,
-                        agrs: Args::new(self.db, args),
+                        args: Args::new(self.db, args),
                     },
                     expr,
                 )

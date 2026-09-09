@@ -1,5 +1,3 @@
-use itertools::Itertools;
-
 use crate::{
     def::{
         Symbol, SymbolList,

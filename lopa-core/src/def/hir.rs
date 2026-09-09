@@ -101,7 +101,7 @@ pub enum ExprKind<'db> {
     },
     Call {
         func: Expr<'db>,
-        agrs: Args<'db>,
+        args: Args<'db>,
     },
     Block {
         stmts: StmtList<'db>,
@@ -135,17 +135,17 @@ pub enum ElseBranch<'db> {
 #[salsa::tracked(debug)]
 pub struct IfExpr<'db> {
     #[returns(copy)]
-    cond: Expr<'db>,
+    pub cond: Expr<'db>,
     #[returns(copy)]
-    if_branch: Expr<'db>,
+    pub if_branch: Expr<'db>,
     #[returns(copy)]
-    else_branch: Option<ElseBranch<'db>>,
+    pub else_branch: Option<ElseBranch<'db>>,
 }
 
 #[salsa::tracked(debug)]
 pub struct ExprList<'db> {
     #[returns(deref)]
-    pub types: Vec<Expr<'db>>,
+    pub exprs: Vec<Expr<'db>>,
 }
 
 #[salsa::tracked(debug)]
