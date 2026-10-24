@@ -497,6 +497,17 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 self.alloc_pat(PatKind::Path(path), pat)
             }
             parsing::Pattern::WildcardPattern(_) => self.alloc_pat(PatKind::Wildcard, pat),
+            parsing::Pattern::ParenPattern(paren_pattern) => {
+                let paren = paren_pattern.pattern().and_then(|p| self.pat(p))?;
+                self.alloc_pat(PatKind::Paren(paren), pat)
+            }
+            parsing::Pattern::TuplePattern(tuple_pattern) => {
+                let patterns = tuple_pattern
+                    .patterns()
+                    .filter_map(|ty| self.pat(ty))
+                    .collect_vec();
+                self.alloc_pat(PatKind::Tuple(PatList::new(self.db, patterns)), pat)
+            }
         })
     }
 

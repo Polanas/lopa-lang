@@ -232,7 +232,15 @@ pub enum StmtKind<'db> {
 pub enum PatKind<'db> {
     Path(Path<'db>),
     Name(Symbol),
+    Paren(Pat<'db>),
+    Tuple(PatList<'db>),
     Wildcard,
+}
+
+#[salsa::tracked(debug)]
+pub struct PatList<'db> {
+    #[returns(deref)]
+    pub patterns: Vec<Pat<'db>>,
 }
 
 #[salsa::tracked(debug)]

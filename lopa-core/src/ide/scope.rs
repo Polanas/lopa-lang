@@ -498,6 +498,14 @@ impl<'db> ExprScopesCtx<'db> {
             }
             hir::PatKind::Wildcard => {}
             hir::PatKind::Path(_) => {}
+            hir::PatKind::Paren(pat) => {
+                self.traverse_pat(pat, scope);
+            }
+            hir::PatKind::Tuple(pat_list) => {
+                for pat in pat_list.patterns(self.db).iter() {
+                    self.traverse_pat(*pat, scope);
+                }
+            }
         }
     }
 
@@ -586,7 +594,7 @@ impl ScopeData {
 
 #[cfg(test)]
 mod test {
-    use std::{path::PathBuf, sync::Arc, thread::scope};
+    use std::{path::PathBuf, sync::Arc};
 
     use salsa::Setter as _;
 
@@ -623,9 +631,39 @@ mod test {
     }
 
     #[test]
+    fn tuple_scope() {
+        let (scopes, db) = expr_scopes(
+            "fn test((a,b): (int, string)) {
+                let (c,d): (float, int) = 1,2;
+            }",
+        );
+        let root = scopes.root_scope();
+        assert!(
+            scopes
+                .resolve_name_in_scope(root, Symbol::new(&db, "a"))
+                .is_some()
+        );
+        assert!(
+            scopes
+                .resolve_name_in_scope(root, Symbol::new(&db, "b"))
+                .is_some()
+        );
+        assert!(
+            scopes
+                .resolve_name_in_scope(root, Symbol::new(&db, "c"))
+                .is_some()
+        );
+        assert!(
+            scopes
+                .resolve_name_in_scope(root, Symbol::new(&db, "d"))
+                .is_some()
+        );
+    }
+
+    #[test]
     fn fn_scope() {
         let (scopes, db) = expr_scopes(
-            "fn test(value: i32) {
+            "fn test(value: int) {
                 let x = 20;
                 {
                     let z = 12;

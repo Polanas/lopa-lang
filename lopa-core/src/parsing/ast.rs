@@ -370,6 +370,15 @@ structs! {
     WILDCARD_PAT = WildcardPattern {
         wildcard_token: T![_],
     },
+    PAREN_PAT = ParenPattern {
+        left_paren_token: T!["("],
+        pattern: Pattern,
+        right_paren_token: T![")"],
+
+    },
+    TUPLE_PAT = TuplePattern {
+        patterns: [Pattern],
+    },
     TUPLE_TYPE = TupleType {
         types: [TypeExpr],
     },
@@ -1020,6 +1029,8 @@ enums! {
         NamePattern,
         PathPattern,
         WildcardPattern,
+        ParenPattern,
+        TuplePattern,
     },
     ItemTypeExpr {
         StructItem,
