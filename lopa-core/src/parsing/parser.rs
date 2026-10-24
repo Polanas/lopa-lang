@@ -38,7 +38,8 @@ const TYPE_FIRST: TokenSet = TokenSet::new(&[
     T![root],
     T![super],
 ]);
-const PATTERN_FIRST: TokenSet = TokenSet::new(&[IDENT, INT, FLOAT, STRING, T!["("], T!["["]]);
+const PAT_FIRST: TokenSet =
+    TokenSet::new(&[IDENT, INT, FLOAT, STRING, T!["("], T!["["]]).union(PATH_FIRST);
 const ITEM_TYPE_FIRST: TokenSet = TokenSet::new(&[T![struct], T![enum]]).union(TYPE_FIRST);
 const ITEM_FIRST: TokenSet =
     TokenSet::new(&[T![fn], T![mod], T![struct], T![impl], T![use], T![enum]]);
@@ -682,7 +683,7 @@ impl<'a> Parser<'a> {
             this.expect(T!["("]);
             while !this.at(T![")"]) && !this.eof() {
                 this.compiler_attrib_list();
-                if this.at_any(PATTERN_FIRST) || this.at(T![self]) {
+                if this.at_any(PAT_FIRST) || this.at(T![self]) {
                     this.param();
                     if !this.at(T![")"]) {
                         this.expect(T![,]);
@@ -730,11 +731,44 @@ impl<'a> Parser<'a> {
                     });
                 }
             }
+            T!["("] => {
+                let checkpoint = self.checkpoint();
+                self.expect(T!["("]);
+                self.pattern();
+                if self.at(T![")"]) {
+                    self.with_at(PAREN_PAT, checkpoint, |this| {
+                        this.expect(T![")"]);
+                    });
+                } else {
+                    self.with_at(TUPLE_PAT, checkpoint, |this| {
+                        this.ate(T![,]);
+                        this.tuple_pattern();
+                        this.expect(T![")"]);
+                    });
+                }
+            }
             T![_] => self.with(WILDCARD_PAT, |this| {
                 this.expect(T![_]);
             }),
             _ => {
                 self.error(SyntaxErrorKind::ExpectedPattern);
+            }
+        }
+    }
+
+    fn tuple_pattern(&mut self) {
+        while !self.at(T![")"]) && !self.eof() {
+            if self.at_any(PAT_FIRST) {
+                self.pattern();
+                if !self.at(T![")"]) {
+                    self.expect(T![,]);
+                }
+            } else {
+                if self.at_any(TUPLE_RECOVERY) {
+                    break;
+                } else {
+                    self.advance_with_error(SyntaxErrorKind::ExpectedType);
+                }
             }
         }
     }
@@ -1267,7 +1301,7 @@ impl<'a> Parser<'a> {
         self.with(CLOSURE_PARAM_LIST, |this| {
             this.expect(T![|]);
             while !this.at(T![|]) && !this.eof() {
-                if this.at_any(PATTERN_FIRST) {
+                if this.at_any(PAT_FIRST) {
                     this.closure_param();
                 } else {
                     if this.at_any(CLOSURE_PARAM_LIST_RECOVERY) {
@@ -2329,7 +2363,7 @@ mod test {
     #[test]
     fn stmt_let() {
         insta::assert_snapshot!(parse("let x = 1;", |p| p.stmt_let()));
-        insta::assert_snapshot!(parse("let y = 1;", |p| p.stmt_let()));
+        insta::assert_snapshot!(parse("let (a,b,c,): (int, int, int,) = (1,2,3,);", |p| p.stmt_let()));
     }
 
     #[test]
