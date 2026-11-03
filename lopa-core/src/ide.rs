@@ -1,23 +1,23 @@
 mod diagnostics;
 mod resolve;
 mod scope;
+mod type_check;
 
 pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
 };
-use notify_rust::Notification;
+
 pub use resolve::*;
 pub use scope::*;
 
 use itertools::Itertools;
-use salsa::Accumulator;
 
 use crate::{
     def::{
         self, Symbol, SymbolList,
         hir::{self},
     },
-    parsing::{self, AstNode, NodeExt},
+    parsing::{self, AstNode},
 };
 use std::{fmt::Debug, path::PathBuf, sync::Arc};
 
@@ -298,10 +298,10 @@ pub fn module_diagnostics<'db>(
     for item in module.items(db).items(db) {
         match item {
             hir::Item::Struct(_) => {}
-            hir::Item::Function(function) => todo!(),
-            hir::Item::Enum(_) => todo!(),
-            hir::Item::Use(use_item) => todo!(),
-            hir::Item::Impl(impl_block) => todo!(),
+            hir::Item::Function(function) => {}
+            hir::Item::Enum(_) => {}
+            hir::Item::Use(use_item) => {}
+            hir::Item::Impl(impl_block) => {}
             hir::Item::Module(_) => {}
         }
     }
@@ -316,12 +316,8 @@ impl<'db> File {
         parsing::Parse::new(db, tree, errors)
     }
 
-    //So, here's an issue. Currently diagnostics rely on accumulated values. That's a problem,
-    //because if some query produces a diagnostic and ends up being nested into other queries (as is
-    //the case with `module_tree`), diagnostics become duplicated.
-    //Solution 1: abandon accumulators in favor of manual diagnostic collection.
-    //Solution 2: dedup them at the end.
-
+    //Diagnostics collection should AVOID accumulators, and instead collect and return them
+    //manually, for reasons
     #[salsa::tracked(returns(clone))]
     pub fn diagnostics(self, db: &dyn salsa::Database) -> Vec<Diagnostic> {
         let mut diagnostics = vec![];

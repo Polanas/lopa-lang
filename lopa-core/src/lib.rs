@@ -7,3 +7,4 @@ pub mod vfs;
 pub mod analysis;
 pub mod def;
 pub mod parsing;
+pub mod ptr;

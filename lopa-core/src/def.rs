@@ -19,22 +19,22 @@ use la_arena::Idx;
 
 use crate::parsing;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct ItemTypeExprId(pub Idx<parsing::NodeId>);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct TypeExprId(pub Idx<parsing::NodeId>);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct ElemId(pub Idx<parsing::NodeId>);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct PatId(pub Idx<parsing::NodeId>);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct ExprId(pub Idx<parsing::NodeId>);
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct StmtId(pub Idx<parsing::NodeId>);
 
 #[salsa::interned(no_lifetime, debug)]
