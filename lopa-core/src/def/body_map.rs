@@ -1,7 +1,7 @@
 use la_arena::Arena;
 
 use crate::{
-    def::{ElemId, ExprId, ItemTypeExprId, PatId, StmtId, TypeExprId},
+    def::{AnyId, ElemId, ExprId, ItemTypeExprId, PatId, StmtId, TypeExprId},
     parsing::{self, AstNode},
 };
 
@@ -41,6 +41,21 @@ impl BodyMap {
         type_expr: parsing::ItemTypeExpr,
     ) -> ItemTypeExprId {
         ItemTypeExprId(self.item_type_exprs.alloc(type_expr.id()))
+    }
+}
+
+impl std::ops::Index<AnyId> for BodyMap {
+    type Output = parsing::NodeId;
+
+    fn index(&self, index: AnyId) -> &Self::Output {
+        match index {
+            AnyId::ItemTypeExpr(item_type_expr_id) => &self[item_type_expr_id],
+            AnyId::TypeExpr(type_expr_id) => &self[type_expr_id],
+            AnyId::Elem(elem_id) => &self[elem_id],
+            AnyId::Pat(pat_id) => &self[pat_id],
+            AnyId::Expr(expr_id) => &self[expr_id],
+            AnyId::Stmt(stmt_id) => &self[stmt_id],
+        }
     }
 }
 

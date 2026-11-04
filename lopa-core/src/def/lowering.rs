@@ -657,7 +657,7 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
 
     fn alloc_pat(&mut self, pat: PatKind<'db>, pat_ast: parsing::Pattern) -> Pat<'db> {
         let id = self.map.insert_pat(pat_ast);
-        Pat::new(self.db, id, pat)
+        Pat::new(self.db, id, self.id_source.unwrap(), pat)
     }
 
     fn alloc_expr(&mut self, expr: ExprKind<'db>, expr_ast: parsing::Expr) -> Expr<'db> {

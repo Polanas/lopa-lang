@@ -248,6 +248,8 @@ pub struct Pat<'db> {
     #[returns(copy)]
     pub id: PatId,
     #[returns(copy)]
+    pub source: BodyMapSource<'db>,
+    #[returns(copy)]
     pub kind: PatKind<'db>,
 }
 

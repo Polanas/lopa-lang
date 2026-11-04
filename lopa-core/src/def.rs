@@ -20,6 +20,16 @@ use la_arena::Idx;
 use crate::parsing;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
+pub enum AnyId {
+    ItemTypeExpr(ItemTypeExprId),
+    TypeExpr(TypeExprId),
+    Elem(ElemId),
+    Pat(PatId),
+    Expr(ExprId),
+    Stmt(StmtId),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct ItemTypeExprId(pub Idx<parsing::NodeId>);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]

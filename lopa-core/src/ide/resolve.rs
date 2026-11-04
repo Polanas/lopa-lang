@@ -410,18 +410,54 @@ impl<'db> PathResolveCtx<'db> {
         //TODO: finish this ASAP
         for item in item.items(self.db).items(self.db) {
             match item {
+                //module only needs to know about use items
                 hir::Item::Use(item) => self.resolve_use_item(*item),
-                hir::Item::Function(item) => self.resolve_fn(*item),
-                hir::Item::Struct(item) => {}
-                hir::Item::Enum(item) => {}
-                hir::Item::Module(item) => {}
-                hir::Item::Impl(item) => {}
+                _ => {}
             }
         }
     }
 
     fn resolve_fn(&mut self, item: hir::Function<'db>) {
+        for param in item.contents(self.db).params.params(self.db) {
+            self.resolve_param(*param);
+        }
         todo!()
+    }
+
+    fn resolve_param(&mut self, param: hir::FnParam<'db>) {
+        match param.kind(self.db) {
+            hir::FnParamKind::SelfParam => {}
+            hir::FnParamKind::Pat { ty, pat, expr } => {
+                if let Some(pat) = pat {
+                    self.resolve_pat(pat);
+                }
+            }
+        }
+    }
+
+    fn resolve_pat(&mut self, pat: hir::Pat<'db>) {
+        match pat.kind(self.db) {
+            hir::PatKind::Path(path) => match self.resolve_path(path.as_symbol_list(self.db)) {
+                Ok(item) => {
+                    self.items.insert(path.as_symbol_list(self.db), item);
+                }
+                Err(err) => {
+                    self.diagnostics.push(Diagnostic {
+                        message: err.message,
+                        location: DiagnosticLocation::PathSegment {
+                            id: ty.id(self.db),
+                            source: ty.source(self.db).body_map(self.db),
+                            offset: err.offset,
+                        },
+                        kind: DiagnosticKind::TypeError,
+                    });
+                }
+            },
+            hir::PatKind::Name(symbol) => todo!(),
+            hir::PatKind::Paren(pat) => todo!(),
+            hir::PatKind::Tuple(pat_list) => todo!(),
+            hir::PatKind::Wildcard => todo!(),
+        }
     }
 
     fn path_map(self) -> PathMap<'db> {
@@ -431,7 +467,6 @@ impl<'db> PathResolveCtx<'db> {
         }
     }
 }
-
 
 // #[salsa::tracked(returns(clone))]
 // pub fn resolve_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) -> Vec<Diagnostic> {

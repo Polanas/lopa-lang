@@ -139,11 +139,11 @@ pub struct FnParams<'db> {
     pub params: Vec<FnParam<'db>>,
 }
 
-#[salsa::tracked]
-impl<'db> hir::Function<'db> {
-    #[salsa::tracked]
-    pub fn params(self, db: &'db dyn salsa::Database) -> FnParams<'db> {
-        // let mut params = vec![];
-        todo!()
-    }
-}
+// #[salsa::tracked]
+// impl<'db> hir::Function<'db> {
+//     #[salsa::tracked]
+//     pub fn params(self, db: &'db dyn salsa::Database) -> FnParams<'db> {
+//         // let mut params = vec![];
+//         todo!()
+//     }
+// }
