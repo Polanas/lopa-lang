@@ -33,7 +33,7 @@ pub enum AnyId {
 pub struct ItemTypeExprId(pub Idx<parsing::NodeId>);
 
 impl ItemTypeExprId {
-    fn into_any(self) -> AnyId {
+    pub fn into_any(self) -> AnyId {
         AnyId::ItemTypeExpr(self)
     }
 }
@@ -42,7 +42,7 @@ impl ItemTypeExprId {
 pub struct TypeExprId(pub Idx<parsing::NodeId>);
 
 impl TypeExprId {
-    fn into_any(self) -> AnyId {
+    pub fn into_any(self) -> AnyId {
         AnyId::TypeExpr(self)
     }
 }
@@ -51,7 +51,7 @@ impl TypeExprId {
 pub struct ElemId(pub Idx<parsing::NodeId>);
 
 impl ElemId {
-    fn into_any(self) -> AnyId {
+    pub fn into_any(self) -> AnyId {
         AnyId::Elem(self)
     }
 }
@@ -60,7 +60,7 @@ impl ElemId {
 pub struct PatId(pub Idx<parsing::NodeId>);
 
 impl PatId {
-    fn into_any(self) -> AnyId {
+    pub fn into_any(self) -> AnyId {
         AnyId::Pat(self)
     }
 }
@@ -69,7 +69,7 @@ impl PatId {
 pub struct ExprId(pub Idx<parsing::NodeId>);
 
 impl ExprId {
-    fn into_any(self) -> AnyId {
+    pub fn into_any(self) -> AnyId {
         AnyId::Expr(self)
     }
 }
@@ -78,7 +78,7 @@ impl ExprId {
 pub struct StmtId(pub Idx<parsing::NodeId>);
 
 impl StmtId {
-    fn into_any(self) -> AnyId {
+    pub fn into_any(self) -> AnyId {
         AnyId::Stmt(self)
     }
 }
