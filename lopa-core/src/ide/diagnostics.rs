@@ -40,7 +40,7 @@ pub enum DiagnosticLocation {
     Range(Range<usize>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, salsa::SalsaValue)]
 #[salsa::accumulator]
 pub struct Diagnostic {
     pub message: String,

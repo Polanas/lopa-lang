@@ -407,10 +407,11 @@ impl<'db> PathResolveCtx<'db> {
     }
 
     fn resolve_module(&mut self, item: hir::Module<'db>) {
+        //TODO: finish this ASAP
         for item in item.items(self.db).items(self.db) {
             match item {
                 hir::Item::Use(item) => self.resolve_use_item(*item),
-                hir::Item::Function(item) => {}
+                hir::Item::Function(item) => self.resolve_fn(*item),
                 hir::Item::Struct(item) => {}
                 hir::Item::Enum(item) => {}
                 hir::Item::Module(item) => {}
@@ -430,6 +431,7 @@ impl<'db> PathResolveCtx<'db> {
         }
     }
 }
+
 
 // #[salsa::tracked(returns(clone))]
 // pub fn resolve_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) -> Vec<Diagnostic> {
