@@ -1,9 +1,9 @@
 mod ast_id_map;
 mod body_map;
+mod items_map;
 mod lowering;
 #[path = "def/use_tree_map.rs"]
 mod use_tree_map_mod;
-mod items_map;
 
 pub mod hir;
 pub mod mir;
@@ -11,8 +11,8 @@ pub mod mir;
 use itertools::Itertools;
 
 pub use ast_id_map::*;
-pub use items_map::*;
 pub use body_map::*;
+pub use items_map::*;
 pub use use_tree_map_mod::*;
 
 use la_arena::Idx;
@@ -32,20 +32,56 @@ pub enum AnyId {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct ItemTypeExprId(pub Idx<parsing::NodeId>);
 
+impl ItemTypeExprId {
+    fn into_any(self) -> AnyId {
+        AnyId::ItemTypeExpr(self)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct TypeExprId(pub Idx<parsing::NodeId>);
+
+impl TypeExprId {
+    fn into_any(self) -> AnyId {
+        AnyId::TypeExpr(self)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct ElemId(pub Idx<parsing::NodeId>);
 
+impl ElemId {
+    fn into_any(self) -> AnyId {
+        AnyId::Elem(self)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct PatId(pub Idx<parsing::NodeId>);
+
+impl PatId {
+    fn into_any(self) -> AnyId {
+        AnyId::Pat(self)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct ExprId(pub Idx<parsing::NodeId>);
 
+impl ExprId {
+    fn into_any(self) -> AnyId {
+        AnyId::Expr(self)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub struct StmtId(pub Idx<parsing::NodeId>);
+
+impl StmtId {
+    fn into_any(self) -> AnyId {
+        AnyId::Stmt(self)
+    }
+}
 
 #[salsa::interned(no_lifetime, debug)]
 pub struct Symbol {

@@ -1,8 +1,7 @@
 use std::{ops::Range, sync::Arc};
 
 use crate::def::{
-    BodyMap, TypeExprId, UseTreeId,
-    hir::{EnumId, FunctionId, ModuleId, StructId, UseItemId},
+    AnyId, BodyMap, TypeExprId, UseTreeId, hir::{EnumId, FunctionId, ModuleId, StructId, UseItemId},
 };
 
 //TODO: refactor this (add more kinds for each class of error like in rust)
@@ -33,7 +32,7 @@ pub enum DiagnosticLocation {
         source: Arc<BodyMap>,
     },
     PathSegment {
-        id: TypeExprId,
+        id: AnyId,
         source: Arc<BodyMap>,
         offset: usize,
     },
