@@ -4,8 +4,8 @@ use la_arena::{Arena, ArenaMap, Idx};
 
 use crate::{
     def::{
-        ExprId, PatId, Symbol, SymbolList, hir,
-        hir::{Enum, Expr, Function, Item, Module, Struct},
+        ExprId, PatId, Symbol, SymbolList,
+        hir::{self, Class, Enum, Function, Item, Module, Struct, Trait},
     },
     ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, ResolveItem},
 };
@@ -14,6 +14,8 @@ use crate::{
 pub enum ModuleDef<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
+    Class(Class<'db>),
+    Trait(Trait<'db>),
     Enum(Enum<'db>),
     Module(Module<'db>),
 }
@@ -98,6 +100,28 @@ impl<'db> Module<'db> {
                         &mut scope.diagnostics,
                     );
                 }
+                Item::Class(item) => {
+                    scope_names.insert_type(
+                        item.name(db),
+                        ScopeName::new(
+                            db,
+                            SymbolList::new(db, [item.name(db)]),
+                            DiagnosticLocation::Class(item.id(db)),
+                        ),
+                        &mut scope.diagnostics,
+                    );
+                }
+                Item::Trait(item) => {
+                    scope_names.insert_type(
+                        item.name(db),
+                        ScopeName::new(
+                            db,
+                            SymbolList::new(db, [item.name(db)]),
+                            DiagnosticLocation::Trait(item.id(db)),
+                        ),
+                        &mut scope.diagnostics,
+                    );
+                }
                 Item::Function(item) => {
                     scope_names.insert_value(
                         item.name(db),
@@ -155,6 +179,7 @@ impl<'db> Module<'db> {
 
         scope
     }
+
     #[salsa::tracked(returns(ref))]
     pub fn defs(self, db: &'db dyn salsa::Database) -> ModuleDefs<'db> {
         let mut values: indexmap::IndexMap<Symbol, ModuleDef<'db>> = Default::default();
@@ -172,6 +197,12 @@ impl<'db> Module<'db> {
                 }
                 Item::Module(item) => {
                     types.insert(item.name(db), ModuleDef::Module(*item));
+                }
+                Item::Class(item) => {
+                    types.insert(item.name(db), ModuleDef::Class(*item));
+                }
+                Item::Trait(item) => {
+                    types.insert(item.name(db), ModuleDef::Trait(*item));
                 }
                 Item::Use(_) | Item::Impl(_) => {}
             };

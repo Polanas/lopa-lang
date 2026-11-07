@@ -23,7 +23,7 @@ use crate::parsing;
 pub enum AnyId {
     ItemTypeExpr(ItemTypeExprId),
     TypeExpr(TypeExprId),
-    Elem(ElemId),
+    Member(MemberId),
     Pat(PatId),
     Expr(ExprId),
     Stmt(StmtId),
@@ -48,11 +48,11 @@ impl TypeExprId {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
-pub struct ElemId(pub Idx<parsing::NodeId>);
+pub struct MemberId(pub Idx<parsing::NodeId>);
 
-impl ElemId {
+impl MemberId {
     pub fn into_any(self) -> AnyId {
-        AnyId::Elem(self)
+        AnyId::Member(self)
     }
 }
 

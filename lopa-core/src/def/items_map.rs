@@ -3,7 +3,7 @@ use la_arena::{Arena, ArenaMap};
 use crate::{
     def::{
         AstId, ErasedAstId,
-        hir::{Enum, Function, ImplBlock, Module, ModuleData, Struct, UseItem},
+        hir::{Class, Enum, Function, ImplBlock, Module, ModuleData, Struct, Trait, UseItem},
     },
     ide::InFile,
     parsing,
@@ -13,6 +13,8 @@ use crate::{
 pub struct ItemsMap<'db> {
     fn_items: ArenaMap<ErasedAstId, Function<'db>>,
     struct_items: ArenaMap<ErasedAstId, Struct<'db>>,
+    class_items: ArenaMap<ErasedAstId, Class<'db>>,
+    trait_items: ArenaMap<ErasedAstId, Trait<'db>>,
     module_items: ArenaMap<ErasedAstId, Module<'db>>,
     impl_items: ArenaMap<ErasedAstId, ImplBlock<'db>>,
     enum_items: ArenaMap<ErasedAstId, Enum<'db>>,
@@ -32,6 +34,22 @@ impl<'db> std::ops::Index<InFile<AstId<parsing::StructItem<'static>>>> for Items
 
     fn index(&self, index: InFile<AstId<parsing::StructItem<'static>>>) -> &Self::Output {
         self.struct_items.get(index.value.erased()).unwrap()
+    }
+}
+
+impl<'db> std::ops::Index<InFile<AstId<parsing::ClassItem<'static>>>> for ItemsMap<'db> {
+    type Output = Class<'db>;
+
+    fn index(&self, index: InFile<AstId<parsing::ClassItem<'static>>>) -> &Self::Output {
+        self.class_items.get(index.value.erased()).unwrap()
+    }
+}
+
+impl<'db> std::ops::Index<InFile<AstId<parsing::TraitItem<'static>>>> for ItemsMap<'db> {
+    type Output = Trait<'db>;
+
+    fn index(&self, index: InFile<AstId<parsing::TraitItem<'static>>>) -> &Self::Output {
+        self.trait_items.get(index.value.erased()).unwrap()
     }
 }
 
@@ -94,5 +112,13 @@ impl<'db> ItemsMap<'db> {
 
     pub(super) fn insert_use(&mut self, db: &'db dyn salsa::Database, item: UseItem<'db>) {
         self.use_items.insert(item.id(db).value.erased(), item);
+    }
+
+    pub(super) fn insert_class(&mut self, db: &'db dyn salsa::Database, item: Class<'db>) {
+        self.class_items.insert(item.id(db).value.erased(), item);
+    }
+
+    pub(super) fn insert_trait(&mut self, db: &'db dyn salsa::Database, item: Trait<'db>) {
+        self.trait_items.insert(item.id(db).value.erased(), item);
     }
 }

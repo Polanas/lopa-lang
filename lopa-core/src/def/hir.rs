@@ -5,20 +5,52 @@ use itertools::Itertools;
 use crate::{
     common::{BinaryOpKind, LitKind, UnaryOpKind},
     def::{
-        AstId, BodyMap, ElemId, ExprId, ItemTypeExprId, ItemsMap, PatId, StmtId, Symbol,
-        SymbolList, TypeExprId, UseTreeId,
+        AstId, BodyMap, ExprId, ItemTypeExprId, MemberId, PatId, StmtId, Symbol, SymbolList,
+        TypeExprId, UseTreeId,
     },
     ide::{self, DiagnosticLocation, InFile},
     parsing::{self},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, salsa::SalsaValue, Hash, Eq)]
+pub enum FieldSource {
+    Struct(StructId),
+    Enum(EnumId),
+    Class(ClassId),
+}
+
+impl FieldSource {
+    fn body_map(self, db: &dyn salsa::Database, field: Field) -> Arc<BodyMap> {
+        match self {
+            FieldSource::Struct(struct_id) => {
+                let struct_item = struct_id.file.items_map(db)[struct_id];
+                struct_item.contents(db).field_bodies[&field]
+                    .body_map
+                    .clone()
+            }
+            FieldSource::Enum(enum_id) => {
+                let enum_item = enum_id.file.items_map(db)[enum_id];
+                enum_item.contents(db).field_bodies[&field].body_map.clone()
+            }
+            FieldSource::Class(class_id) => {
+                let class_item = class_id.file.items_map(db)[class_id];
+                class_item.contents(db).field_bodies[&field]
+                    .body_map
+                    .clone()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub enum BodyMapSource<'db> {
     Function(Function<'db>),
     Field {
-        struct_id: StructId,
+        source: FieldSource,
         field: Field<'db>,
     },
+    Class(Class<'db>),
+    Trait(Trait<'db>),
     Struct(Struct<'db>),
     Enum(Enum<'db>),
     Impl(ImplBlock<'db>),
@@ -28,15 +60,12 @@ impl<'db> BodyMapSource<'db> {
     pub fn body_map(&self, db: &'db dyn salsa::Database) -> Arc<BodyMap> {
         match self {
             BodyMapSource::Function(item) => item.contents(db).body_map.clone(),
-            BodyMapSource::Field { struct_id, field } => {
-                let struct_item = struct_id.file.items_map(db)[*struct_id];
-                struct_item.contents(db).field_bodies[field]
-                    .body_map
-                    .clone()
-            }
+            BodyMapSource::Field { source, field } => source.body_map(db, *field).clone(),
             BodyMapSource::Struct(item) => item.contents(db).body_map.clone(),
             BodyMapSource::Enum(item) => item.contents(db).body_map.clone(),
             BodyMapSource::Impl(item) => item.contents(db).body_map.clone(),
+            BodyMapSource::Class(item) => item.contents(db).body_map.clone(),
+            BodyMapSource::Trait(item) => item.contents(db).body_map.clone(),
         }
     }
 }
@@ -255,6 +284,8 @@ pub struct Pat<'db> {
 
 pub type FunctionId = InFile<AstId<parsing::FnItem<'static>>>;
 pub type StructId = InFile<AstId<parsing::StructItem<'static>>>;
+pub type ClassId = InFile<AstId<parsing::ClassItem<'static>>>;
+pub type TraitId = InFile<AstId<parsing::TraitItem<'static>>>;
 pub type EnumId = InFile<AstId<parsing::EnumItem<'static>>>;
 pub type UseItemId = InFile<AstId<parsing::UseItem<'static>>>;
 pub type ModuleId = InFile<AstId<parsing::ModItem<'static>>>;
@@ -264,10 +295,23 @@ pub type ImplBlockId = InFile<AstId<parsing::ImplItem<'static>>>;
 pub enum Item<'db> {
     Function(Function<'db>),
     Struct(Struct<'db>),
+    Class(Class<'db>),
+    Trait(Trait<'db>),
     Enum(Enum<'db>),
     Use(UseItem<'db>),
     Module(Module<'db>),
     Impl(ImplBlock<'db>),
+}
+
+impl<'db> Item<'db> {
+    pub fn field_source(self, db: &'db dyn salsa::Database) -> Option<FieldSource> {
+        Some(match self {
+            Item::Struct(item) => FieldSource::Struct(item.id(db)),
+            Item::Class(item) => FieldSource::Class(item.id(db)),
+            Item::Enum(item) => FieldSource::Enum(item.id(db)),
+            _ => return None,
+        })
+    }
 }
 
 #[salsa::tracked(debug)]
@@ -305,7 +349,6 @@ pub struct ImplBlock<'db> {
     pub file: ide::File,
     #[tracked]
     #[returns(copy)]
-    //TODO: replace these with Vecs directly
     pub items: ImplItems<'db>,
     #[tracked]
     #[returns(copy)]
@@ -392,6 +435,52 @@ pub enum FnParamKind<'db> {
 }
 
 #[salsa::tracked(debug)]
+pub struct Class<'db> {
+    #[returns(copy)]
+    pub name: Symbol,
+    #[returns(copy)]
+    pub file: ide::File,
+    #[tracked]
+    #[returns(deref)]
+    pub inner_items: Vec<InnerItem<'db>>,
+    #[tracked]
+    #[returns(copy)]
+    pub id: ClassId,
+}
+
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Eq)]
+pub struct ClassContents<'db> {
+    pub body_map: Arc<BodyMap>,
+    pub generics: Generics<'db>,
+    pub members: MemberList<'db>,
+    pub parent: Option<Path<'db>>,
+    pub field_bodies: indexmap::IndexMap<Field<'db>, Arc<FieldBody<'db>>>,
+}
+
+#[salsa::tracked(debug)]
+pub struct Trait<'db> {
+    #[returns(copy)]
+    pub name: Symbol,
+    #[returns(copy)]
+    pub file: ide::File,
+    #[tracked]
+    #[returns(deref)]
+    pub inner_items: Vec<InnerItem<'db>>,
+    #[tracked]
+    #[returns(copy)]
+    pub id: TraitId,
+}
+
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Eq)]
+pub struct TraitContents<'db> {
+    pub body_map: Arc<BodyMap>,
+    pub generics: Generics<'db>,
+    pub members: MemberList<'db>,
+    pub parents: Option<PathList<'db>>,
+    pub field_bodies: indexmap::IndexMap<Field<'db>, Arc<FieldBody<'db>>>,
+}
+
+#[salsa::tracked(debug)]
 pub struct Struct<'db> {
     #[returns(copy)]
     pub name: Symbol,
@@ -408,15 +497,15 @@ pub struct Struct<'db> {
 #[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Eq)]
 pub struct StructContents<'db> {
     pub body_map: Arc<BodyMap>,
-    pub parent: Option<Path<'db>>,
-    pub elems: ElemList<'db>,
+    pub generics: Generics<'db>,
+    pub members: MemberList<'db>,
     pub field_bodies: indexmap::IndexMap<Field<'db>, Arc<FieldBody<'db>>>,
 }
 
 #[salsa::tracked(debug)]
-pub struct ElemList<'db> {
+pub struct MemberList<'db> {
     #[returns(deref)]
-    pub elems: Vec<Elem<'db>>,
+    pub elems: Vec<Member<'db>>,
 }
 
 #[salsa::tracked(debug)]
@@ -432,26 +521,33 @@ pub struct GenericParam<'db> {
     #[returns(deref)]
     pub bounds: Vec<TypeExpr<'db>>,
 }
-//TODO: add #[tracked] annotations
 
 #[salsa::tracked(debug)]
-pub struct Elem<'db> {
+pub struct Member<'db> {
     #[returns(copy)]
-    pub id: ElemId,
+    pub id: MemberId,
     #[returns(copy)]
-    pub kind: ElemKind<'db>,
+    pub kind: MemberKind<'db>,
 }
 
 #[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
-pub enum ElemKind<'db> {
+pub enum MemberKind<'db> {
     Field(Field<'db>),
     Function(Function<'db>),
+    Variant(Variant<'db>),
 }
 
 #[salsa::tracked(debug)]
 pub struct Field<'db> {
     pub name: Option<Symbol>,
     pub ty: Option<ItemTypeExpr<'db>>,
+}
+
+#[salsa::tracked(debug)]
+pub struct Variant<'db> {
+    pub name: Symbol,
+    pub ty: Option<ItemTypeExpr<'db>>,
+    pub expr: Option<Expr<'db>>,
 }
 
 #[salsa::tracked(debug)]
@@ -468,10 +564,12 @@ pub struct Enum<'db> {
     pub id: EnumId,
 }
 
-#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Eq)]
 pub struct EnumContents<'db> {
     pub body_map: Arc<BodyMap>,
-    pub elems: ElemList<'db>,
+    pub generics: Generics<'db>,
+    pub members: MemberList<'db>,
+    pub field_bodies: indexmap::IndexMap<Field<'db>, Arc<FieldBody<'db>>>,
 }
 
 #[salsa::tracked(debug)]
@@ -564,6 +662,7 @@ pub enum ItemTypeExprKind<'db> {
     TypeExpr(TypeExpr<'db>),
     Struct(Struct<'db>),
     Enum(Enum<'db>),
+    Class(Class<'db>),
 }
 
 #[salsa::tracked(debug)]

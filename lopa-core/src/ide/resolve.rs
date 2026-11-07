@@ -1,7 +1,7 @@
 use crate::{
     def::{
         Symbol, SymbolList,
-        hir::{self, Elem, ElemKind, Enum, Function, Module, Struct, TypeExpr, UseItem},
+        hir::{self, Enum, Function, Member, MemberKind, Module, Struct, TypeExpr, UseItem},
     },
     ide::{self, Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleDef, diagnostics},
 };
@@ -243,10 +243,13 @@ impl<'db> PathResolveCtx<'db> {
         for (id, symbol) in symbols {
             match current_item {
                 ResolveItem::Type(ty) | ResolveItem::Both { ty, .. } => match ty {
-                    ModuleDef::Struct(_) | ModuleDef::Enum(_) => {
+                    ModuleDef::Struct(_)
+                    | ModuleDef::Enum(_)
+                    | ModuleDef::Class(_)
+                    | ModuleDef::Trait(_) => {
                         return Err(PathSegmentDiagnostic {
                             offset: id,
-                            message: "accessing struct/enum items not availible yet".to_string(),
+                            message: "accessing this item not availible yet".to_string(),
                         });
                     }
                     ModuleDef::Module(item) => {
@@ -278,7 +281,11 @@ impl<'db> PathResolveCtx<'db> {
                             ),
                         });
                     }
-                    ModuleDef::Struct(_) | ModuleDef::Enum(_) | ModuleDef::Module(_) => {
+                    ModuleDef::Struct(_)
+                    | ModuleDef::Enum(_)
+                    | ModuleDef::Module(_)
+                    | ModuleDef::Class(_)
+                    | ModuleDef::Trait(_) => {
                         unreachable!()
                     }
                 },
@@ -322,7 +329,7 @@ impl<'db> PathResolveCtx<'db> {
                 self.diagnostics.push(Diagnostic {
                     message: err.message,
                     location: DiagnosticLocation::PathSegment {
-                        id: ty.id(self.db),
+                        id: ty.id(self.db).into_any(),
                         source: ty.source(self.db).body_map(self.db),
                         offset: err.offset,
                     },
@@ -369,9 +376,9 @@ impl<'db> PathResolveCtx<'db> {
         }
     }
 
-    fn resolve_elems_list(&mut self, elem_list: hir::ElemList<'db>) {
+    fn resolve_elems_list(&mut self, elem_list: hir::MemberList<'db>) {
         for elem in elem_list.elems(self.db).iter() {
-            let ElemKind::Field(field) = elem.kind(self.db) else {
+            let MemberKind::Field(field) = elem.kind(self.db) else {
                 continue;
             };
             let Some(item_type_expr) = field.ty(self.db) else {
@@ -384,6 +391,7 @@ impl<'db> PathResolveCtx<'db> {
                 }
                 hir::ItemTypeExprKind::Struct(_) => todo!(),
                 hir::ItemTypeExprKind::Enum(_) => todo!(),
+                hir::ItemTypeExprKind::Class(class) => todo!(),
             }
         }
     }
@@ -399,11 +407,11 @@ impl<'db> PathResolveCtx<'db> {
     }
 
     fn resolve_struct(&mut self, item: hir::Struct<'db>) {
-        self.resolve_elems_list(item.contents(self.db).elems);
+        self.resolve_elems_list(item.contents(self.db).members);
     }
 
     fn resolve_enum(&mut self, item: hir::Enum<'db>) {
-        self.resolve_elems_list(item.contents(self.db).elems);
+        self.resolve_elems_list(item.contents(self.db).members);
     }
 
     fn resolve_module(&mut self, item: hir::Module<'db>) {
@@ -445,8 +453,8 @@ impl<'db> PathResolveCtx<'db> {
                     self.diagnostics.push(Diagnostic {
                         message: err.message,
                         location: DiagnosticLocation::PathSegment {
-                            id: ty.id(self.db),
-                            source: ty.source(self.db).body_map(self.db),
+                            id: pat.id(self.db).into_any(),
+                            source: pat.source(self.db).body_map(self.db),
                             offset: err.offset,
                         },
                         kind: DiagnosticKind::TypeError,

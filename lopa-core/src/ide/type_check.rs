@@ -84,13 +84,13 @@ fn path_type<'db>(
     path: SymbolList,
     path_map: &PathMap<'db>,
 ) -> Result<Type<'db>, Diagnostic> {
-    let Some(item) = path_map.items.get(&path) else {
-        return Err(Diagnostic {
-            message: format!("cannot find type `{}` in this scope"),
-            location: todo!(),
-            kind: todo!(),
-        });
-    };
+    // let Some(item) = path_map.items.get(&path) else {
+    //     return Err(Diagnostic {
+    //         message: format!("cannot find type `{}` in this scope"),
+    //         location: todo!(),
+    //         kind: todo!(),
+    //     });
+    // };
     todo!()
 }
 

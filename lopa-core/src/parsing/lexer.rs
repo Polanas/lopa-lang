@@ -129,6 +129,8 @@ macro_rules! T {
     [loop] => { $crate::parsing::lexer::Syntax::LOOP_KW};
     [in] => { $crate::parsing::lexer::Syntax::IN_KW};
     [struct] => { $crate::parsing::lexer::Syntax::STRUCT_KW};
+    [class] => { $crate::parsing::lexer::Syntax::CLASS_KW};
+    [trait] => { $crate::parsing::lexer::Syntax::TRAIT_KW};
     [enum] => { $crate::parsing::lexer::Syntax::ENUM_KW};
     [impl] => { $crate::parsing::lexer::Syntax::IMPL_KW};
     [match] => { $crate::parsing::lexer::Syntax::MATCH_KW};
@@ -365,6 +367,12 @@ def! {
     #[token("struct")]
     STRUCT_KW = ["struct"],
 
+    #[token("class")]
+    CLASS_KW = ["class"],
+
+    #[token("trait")]
+    TRAIT_KW = ["trait"],
+
     #[token("enum")]
     ENUM_KW = ["enum"],
 
@@ -408,6 +416,8 @@ def! {
 
     FN_ITEM @ITEM_FIRST,
     STRUCT_ITEM,
+    CLASS_ITEM,
+    TRAIT_ITEM,
     IMPL_ITEM,
     MOD_ITEM,
     ENUM_ITEM,
@@ -421,6 +431,7 @@ def! {
     FN_TYPE_PARAM_LIST,
     FN_TYPE_PARAM,
     RETURN_TYPE,
+    ENUM_FIELD,
     FIELD,
     PARENT,
     CLOSURE_PARAM_LIST,
@@ -610,7 +621,7 @@ impl Syntax {
         (Self::ITEM_FIRST as u16..=Self::ITEM_LAST as u16).contains(&(self as u16))
     }
 
-    pub fn is_elem(self) -> bool {
+    pub fn is_member(self) -> bool {
         matches!(self, Self::FIELD | Self::FN_ITEM)
     }
 

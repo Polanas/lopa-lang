@@ -303,6 +303,8 @@ pub fn module_diagnostics<'db>(
             hir::Item::Use(use_item) => {}
             hir::Item::Impl(impl_block) => {}
             hir::Item::Module(_) => {}
+            hir::Item::Class(class) => {}
+            hir::Item::Trait(_) => {}
         }
     }
     diagnostics
@@ -381,10 +383,44 @@ impl<'db> File {
                     Some(RenderedDiagnostic {
                         message: d.message,
                         range: {
-                            if let Some(struct_token) = node.struct_token()
+                            if let Some(token) = node.struct_token()
                                 && let Some(name) = node.name()
                             {
-                                struct_token.range().start..name.syntax().range().end
+                                token.range().start..name.syntax().range().end
+                            } else {
+                                node.syntax().range()
+                            }
+                        },
+                        kind: d.kind,
+                    })
+                }
+                DiagnosticLocation::Class(ast_id) => {
+                    let id = ast_id.file.ast_map(db)[ast_id];
+                    let node = tree.get(id).and_then(parsing::ClassItem::cast)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: {
+                            if let Some(token) = node.class_token()
+                                && let Some(name) = node.name()
+                            {
+                                token.range().start..name.syntax().range().end
+                            } else {
+                                node.syntax().range()
+                            }
+                        },
+                        kind: d.kind,
+                    })
+                }
+                DiagnosticLocation::Trait(ast_id) => {
+                    let id = ast_id.file.ast_map(db)[ast_id];
+                    let node = tree.get(id).and_then(parsing::TraitItem::cast)?;
+                    Some(RenderedDiagnostic {
+                        message: d.message,
+                        range: {
+                            if let Some(token) = node.trait_token()
+                                && let Some(name) = node.name()
+                            {
+                                token.range().start..name.syntax().range().end
                             } else {
                                 node.syntax().range()
                             }
@@ -398,10 +434,10 @@ impl<'db> File {
                     Some(RenderedDiagnostic {
                         message: d.message,
                         range: {
-                            if let Some(struct_token) = node.enum_token()
+                            if let Some(token) = node.enum_token()
                                 && let Some(name) = node.name()
                             {
-                                struct_token.range().start..name.syntax().range().end
+                                token.range().start..name.syntax().range().end
                             } else {
                                 node.syntax().range()
                             }

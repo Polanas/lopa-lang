@@ -1,7 +1,7 @@
 use std::{ops::Range, sync::Arc};
 
 use crate::def::{
-    AnyId, BodyMap, TypeExprId, UseTreeId, hir::{EnumId, FunctionId, ModuleId, StructId, UseItemId},
+    AnyId, BodyMap, TypeExprId, UseTreeId, hir::{ClassId, EnumId, FunctionId, ModuleId, StructId, TraitId, UseItemId},
 };
 
 //TODO: refactor this (add more kinds for each class of error like in rust)
@@ -17,6 +17,8 @@ pub enum DiagnosticKind {
 pub enum DiagnosticLocation {
     Module(ModuleId),
     Struct(StructId),
+    Class(ClassId),
+    Trait(TraitId),
     Enum(EnumId),
     Function(FunctionId),
     UseTree {

@@ -52,9 +52,11 @@ impl<A: parsing::AstNode<'static>> Debug for AstId<A> {
 #[repr(u8)]
 pub enum AstIdKind {
     Function,
+    Struct,
+    Class,
+    Trait,
     Mod,
     Impl,
-    Struct,
     Enum,
     Use,
 }
@@ -95,6 +97,8 @@ impl_ast_id_item! {
     [ModItem, Mod],
     [ImplItem, Impl],
     [StructItem, Struct],
+    [ClassItem, Class],
+    [TraitItem, Trait],
     [EnumItem, Enum],
     [UseItem, Use]
 }

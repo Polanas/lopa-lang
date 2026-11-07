@@ -46,6 +46,10 @@ pub enum TypeKind<'db> {
         value: hir::Enum<'db>,
         generics: TypeList<'db>,
     },
+    Class {
+        value: hir::Class<'db>,
+        generics: TypeList<'db>,
+    },
     Function {
         value: hir::Function<'db>,
         generics: TypeList<'db>,

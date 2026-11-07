@@ -288,21 +288,48 @@ structs! {
         name: Name,
         generics: Generics,
         left_brace_token: T!["{"],
-        elements: [Elem],
+        enum_fields: [Variant],
+        members: [Member],
         right_brace_token: T!["}"],
+    },
+    TRAIT_ITEM = TraitItem {
+        trait_token: T![trait],
+        name: Name,
+        generics: Generics,
+        colon_token: T![:],
+        parents: [Parent],
+        left_brace_token: T!["{"],
+        members: [Member],
+        right_brace_token: T!["}"],
+    },
+    CLASS_ITEM = ClassItem {
+        class_token: T![class],
+        name: Name,
+        generics: Generics,
+        colon_token: T![:],
+        parent: Parent,
+        left_brace_token: T!["{"],
+        members: [Member],
+        right_brace_token: T!["}"],
+
     },
     STRUCT_ITEM = StructItem {
         struct_token: T![struct],
         name: Name,
         generics: Generics,
-        parent: Parent,
         left_brace_token: T!["{"],
-        elements: [Elem],
+        members: [Member],
         right_brace_token: T!["}"],
     },
     PARENT = Parent {
-        colon_token: T![:],
         path: Path,
+    },
+    ENUM_FIELD = Variant {
+        name: Name,
+        colon_token: T![:],
+        ty: ItemTypeExpr,
+        eq_token: T![=],
+        value: Expr,
     },
     FIELD = Field {
         name: Name,
@@ -1020,10 +1047,11 @@ enums! {
         UseGlobal,
         UseTreeList,
     },
-    //After modifying, don't forget to also change Syntax::is_elem!!!
-    Elem {
+    //After modifying, don't forget to also change Syntax::is_member
+    Member {
         Field,
         FnItem,
+        Variant,
     },
     Pattern {
         NamePattern,

@@ -1,33 +1,77 @@
 ---
 source: lopa-core/src/parsing/parser.rs
-expression: "parse(\"struct Vec2 {x: Y, y: Y }\", |p| p.struct_item())"
+expression: "parse(\"struct MyStruct {\n                    foo: Foo;\n                    bar: Bar;\n                    fn test(self) -> FooBar {\n                        self.foo + self.bar\n                    }\n                }\n                \",\n|p| p.struct_item())"
 ---
-STRUCT_ITEM: 0..25 
+STRUCT_ITEM: 0..207 
   STRUCT_KW: 0..6 "struct"
   WHITESPACE: 6..7 
-  NAME: 7..11 
-    IDENT: 7..11 "Vec2"
-  WHITESPACE: 11..12 
-  L_BRACE: 12..13 "{"
-  FIELD: 13..17 
-    NAME: 13..14 
-      IDENT: 13..14 "x"
-    COLON: 14..15 ":"
-    WHITESPACE: 15..16 
-    PATH_TYPE: 16..17 
-      PATH: 16..17 
-        PATH_SEGMENT: 16..17 
-          IDENT: 16..17 "Y"
-  COMMA: 17..18 ","
-  WHITESPACE: 18..19 
-  FIELD: 19..23 
-    NAME: 19..20 
-      IDENT: 19..20 "y"
-    COLON: 20..21 ":"
-    WHITESPACE: 21..22 
-    PATH_TYPE: 22..23 
-      PATH: 22..23 
-        PATH_SEGMENT: 22..23 
-          IDENT: 22..23 "Y"
-  WHITESPACE: 23..24 
-  R_BRACE: 24..25 "}"
+  NAME: 7..15 
+    IDENT: 7..15 "MyStruct"
+  WHITESPACE: 15..16 
+  L_BRACE: 16..17 "{"
+  WHITESPACE: 17..38 
+  FIELD: 38..46 
+    NAME: 38..41 
+      IDENT: 38..41 "foo"
+    COLON: 41..42 ":"
+    WHITESPACE: 42..43 
+    PATH_TYPE: 43..46 
+      PATH: 43..46 
+        PATH_SEGMENT: 43..46 
+          IDENT: 43..46 "Foo"
+  SEMI: 46..47 ";"
+  WHITESPACE: 47..68 
+  FIELD: 68..76 
+    NAME: 68..71 
+      IDENT: 68..71 "bar"
+    COLON: 71..72 ":"
+    WHITESPACE: 72..73 
+    PATH_TYPE: 73..76 
+      PATH: 73..76 
+        PATH_SEGMENT: 73..76 
+          IDENT: 73..76 "Bar"
+  SEMI: 76..77 ";"
+  WHITESPACE: 77..98 
+  FN_ITEM: 98..189 
+    FN_KW: 98..100 "fn"
+    WHITESPACE: 100..101 
+    NAME: 101..105 
+      IDENT: 101..105 "test"
+    PARAM_LIST: 105..111 
+      L_PAREN: 105..106 "("
+      PARAM: 106..110 
+        SELF_KW: 106..110 "self"
+      R_PAREN: 110..111 ")"
+    WHITESPACE: 111..112 
+    RETURN_TYPE: 112..121 
+      ARROW: 112..114 "->"
+      WHITESPACE: 114..115 
+      PATH_TYPE: 115..121 
+        PATH: 115..121 
+          PATH_SEGMENT: 115..121 
+            IDENT: 115..121 "FooBar"
+    WHITESPACE: 121..122 
+    BLOCK_EXPR: 122..189 
+      L_BRACE: 122..123 "{"
+      WHITESPACE: 123..148 
+      EXPR_STMT: 148..167 
+        BINARY_EXPR: 148..167 
+          FIELD_EXPR: 148..156 
+            SELF_EXPR: 148..152 
+              SELF_KW: 148..152 "self"
+            DOT: 152..153 "."
+            NAME: 153..156 
+              IDENT: 153..156 "foo"
+          WHITESPACE: 156..157 
+          PLUS: 157..158 "+"
+          WHITESPACE: 158..159 
+          FIELD_EXPR: 159..167 
+            SELF_EXPR: 159..163 
+              SELF_KW: 159..163 "self"
+            DOT: 163..164 "."
+            NAME: 164..167 
+              IDENT: 164..167 "bar"
+      WHITESPACE: 167..188 
+      R_BRACE: 188..189 "}"
+  WHITESPACE: 189..206 
+  R_BRACE: 206..207 "}"
