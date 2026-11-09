@@ -583,7 +583,7 @@ impl<'db> PathResolveCtx<'db> {
                 }
                 self.resolve_expr(expr);
             }
-            hir::StmtKind::Expr { expr, semi } => {
+            hir::StmtKind::Expr { expr, .. } => {
                 self.resolve_expr(expr);
             }
         }
@@ -1049,11 +1049,11 @@ impl<'db> PathResolveCtx<'db> {
 mod test {
     use std::{path::PathBuf, sync::Arc};
 
-    use salsa::{Database, Setter};
+    use salsa::Setter;
 
     use crate::{
-        def::hir::{self, Module, ModuleData},
-        ide::{self, PathMap},
+        def::hir::{self, Function, Module},
+        ide::{self},
     };
 
     fn assert_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) {
@@ -1062,9 +1062,25 @@ mod test {
             panic!("{:#?}", path_map.diagnostics);
         }
         for item in module.items(db).items(db) {
+            match item {
+                hir::Item::Function(item) => assert_function(db, *item, module),
+                hir::Item::Module(item) => assert_module(db, *item),
+                _ => {}
+            }
             if let hir::Item::Module(item) = item {
                 assert_module(db, *item);
             }
+        }
+    }
+
+    fn assert_function<'db>(
+        db: &'db dyn salsa::Database,
+        func: Function<'db>,
+        module: Module<'db>,
+    ) {
+        let path_map = func.path_map(db, module);
+        if !path_map.diagnostics.is_empty() {
+            panic!("{:#?}", path_map.diagnostics);
         }
     }
 
@@ -1145,6 +1161,27 @@ mod test {
 
                 use bar::Y;
                 use foo::*;
+        }",
+        );
+    }
+
+    #[test]
+    fn fn_exprs() {
+        assert_resolve_diagnostics(
+            "mod test {
+                mod A {
+                    mod B {
+                        struct C {}
+                    }
+                }
+                fn my_func(A::B::C: int) {
+                    let _ = (
+                        A::B::C,
+                        A::B::C::{},
+                        { if A::B::C {
+                                     } }
+                    );
+                }
         }",
         );
     }
