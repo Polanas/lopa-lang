@@ -1,8 +1,8 @@
 use std::{ops::Range, sync::Arc};
 
-use crate::def::{
-    AnyId, BodyMap, TypeExprId, UseTreeId, hir::{ClassId, EnumId, FunctionId, ModuleId, StructId, TraitId, UseItemId},
-};
+use crate::{common::PathNodeType, def::{
+    BodyMap, HirNodeId, TypeExprId, UseTreeId, hir::{ClassId, EnumId, FunctionId, ModuleId, StructId, TraitId, UseItemId},
+}};
 
 //TODO: refactor this (add more kinds for each class of error like in rust)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -29,14 +29,15 @@ pub enum DiagnosticLocation {
         fn_item: FunctionId,
         param_num: usize,
     },
-    TypeExpr {
-        id: TypeExprId,
+    HirNode {
+        id: HirNodeId,
         source: Arc<BodyMap>,
     },
     PathSegment {
-        id: AnyId,
+        id: HirNodeId,
         source: Arc<BodyMap>,
         offset: usize,
+        node_type: PathNodeType,
     },
     Range(Range<usize>),
 }

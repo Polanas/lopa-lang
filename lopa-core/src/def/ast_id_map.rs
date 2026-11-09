@@ -10,9 +10,6 @@ use crate::{
 
 pub type ErasedAstId = Idx<parsing::NodeId>;
 
-//Primary purpose of AstId is to be used for diagnostics.
-//The ids themselves are stored inside items.
-//They can then be sent via accumulators to then be converted into NodeId's
 #[derive(salsa::SalsaValue, Clone, Copy)]
 pub struct AstId<A: parsing::AstNode<'static>>(ErasedAstId, PhantomData<A>);
 
@@ -103,6 +100,7 @@ impl_ast_id_item! {
     [UseItem, Use]
 }
 
+//TODO: rename this to ItemId
 #[derive(salsa::SalsaValue, PartialEq, Clone)]
 pub struct AstIdMap {
     arenas: Vec<Arena<parsing::NodeId>>,

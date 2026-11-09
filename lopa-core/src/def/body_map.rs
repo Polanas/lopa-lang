@@ -1,7 +1,7 @@
 use la_arena::Arena;
 
 use crate::{
-    def::{AnyId, MemberId, ExprId, ItemTypeExprId, PatId, StmtId, TypeExprId},
+    def::{HirNodeId, MemberId, ExprId, ItemTypeExprId, PatId, StmtId, TypeExprId},
     parsing::{self, AstNode},
 };
 
@@ -44,17 +44,17 @@ impl BodyMap {
     }
 }
 
-impl std::ops::Index<AnyId> for BodyMap {
+impl std::ops::Index<HirNodeId> for BodyMap {
     type Output = parsing::NodeId;
 
-    fn index(&self, index: AnyId) -> &Self::Output {
+    fn index(&self, index: HirNodeId) -> &Self::Output {
         match index {
-            AnyId::ItemTypeExpr(item_type_expr_id) => &self[item_type_expr_id],
-            AnyId::TypeExpr(type_expr_id) => &self[type_expr_id],
-            AnyId::Member(member) => &self[member],
-            AnyId::Pat(pat_id) => &self[pat_id],
-            AnyId::Expr(expr_id) => &self[expr_id],
-            AnyId::Stmt(stmt_id) => &self[stmt_id],
+            HirNodeId::ItemTypeExpr(item_type_expr_id) => &self[item_type_expr_id],
+            HirNodeId::TypeExpr(type_expr_id) => &self[type_expr_id],
+            HirNodeId::Member(member) => &self[member],
+            HirNodeId::Pat(pat_id) => &self[pat_id],
+            HirNodeId::Expr(expr_id) => &self[expr_id],
+            HirNodeId::Stmt(stmt_id) => &self[stmt_id],
         }
     }
 }

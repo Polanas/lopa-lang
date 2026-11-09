@@ -20,7 +20,7 @@ use la_arena::Idx;
 use crate::parsing;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
-pub enum AnyId {
+pub enum HirNodeId {
     ItemTypeExpr(ItemTypeExprId),
     TypeExpr(TypeExprId),
     Member(MemberId),
@@ -33,8 +33,8 @@ pub enum AnyId {
 pub struct ItemTypeExprId(pub Idx<parsing::NodeId>);
 
 impl ItemTypeExprId {
-    pub fn into_any(self) -> AnyId {
-        AnyId::ItemTypeExpr(self)
+    pub fn into_hir_id(self) -> HirNodeId {
+        HirNodeId::ItemTypeExpr(self)
     }
 }
 
@@ -42,8 +42,8 @@ impl ItemTypeExprId {
 pub struct TypeExprId(pub Idx<parsing::NodeId>);
 
 impl TypeExprId {
-    pub fn into_any(self) -> AnyId {
-        AnyId::TypeExpr(self)
+    pub fn into_hir_id(self) -> HirNodeId {
+        HirNodeId::TypeExpr(self)
     }
 }
 
@@ -51,8 +51,8 @@ impl TypeExprId {
 pub struct MemberId(pub Idx<parsing::NodeId>);
 
 impl MemberId {
-    pub fn into_any(self) -> AnyId {
-        AnyId::Member(self)
+    pub fn into_hir_id(self) -> HirNodeId {
+        HirNodeId::Member(self)
     }
 }
 
@@ -60,8 +60,8 @@ impl MemberId {
 pub struct PatId(pub Idx<parsing::NodeId>);
 
 impl PatId {
-    pub fn into_any(self) -> AnyId {
-        AnyId::Pat(self)
+    pub fn into_hir_id(self) -> HirNodeId {
+        HirNodeId::Pat(self)
     }
 }
 
@@ -69,8 +69,8 @@ impl PatId {
 pub struct ExprId(pub Idx<parsing::NodeId>);
 
 impl ExprId {
-    pub fn into_any(self) -> AnyId {
-        AnyId::Expr(self)
+    pub fn into_hir_id(self) -> HirNodeId {
+        HirNodeId::Expr(self)
     }
 }
 
@@ -78,8 +78,8 @@ impl ExprId {
 pub struct StmtId(pub Idx<parsing::NodeId>);
 
 impl StmtId {
-    pub fn into_any(self) -> AnyId {
-        AnyId::Stmt(self)
+    pub fn into_hir_id(self) -> HirNodeId {
+        HirNodeId::Stmt(self)
     }
 }
 

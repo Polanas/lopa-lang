@@ -13,6 +13,7 @@ pub use scope::*;
 use itertools::Itertools;
 
 use crate::{
+    common::PathNodeType,
     def::{
         self, Symbol, SymbolList,
         hir::{self},
@@ -356,10 +357,22 @@ impl<'db> File {
         diagnostics
             .into_iter()
             .filter_map(|d| match d.location {
-                DiagnosticLocation::PathSegment { id, source, offset } => {
+                DiagnosticLocation::PathSegment {
+                    id,
+                    source,
+                    offset,
+                    node_type,
+                } => {
                     let id = source[id];
                     let node = tree.get(id)?;
-                    let path = parsing::Path::cast(node).unwrap();
+                    let path = match node_type {
+                        PathNodeType::Path => parsing::Path::cast(node),
+                        PathNodeType::Record => {
+                            let record = parsing::RecordExpr::cast(node).unwrap();
+                            record.path()
+                        }
+                    }
+                    .unwrap();
                     let segment = path.segments().nth(offset).unwrap();
                     let range = segment.0.children().next().unwrap().range();
                     Some(RenderedDiagnostic {
@@ -368,7 +381,7 @@ impl<'db> File {
                         kind: d.kind,
                     })
                 }
-                DiagnosticLocation::TypeExpr { id, source } => {
+                DiagnosticLocation::HirNode { id, source } => {
                     let id = source[id];
                     let node = tree.get(id)?;
                     Some(RenderedDiagnostic {

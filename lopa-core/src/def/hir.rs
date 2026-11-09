@@ -5,8 +5,8 @@ use itertools::Itertools;
 use crate::{
     common::{BinaryOpKind, LitKind, UnaryOpKind},
     def::{
-        AstId, BodyMap, ExprId, ItemTypeExprId, MemberId, PatId, StmtId, Symbol, SymbolList,
-        TypeExprId, UseTreeId,
+        AstId, BodyMap, ExprId, HirNodeId, ItemTypeExprId, MemberId, PatId, StmtId, Symbol,
+        SymbolList, TypeExprId, UseTreeId,
     },
     ide::{self, DiagnosticLocation, InFile},
     parsing::{self},
@@ -42,6 +42,11 @@ impl FieldSource {
     }
 }
 
+pub trait HirNode<'db> {
+    fn hir_id(&self, db: &'db dyn salsa::Database) -> HirNodeId;
+    fn body_map_source(&self, db: &'db dyn salsa::Database) -> BodyMapSource<'db>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub enum BodyMapSource<'db> {
     Function(Function<'db>),
@@ -75,7 +80,18 @@ pub struct Expr<'db> {
     #[returns(copy)]
     pub id: ExprId,
     #[returns(copy)]
+    pub source: BodyMapSource<'db>,
+    #[returns(copy)]
     pub kind: ExprKind<'db>,
+}
+impl<'db> HirNode<'db> for Expr<'db> {
+    fn hir_id(&self, db: &'db dyn salsa::Database) -> HirNodeId {
+        self.id(db).into_hir_id()
+    }
+
+    fn body_map_source(&self, db: &'db dyn salsa::Database) -> BodyMapSource<'db> {
+        self.source(db)
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
@@ -186,7 +202,7 @@ pub struct ClosureParams<'db> {
 #[salsa::tracked(debug)]
 pub struct ClosureParam<'db> {
     #[returns(copy)]
-    pub pattern: Pat<'db>,
+    pub pat: Pat<'db>,
     #[returns(copy)]
     pub ty: Option<TypeExpr<'db>>,
 }
@@ -241,6 +257,8 @@ pub struct Stmt<'db> {
     #[returns(copy)]
     pub id: StmtId,
     #[returns(copy)]
+    pub source: BodyMapSource<'db>,
+    #[returns(copy)]
     pub kind: StmtKind<'db>,
 }
 
@@ -282,6 +300,16 @@ pub struct Pat<'db> {
     pub kind: PatKind<'db>,
 }
 
+impl<'db> HirNode<'db> for Pat<'db> {
+    fn hir_id(&self, db: &'db dyn salsa::Database) -> HirNodeId {
+        self.id(db).into_hir_id()
+    }
+
+    fn body_map_source(&self, db: &'db dyn salsa::Database) -> BodyMapSource<'db> {
+        self.source(db)
+    }
+}
+
 pub type FunctionId = InFile<AstId<parsing::FnItem<'static>>>;
 pub type StructId = InFile<AstId<parsing::StructItem<'static>>>;
 pub type ClassId = InFile<AstId<parsing::ClassItem<'static>>>;
@@ -290,6 +318,18 @@ pub type EnumId = InFile<AstId<parsing::EnumItem<'static>>>;
 pub type UseItemId = InFile<AstId<parsing::UseItem<'static>>>;
 pub type ModuleId = InFile<AstId<parsing::ModItem<'static>>>;
 pub type ImplBlockId = InFile<AstId<parsing::ImplItem<'static>>>;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ItemId {
+    Function(FunctionId),
+    Struct(StructId),
+    Class(ClassId),
+    Trait(TraitId),
+    Enum(EnumId),
+    UseItem(UseItemId),
+    Module(ModuleId),
+    ImplBlock(ImplBlockId),
+}
 
 #[derive(salsa::Supertype, PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
 pub enum Item<'db> {
@@ -527,6 +567,8 @@ pub struct Member<'db> {
     #[returns(copy)]
     pub id: MemberId,
     #[returns(copy)]
+    pub source: BodyMapSource<'db>,
+    #[returns(copy)]
     pub kind: MemberKind<'db>,
 }
 
@@ -657,6 +699,19 @@ pub struct ItemTypeExpr<'db> {
     pub kind: ItemTypeExprKind<'db>,
 }
 
+#[salsa::tracked]
+impl<'db> ItemTypeExpr<'db> {
+    #[salsa::tracked(returns(copy))]
+    fn source(self, db: &'db dyn salsa::Database) -> BodyMapSource<'db> {
+        match self.kind(db) {
+            ItemTypeExprKind::TypeExpr(type_expr) => type_expr.source(db),
+            ItemTypeExprKind::Struct(item) => BodyMapSource::Struct(item),
+            ItemTypeExprKind::Enum(item) => BodyMapSource::Enum(item),
+            ItemTypeExprKind::Class(item) => BodyMapSource::Class(item),
+        }
+    }
+}
+
 #[derive(salsa::SalsaValue, Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ItemTypeExprKind<'db> {
     TypeExpr(TypeExpr<'db>),
@@ -675,10 +730,20 @@ pub struct TypeExpr<'db> {
     pub kind: TypeExprKind<'db>,
 }
 
+impl<'db> HirNode<'db> for TypeExpr<'db> {
+    fn hir_id(&self, db: &'db dyn salsa::Database) -> HirNodeId {
+        self.id(db).into_hir_id()
+    }
+
+    fn body_map_source(&self, db: &'db dyn salsa::Database) -> BodyMapSource<'db> {
+        self.source(db)
+    }
+}
+
 impl<'db> TypeExpr<'db> {
     pub fn location(&self, db: &'db dyn salsa::Database) -> DiagnosticLocation {
-        DiagnosticLocation::TypeExpr {
-            id: self.id(db),
+        DiagnosticLocation::HirNode {
+            id: self.id(db).into_hir_id(),
             source: self.source(db).body_map(db),
         }
     }

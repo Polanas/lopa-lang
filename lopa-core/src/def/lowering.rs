@@ -789,7 +789,7 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
 
     fn alloc_member(&mut self, elem: MemberKind<'db>, elem_ast: parsing::Member) -> Member<'db> {
         let id = self.map.insert_member(elem_ast);
-        Member::new(self.db, id, elem)
+        Member::new(self.db, id, self.id_source.unwrap(), elem)
     }
 
     fn alloc_type_expr(
@@ -808,12 +808,12 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
 
     fn alloc_expr(&mut self, expr: ExprKind<'db>, expr_ast: parsing::Expr) -> Expr<'db> {
         let id = self.map.insert_expr(expr_ast);
-        Expr::new(self.db, id, expr)
+        Expr::new(self.db, id, self.id_source.unwrap(), expr)
     }
 
     fn alloc_stmt(&mut self, stmt: StmtKind<'db>, stmt_ast: parsing::Stmt) -> Stmt<'db> {
         let id = self.map.insert_stmt(stmt_ast);
-        Stmt::new(self.db, id, stmt)
+        Stmt::new(self.db, id, self.id_source.unwrap(), stmt)
     }
 }
 

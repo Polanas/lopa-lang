@@ -41,94 +41,94 @@ impl LitKind {
 #[macro_export]
 macro_rules! B {
     (+) => {
-        $crate::parsing::ast::BinaryOpKind::Add
+        $crate::common::BinaryOpKind::Add
     };
     (-) => {
-        $crate::parsing::ast::BinaryOpKind::Sub
+        $crate::common::BinaryOpKind::Sub
     };
     (*) => {
-        $crate::parsing::ast::BinaryOpKind::Mul
+        $crate::common::BinaryOpKind::Mul
     };
     (/) => {
-        $crate::parsing::ast::BinaryOpKind::Div
+        $crate::common::BinaryOpKind::Div
     };
     ("//") => {
-        $crate::parsing::ast::BinaryOpKind::DivInt
+        $crate::common::BinaryOpKind::DivInt
     };
     (%) => {
-        $crate::parsing::ast::BinaryOpKind::Rem
+        $crate::common::BinaryOpKind::Rem
     };
     (or) => {
-        $crate::parsing::ast::BinaryOpKind::Or
+        $crate::common::BinaryOpKind::Or
     };
     (<<) => {
-        $crate::parsing::ast::BinaryOpKind::Shl
+        $crate::common::BinaryOpKind::Shl
     };
     (>>) => {
-        $crate::parsing::ast::BinaryOpKind::Shr
+        $crate::common::BinaryOpKind::Shr
     };
     (^) => {
-        $crate::parsing::ast::BinaryOpKind::BitXor
+        $crate::common::BinaryOpKind::BitXor
     };
     (&) => {
-        $crate::parsing::ast::BinaryOpKind::BixAdd
+        $crate::common::BinaryOpKind::BitAnd
     };
     (>) => {
-        $crate::parsing::ast::BinaryOpKind::Greater
+        $crate::common::BinaryOpKind::Greater
     };
     (>=) => {
-        $crate::parsing::ast::BinaryOpKind::GreaterEqual
+        $crate::common::BinaryOpKind::GreaterEqual
     };
     (<) => {
-        $crate::parsing::ast::BinaryOpKind::Less
+        $crate::common::BinaryOpKind::Less
     };
     (<=) => {
-        $crate::parsing::ast::BinaryOpKind::LessEqual
+        $crate::common::BinaryOpKind::LessEqual
     };
     (!=) => {
-        $crate::parsing::ast::BinaryOpKind::NotEqual
+        $crate::common::BinaryOpKind::NotEqual
     };
     (==) => {
-        $crate::parsing::ast::BinaryOpKind::Equal
+        $crate::common::BinaryOpKind::Equal
     };
     (and) => {
-        $crate::parsing::ast::BinaryOpKind::And
+        $crate::common::BinaryOpKind::And
     };
     (|) => {
-        $crate::parsing::ast::BinaryOpKind::BitOr
+        $crate::common::BinaryOpKind::BitOr
     };
     (+=) => {
-        $crate::parsing::ast::BinaryOpKind::AddAssign
+        $crate::common::BinaryOpKind::AddAssign
     };
     (-=) => {
-        $crate::parsing::ast::BinaryOpKind::SubAssign
+        $crate::common::BinaryOpKind::SubAssign
     };
     (*=) => {
-        $crate::parsing::ast::BinaryOpKind::MulAssign
+        $crate::common::BinaryOpKind::MulAssign
     };
     (/=) => {
-        $crate::parsing::ast::BinaryOpKind::DivAssign
+        $crate::common::BinaryOpKind::DivAssign
     };
     ("//=") => {
-        $crate::parsing::ast::BinaryOpKind::DivIntAssign
+        $crate::common::BinaryOpKind::DivIntAssign
     };
     (%=) => {
-        $crate::parsing::ast::BinaryOpKind::RemAssign
+        $crate::common::BinaryOpKind::RemAssign
     };
     (^=) => {
-        $crate::parsing::ast::BinaryOpKind::BitXorAssign
+        $crate::common::BinaryOpKind::BitXorAssign
     };
     (&=) => {
-        $crate::parsing::ast::BinaryOpKind::BitAndAssign
+        $crate::common::BinaryOpKind::BitAndAssign
     };
     (|=) => {
-        $crate::parsing::ast::BinaryOpKind::BitOrAssign
+        $crate::common::BinaryOpKind::BitOrAssign
     };
     (<<=) => {
-        $crate::parsing::ast::BinaryOpKind::ShlAssign
+        $crate::common::BinaryOpKind::ShlAssign
     };
     (>>=) => {
-        $crate::parsing::ast::BinaryOpKind::ShrAssign
+        $crate::common::BinaryOpKind::ShrAssign
     };
 }
 
@@ -187,46 +187,43 @@ pub enum LuaBinaryOpKind {
 
 impl BinaryOpKind {
     pub fn is_arithmetic(&self) -> bool {
-        matches!(
-            self,
-            Self::Add | Self::Sub | Self::DivInt | Self::Div | Self::Mul | Self::Rem
-        )
+        matches!(self, B![+] | B![-] | B!["//"] | B![/] | B![*] | B![%])
     }
 }
 
 impl std::fmt::Display for BinaryOpKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BinaryOpKind::Add => write!(f, "+"),
-            BinaryOpKind::Mul => write!(f, "*"),
-            BinaryOpKind::Div => write!(f, "/"),
-            BinaryOpKind::DivInt => write!(f, "//"),
-            BinaryOpKind::Rem => write!(f, "%"),
-            BinaryOpKind::Or => write!(f, "or"),
-            BinaryOpKind::Shl => write!(f, "<<"),
-            BinaryOpKind::Shr => write!(f, ">>"),
-            BinaryOpKind::BitXor => write!(f, "^"),
-            BinaryOpKind::BitAnd => write!(f, "&"),
-            BinaryOpKind::Sub => write!(f, "-"),
-            BinaryOpKind::Greater => write!(f, ">"),
-            BinaryOpKind::GreaterEqual => write!(f, ">="),
-            BinaryOpKind::Less => write!(f, "<"),
-            BinaryOpKind::LessEqual => write!(f, "<="),
-            BinaryOpKind::NotEqual => write!(f, "!="),
-            BinaryOpKind::Equal => write!(f, "=="),
-            BinaryOpKind::And => write!(f, "and"),
-            BinaryOpKind::BitOr => write!(f, "|"),
-            BinaryOpKind::AddAssign => write!(f, "+="),
-            BinaryOpKind::SubAssign => write!(f, "-="),
-            BinaryOpKind::MulAssign => write!(f, "*="),
-            BinaryOpKind::DivAssign => write!(f, "/="),
-            BinaryOpKind::DivIntAssign => write!(f, "//="),
-            BinaryOpKind::RemAssign => write!(f, "%="),
-            BinaryOpKind::BitXorAssign => write!(f, "^="),
-            BinaryOpKind::BitAndAssign => write!(f, "&="),
-            BinaryOpKind::BitOrAssign => write!(f, "|="),
-            BinaryOpKind::ShlAssign => write!(f, "<<="),
-            BinaryOpKind::ShrAssign => write!(f, ">>="),
+            B![+] => write!(f, "+"),
+            B![*] => write!(f, "*"),
+            B![/] => write!(f, "/"),
+            B!["//"] => write!(f, "//"),
+            B![%] => write!(f, "%"),
+            B![or] => write!(f, "or"),
+            B![<<] => write!(f, "<<"),
+            B![>>] => write!(f, ">>"),
+            B![^] => write!(f, "^"),
+            B![&] => write!(f, "&"),
+            B![-] => write!(f, "-"),
+            B![>] => write!(f, ">"),
+            B![>=] => write!(f, ">="),
+            B![<] => write!(f, "<"),
+            B![<=] => write!(f, "<="),
+            B![!=] => write!(f, "!="),
+            B![==] => write!(f, "=="),
+            B![and] => write!(f, "and"),
+            B![|] => write!(f, "|"),
+            B![+=] => write!(f, "+="),
+            B![-=] => write!(f, "-="),
+            B![*=] => write!(f, "*="),
+            B![/=] => write!(f, "/="),
+            B!["//="] => write!(f, "//="),
+            B![%=] => write!(f, "%="),
+            B![^=] => write!(f, "^="),
+            B![&=] => write!(f, "&="),
+            B![|=] => write!(f, "|="),
+            B![<<=] => write!(f, "<<="),
+            B![>>=] => write!(f, ">>="),
         }
     }
 }
@@ -254,4 +251,10 @@ impl std::fmt::Display for UnaryOpKind {
             UnaryOpKind::Neg => write!(f, "-"),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub enum PathNodeType {
+    Path,
+    Record,
 }

@@ -3,11 +3,10 @@ use std::{collections::HashMap, mem::transmute, process::Output};
 use crate::{
     def::{
         ExprId, PatId, SymbolList,
-        hir::{FnParam, Function, FunctionContents},
-        mir::{Type, TypeKind},
+        hir::{FnParam, Function},
+        mir::Type,
     },
-    ide::{Diagnostic, File, PathMap},
-    ptr::Ptr,
+    ide::{Diagnostic, PathMap},
 };
 
 #[derive(salsa::SalsaValue, PartialEq)]

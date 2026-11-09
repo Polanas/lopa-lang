@@ -418,7 +418,7 @@ impl<'db> ExprScopesCtx<'db> {
             hir::ExprKind::Closure { params, body, .. } => {
                 let scope = self.scopes.scopes.alloc(ScopeData::from_parent(scope));
                 for param in params.params(self.db).iter() {
-                    self.traverse_pat(param.pattern(self.db), scope);
+                    self.traverse_pat(param.pat(self.db), scope);
                 }
                 self.traverse_expr(body, scope);
             }
