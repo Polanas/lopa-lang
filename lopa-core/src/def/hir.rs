@@ -370,17 +370,13 @@ pub struct Modules<'db> {
 pub struct ImplBlock<'db> {
     #[returns(copy)]
     pub file: ide::File,
-    //TODO: place impl items into contents
-    // #[tracked]
-    // #[returns(copy)]
-    // pub items: ImplItems<'db>,
     #[tracked]
     #[returns(copy)]
     pub id: ImplBlockId,
 }
 
 #[salsa::tracked(debug)]
-pub struct ImplItems<'db> {
+pub struct FunctionList<'db> {
     #[returns(deref)]
     pub items: Vec<Function<'db>>,
 }
@@ -390,6 +386,7 @@ pub struct ImplContents<'db> {
     pub body_map: Arc<BodyMap>,
     pub generics: Generics<'db>,
     pub impl_types: ImplTypes<'db>,
+    pub fns: FunctionList<'db>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]

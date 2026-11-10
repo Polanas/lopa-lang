@@ -66,9 +66,6 @@ pub fn walk_item<'db, W: HirWalker<'db> + ?Sized>(
                     walk_expr(db, walker, body.body_expr);
                 }
             }
-            // for inner_item in item.inner_items(db) {
-            //
-            // }
         }
         hir::Item::Class(item) => {
             let contents = item.contents(db);
@@ -104,8 +101,14 @@ pub fn walk_item<'db, W: HirWalker<'db> + ?Sized>(
             }
         }
         hir::Item::Use(item) => todo!(),
-        hir::Item::Module(item) => todo!(),
-        hir::Item::Impl(item) => todo!(),
+        hir::Item::Module(item) => {
+            for item in item.items(db).items(db) {
+                walk_item(db, walker, *item);
+            }
+        }
+        hir::Item::Impl(item) => {
+
+        },
     }
 }
 pub fn walk_member<'db, W: HirWalker<'db> + ?Sized>(

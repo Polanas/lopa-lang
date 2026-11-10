@@ -1065,6 +1065,9 @@ mod test {
             match item {
                 hir::Item::Function(item) => assert_function(db, *item, module),
                 hir::Item::Module(item) => assert_module(db, *item),
+                hir::Item::Impl(item) => {
+                    item.contents(db);
+                }
                 _ => {}
             }
             if let hir::Item::Module(item) = item {
@@ -1158,6 +1161,11 @@ mod test {
                 }
                 use foo::X;
                 use foo::Y;
+
+                impl X for Y {
+                    fn a(){}
+                    fn b() {}
+                }
         }",
         )
     }

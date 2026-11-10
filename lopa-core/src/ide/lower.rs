@@ -46,11 +46,16 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
             .generics()
             .and_then(|g| self.generics(g))
             .unwrap_or_else(|| Generics::new(self.db, vec![]));
+        let functions = ast_item
+            .functions()
+            .map(|f| self.file.node_id_to_fn(self.db, f.id()))
+            .collect_vec();
 
         Some(ImplContents {
             body_map: self.map.into(),
             generics,
             impl_types,
+            fns: FunctionList::new(self.db, functions),
         })
     }
 
@@ -921,13 +926,12 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
     }
 
     fn impl_item(&mut self, impl_item: parsing::ImplItem<'ast>) -> Option<()> {
-        // let items = self.with_items(|this| impl_item
-        //     .functions()
-        //     .for_each(|item| {this.fn_item(item);}));
+        for func in impl_item.functions() {
+            self.fn_item(func);
+        }
         let item = ImplBlock::new(
             self.db,
             self.file,
-            // ImplItems::new(self.db, items),
             ImplBlockId::new(self.ast_id_map.insert(impl_item), self.file),
         );
         self.items_map.insert_impl(self.db, item);
