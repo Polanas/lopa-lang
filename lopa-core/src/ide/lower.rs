@@ -101,19 +101,8 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
 
         let members = ast_item
             .members()
-            .filter_map(|e| self.member(e, Item::Enum(item)));
-
-        let (members, bodies): (Vec<_>, Vec<_>) = members.unzip();
-        let field_bodies = bodies
-            .into_iter()
-            .zip(members.iter())
-            .filter_map(|(body, member)| -> Option<_> {
-                match member.kind(self.db) {
-                    MemberKind::Field(field) => body.map(|b| (field, Arc::new(b))),
-                    _ => None,
-                }
-            })
-            .collect();
+            .filter_map(|e| self.member(e))
+            .collect_vec();
 
         let generics = ast_item
             .generics()
@@ -123,7 +112,6 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
         Some(EnumContents {
             body_map: self.map.into(),
             members: MemberList::new(self.db, members),
-            field_bodies,
             generics,
         })
     }
@@ -142,19 +130,8 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
 
         let members = ast_item
             .members()
-            .filter_map(|e| self.member(e, Item::Trait(item)));
-
-        let (members, bodies): (Vec<_>, Vec<_>) = members.unzip();
-        let field_bodies = bodies
-            .into_iter()
-            .zip(members.iter())
-            .filter_map(|(body, member)| -> Option<_> {
-                match member.kind(self.db) {
-                    MemberKind::Field(field) => body.map(|b| (field, Arc::new(b))),
-                    _ => None,
-                }
-            })
-            .collect();
+            .filter_map(|e| self.member(e))
+            .collect_vec();
 
         let generics = ast_item
             .generics()
@@ -170,7 +147,6 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
             } else {
                 None
             },
-            field_bodies,
         })
     }
 
@@ -187,20 +163,8 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
 
         let members = ast_item
             .members()
-            .filter_map(|e| self.member(e, Item::Class(item)));
-
-        let (members, bodies): (Vec<_>, Vec<_>) = members.unzip();
-
-        let field_bodies = bodies
-            .into_iter()
-            .zip(members.iter())
-            .filter_map(|(body, member)| -> Option<_> {
-                match member.kind(self.db) {
-                    MemberKind::Field(field) => body.map(|b| (field, Arc::new(b))),
-                    _ => None,
-                }
-            })
-            .collect();
+            .filter_map(|e| self.member(e))
+            .collect_vec();
 
         let generics = ast_item
             .generics()
@@ -212,7 +176,6 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
             generics,
             members: MemberList::new(self.db, members),
             parent,
-            field_bodies,
         })
     }
 
@@ -225,20 +188,8 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
 
         let members = ast_item
             .members()
-            .filter_map(|e| self.member(e, Item::Struct(item)));
-
-        let (members, bodies): (Vec<_>, Vec<_>) = members.unzip();
-
-        let field_bodies = bodies
-            .into_iter()
-            .zip(members.iter())
-            .filter_map(|(body, member)| -> Option<_> {
-                match member.kind(self.db) {
-                    MemberKind::Field(field) => body.map(|b| (field, Arc::new(b))),
-                    _ => None,
-                }
-            })
-            .collect();
+            .filter_map(|e| self.member(e))
+            .collect_vec();
 
         let generics = ast_item
             .generics()
@@ -248,29 +199,11 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
         Some(StructContents {
             body_map: self.map.into(),
             members: MemberList::new(self.db, members),
-            field_bodies,
             generics,
         })
     }
 
-    // fn enum_variant(
-    //     &mut self,
-    //     mut inner_items: impl Iterator<Item = InnerItem<'db>>,
-    //     variant: parsing::Variant<'db>,
-    // ) -> Option<Variant<'db>> {
-    //
-    //             let name = field_ast
-    //                 .name()
-    //                 .and_then(|n| n.text(self.source))
-    //                 .map(|n| Symbol::new(self.db, n));
-    //     Some(Variant )
-    // }
-
-    fn member(
-        &mut self,
-        member: parsing::Member,
-        item: Item<'db>,
-    ) -> Option<(Member<'db>, Option<FieldBody<'db>>)> {
+    fn member(&mut self, member: parsing::Member) -> Option<Member<'db>> {
         Some(match member {
             parsing::Member::Field(field_ast) => {
                 let name = field_ast
@@ -278,20 +211,9 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                     .and_then(|n| n.text(self.source))
                     .map(|n| Symbol::new(self.db, n));
                 let ty = field_ast.ty().and_then(|ty| self.item_type_expr(ty));
-                let field = Field::new(self.db, name, ty);
-                let body = field_ast.default_value().and_then(|e| {
-                    let mut ctx = BodyMapCtx::new(self.db, self.source, self.file);
-                    ctx.id_source = Some(BodyMapSource::Field {
-                        source: item.field_source(self.db).unwrap(),
-                        field,
-                    });
-                    let body_expr = ctx.expr(e)?;
-                    Some(FieldBody {
-                        body_map: ctx.map.into(),
-                        body_expr,
-                    })
-                });
-                (self.alloc_member(MemberKind::Field(field), member), body)
+                let body = field_ast.default_value().and_then(|e| self.expr(e));
+                let field = Field::new(self.db, name, ty, body);
+                self.alloc_member(MemberKind::Field(field), member)
             }
             parsing::Member::Variant(variant) => {
                 let name = variant
@@ -301,14 +223,11 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 let ty = variant.ty().and_then(|ty| self.item_type_expr(ty));
                 let value = variant.value().and_then(|v| self.expr(v));
                 let variant = Variant::new(self.db, name, ty, value);
-                (
-                    self.alloc_member(MemberKind::Variant(variant), member),
-                    None,
-                )
+                self.alloc_member(MemberKind::Variant(variant), member)
             }
             parsing::Member::FnItem(fn_item) => {
                 let item = self.file.node_id_to_fn(self.db, fn_item.id());
-                (self.alloc_member(MemberKind::Function(item), member), None)
+                self.alloc_member(MemberKind::Function(item), member)
             }
         })
     }

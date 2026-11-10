@@ -63,44 +63,24 @@ pub fn walk_item<'db, W: HirWalker<'db> + ?Sized>(
             let contents = item.contents(db);
             for member in contents.members.members(db).iter() {
                 walk_member(db, walker, *member);
-                if let hir::MemberKind::Field(field) = member.kind(db)
-                    && let Some(body) = contents.field_bodies.get(&field)
-                {
-                    walk_expr(db, walker, body.body_expr);
-                }
             }
         }
         hir::Item::Class(item) => {
             let contents = item.contents(db);
             for member in contents.members.members(db).iter() {
                 walk_member(db, walker, *member);
-                if let hir::MemberKind::Field(field) = member.kind(db)
-                    && let Some(body) = contents.field_bodies.get(&field)
-                {
-                    walk_expr(db, walker, body.body_expr);
-                }
             }
         }
         hir::Item::Trait(item) => {
             let contents = item.contents(db);
             for member in contents.members.members(db).iter() {
                 walk_member(db, walker, *member);
-                if let hir::MemberKind::Field(field) = member.kind(db)
-                    && let Some(body) = contents.field_bodies.get(&field)
-                {
-                    walk_expr(db, walker, body.body_expr);
-                }
             }
         }
         hir::Item::Enum(item) => {
             let contents = item.contents(db);
             for member in contents.members.members(db).iter() {
                 walk_member(db, walker, *member);
-                if let hir::MemberKind::Field(field) = member.kind(db)
-                    && let Some(body) = contents.field_bodies.get(&field)
-                {
-                    walk_expr(db, walker, body.body_expr);
-                }
             }
         }
         hir::Item::Use(item) => {
@@ -146,7 +126,10 @@ pub fn walk_member<'db, W: HirWalker<'db> + ?Sized>(
     match member.kind(db) {
         hir::MemberKind::Field(field) => {
             if let Some(ty) = field.ty(db) {
-                walk_item_type_expr(db, walker, *ty);
+                walk_item_type_expr(db, walker, ty);
+            }
+            if let Some(default) = field.default_value(db) {
+                walk_expr(db, walker, default);
             }
         }
         hir::MemberKind::Function(function) => {
