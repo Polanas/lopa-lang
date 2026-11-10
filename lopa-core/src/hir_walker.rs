@@ -5,8 +5,8 @@ pub trait HirWalker<'db> {
     fn item(&mut self, db: &'db dyn salsa::Database, item: hir::Item<'db>) {
         walk_item(db, self, item);
     }
-    fn member(&mut self, db: &'db dyn salsa::Database, member: hir::Member<'db>) {
-        walk_member(db, self, member);
+    fn use_tree(&mut self, db: &'db dyn salsa::Database, use_tree: hir::UseTree<'db>) {
+        walk_use_tree(db, self, use_tree);
     }
 
     fn expr(&mut self, db: &'db dyn salsa::Database, expr: hir::Expr<'db>) {
@@ -27,6 +27,9 @@ pub trait HirWalker<'db> {
         item_type_expr: hir::ItemTypeExpr<'db>,
     ) {
         walk_item_type_expr(db, self, item_type_expr);
+    }
+    fn member(&mut self, db: &'db dyn salsa::Database, member: hir::Member<'db>) {
+        walk_member(db, self, member);
     }
 }
 
@@ -100,17 +103,41 @@ pub fn walk_item<'db, W: HirWalker<'db> + ?Sized>(
                 }
             }
         }
-        hir::Item::Use(item) => todo!(),
+        hir::Item::Use(item) => {
+            if let Some(use_tree) = item.use_tree(db) {
+                walk_use_tree(db, walker, use_tree);
+            }
+        }
         hir::Item::Module(item) => {
             for item in item.items(db).items(db) {
                 walk_item(db, walker, *item);
             }
         }
         hir::Item::Impl(item) => {
-
-        },
+            for func in item.contents(db).fns.items(db).iter() {
+                walk_item(db, walker, hir::Item::Function(*func));
+            }
+        }
     }
 }
+pub fn walk_use_tree<'db, W: HirWalker<'db> + ?Sized>(
+    db: &'db dyn salsa::Database,
+    _walker: &mut W,
+    use_tree: hir::UseTree<'db>,
+) {
+    match use_tree.kind(db) {
+        hir::UseTreeKind::Path { use_tree, .. }
+        | hir::UseTreeKind::Super { use_tree }
+        | hir::UseTreeKind::Root { use_tree } => walk_use_tree(db, _walker, use_tree),
+        hir::UseTreeKind::TreeList(use_tree_list) => {
+            for use_tree in use_tree_list.items(db) {
+                walk_use_tree(db, _walker, *use_tree);
+            }
+        }
+        hir::UseTreeKind::Name(_) | hir::UseTreeKind::SelfUse | hir::UseTreeKind::Global => {}
+    }
+}
+
 pub fn walk_member<'db, W: HirWalker<'db> + ?Sized>(
     db: &'db dyn salsa::Database,
     walker: &mut W,

@@ -239,8 +239,8 @@ impl<'db> hir::Module<'db> {
             }
         }
     }
-    //TODO: remove all unwraps
 
+    //TODO: remove all unwraps
     #[salsa::tracked(returns(copy))]
     pub fn absolute_path(self, db: &'db dyn salsa::Database) -> def::SymbolList {
         if self.is_root_module(db) {
