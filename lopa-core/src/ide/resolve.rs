@@ -4,6 +4,7 @@ use crate::{
         Symbol, SymbolList,
         hir::{self, Enum, Function, HirNode, MemberKind, Module, Struct, TypeExpr, UseItem},
     },
+    hir_walker::{HirWalker, walk_expr, walk_item},
     ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleDef},
 };
 
@@ -31,7 +32,7 @@ impl<'db> Struct<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        ctx.resolve_struct(self);
+        walk_item(db, &mut ctx, hir::Item::Struct(self));
         ctx.path_map()
     }
 }
@@ -40,7 +41,7 @@ impl<'db> Struct<'db> {
 impl<'db> Module<'db> {
     pub fn path_map(self, db: &'db dyn salsa::Database) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, self);
-        ctx.resolve_module(self);
+        walk_item(db, &mut ctx, hir::Item::Module(self));
         ctx.path_map()
     }
 }
@@ -50,7 +51,7 @@ impl<'db> Enum<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        ctx.resolve_enum(self);
+        walk_item(db, &mut ctx, hir::Item::Enum(self));
         ctx.path_map()
     }
 }
@@ -60,7 +61,7 @@ impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        ctx.resolve_fn(self);
+        walk_item(db, &mut ctx, hir::Item::Function(self));
         ctx.path_map()
     }
 }
@@ -113,14 +114,14 @@ impl<'db, 'a> ResolveUseTree<'db, 'a> {
         match use_tree.kind(self.db) {
             hir::UseTreeKind::Name(name) => {
                 let path = path.push(self.db, name);
-                self.resolve_use_tree_path(path, use_item, use_tree);
+                self.insert_use_tree_path(path, use_item, use_tree);
             }
             hir::UseTreeKind::Path {
                 name,
                 use_tree: path_use_tree,
             } => {
                 let path = path.push(self.db, name);
-                self.resolve_use_tree_path(path, use_item, use_tree)?;
+                self.insert_use_tree_path(path, use_item, use_tree)?;
                 self.resolve_inner(path_use_tree, path)?;
             }
             //NOTE: super can only be used in start positions, so foo::bar::super is not valid
@@ -140,7 +141,7 @@ impl<'db, 'a> ResolveUseTree<'db, 'a> {
                 }
             }
             hir::UseTreeKind::SelfUse => {
-                self.resolve_use_tree_path(path, use_item, use_tree)?;
+                self.insert_use_tree_path(path, use_item, use_tree)?;
             }
             hir::UseTreeKind::Global => {}
         }
@@ -161,6 +162,27 @@ struct PathResolveCtx<'db> {
     global_import_modules: Vec<Module<'db>>,
 }
 
+impl<'db> HirWalker<'db> for PathResolveCtx<'db> {
+    fn expr(&mut self, db: &'db dyn salsa::Database, expr: hir::Expr<'db>) {
+        match expr.kind(db) {
+            hir::ExprKind::Path(path) => {
+                self.insert_path(path.as_symbol_list(db), expr, PathNodeType::Path);
+            }
+            hir::ExprKind::Record { path, .. } => {
+                self.insert_path(path.as_symbol_list(self.db), expr, PathNodeType::Record);
+            }
+            _ => {}
+        }
+        walk_expr(db, self, expr);
+    }
+
+    fn pat(&mut self, db: &'db dyn salsa::Database, pat: hir::Pat<'db>) {
+        if let hir::PatKind::Path(path) = pat.kind(db) {
+            self.insert_path(path.as_symbol_list(db), pat, PathNodeType::Path);
+        }
+    }
+}
+
 impl<'db> PathResolveCtx<'db> {
     fn new(db: &'db dyn salsa::Database, module: Module<'db>) -> Self {
         let mut ctx = Self {
@@ -170,11 +192,11 @@ impl<'db> PathResolveCtx<'db> {
             items: Default::default(),
             global_import_modules: Default::default(),
         };
-        ctx.collect_globals();
+        ctx.collect_global_imports();
         ctx
     }
 
-    fn collect_globals(&mut self) {
+    fn collect_global_imports(&mut self) {
         let scope = self.module.scope(self.db);
         for global in scope.global_imports.iter() {
             if let Ok(ResolveItem::Type(ty) | ResolveItem::Both { ty, .. }) =
@@ -316,7 +338,7 @@ impl<'db> PathResolveCtx<'db> {
         Ok(current_item)
     }
 
-    fn resolve_use_tree_path(
+    fn insert_use_tree_path(
         &mut self,
         path: SymbolList,
         use_item: hir::UseItem<'db>,
@@ -341,63 +363,6 @@ impl<'db> PathResolveCtx<'db> {
         }
     }
 
-    fn resolve_type_expr(&mut self, ty: TypeExpr<'db>) {
-        match ty.kind(self.db) {
-            hir::TypeExprKind::Path(path) => {
-                let path = path.as_symbol_list(self.db);
-                self.insert_path(path, ty, PathNodeType::Path);
-            }
-            hir::TypeExprKind::Tuple(tuple) => {
-                for type_expr in tuple.types(self.db) {
-                    self.resolve_type_expr(*type_expr);
-                }
-            }
-            hir::TypeExprKind::Dyn(dyn_type) => {
-                for type_expr in dyn_type.types(self.db) {
-                    self.resolve_type_expr(*type_expr);
-                }
-            }
-            hir::TypeExprKind::Nilable(type_expr) | hir::TypeExprKind::Paren(type_expr) => {
-                self.resolve_type_expr(type_expr);
-            }
-            hir::TypeExprKind::Fn { params, output } => {
-                for param in params.params(self.db) {
-                    if let Some(ty) = param.ty(self.db) {
-                        self.resolve_type_expr(ty);
-                    }
-                }
-                if let Some(output) = output {
-                    self.resolve_type_expr(output);
-                }
-            }
-            hir::TypeExprKind::Any
-            | hir::TypeExprKind::Unit
-            | hir::TypeExprKind::Never
-            | hir::TypeExprKind::SelfTy
-            | hir::TypeExprKind::Lit(_) => {}
-        }
-    }
-
-    fn resolve_elems_list(&mut self, elem_list: hir::MemberList<'db>) {
-        for elem in elem_list.members(self.db).iter() {
-            let MemberKind::Field(field) = elem.kind(self.db) else {
-                continue;
-            };
-            let Some(item_type_expr) = field.ty(self.db) else {
-                continue;
-            };
-
-            match item_type_expr.kind(self.db) {
-                hir::ItemTypeExprKind::TypeExpr(type_expr) => {
-                    self.resolve_type_expr(type_expr);
-                }
-                hir::ItemTypeExprKind::Struct(_) => todo!(),
-                hir::ItemTypeExprKind::Enum(_) => todo!(),
-                hir::ItemTypeExprKind::Class(class) => todo!(),
-            }
-        }
-    }
-
     fn resolve_use_item(&mut self, use_item: hir::UseItem<'db>) {
         let module = self.module;
         ResolveUseTree {
@@ -406,202 +371,6 @@ impl<'db> PathResolveCtx<'db> {
             module,
         }
         .resolve();
-    }
-
-    fn resolve_struct(&mut self, item: hir::Struct<'db>) {
-        self.resolve_elems_list(item.contents(self.db).members);
-    }
-
-    fn resolve_enum(&mut self, item: hir::Enum<'db>) {
-        self.resolve_elems_list(item.contents(self.db).members);
-    }
-
-    fn resolve_module(&mut self, item: hir::Module<'db>) {
-        for item in item.items(self.db).items(self.db) {
-            if let hir::Item::Use(item) = item {
-                self.resolve_use_item(*item)
-            }
-        }
-    }
-
-    fn resolve_fn(&mut self, item: hir::Function<'db>) {
-        let contents = item.contents(self.db);
-        for param in contents.params.params(self.db) {
-            self.resolve_param(*param);
-        }
-        self.resolve_expr(contents.body_expr);
-        if let Some(output) = contents.output {
-            self.resolve_type_expr(output);
-        }
-    }
-
-    fn resolve_closure_param(&mut self, param: hir::ClosureParam<'db>) {
-        self.resolve_pat(param.pat(self.db));
-        if let Some(ty) = param.ty(self.db) {
-            self.resolve_type_expr(ty);
-        }
-    }
-
-    fn resolve_param(&mut self, param: hir::FnParam<'db>) {
-        match param.kind(self.db) {
-            hir::FnParamKind::Pat { ty, pat, expr } => {
-                if let Some(pat) = pat {
-                    self.resolve_pat(pat);
-                }
-                if let Some(ty) = ty {
-                    self.resolve_type_expr(ty);
-                }
-                if let Some(expr) = expr {
-                    self.resolve_expr(expr);
-                }
-            }
-            hir::FnParamKind::SelfParam => {}
-        }
-    }
-
-    fn resolve_expr(&mut self, expr: hir::Expr<'db>) {
-        match expr.kind(self.db) {
-            hir::ExprKind::Path(path) => {
-                self.insert_path(path.as_symbol_list(self.db), expr, PathNodeType::Path)
-            }
-            hir::ExprKind::As { expr, ty } => {
-                self.resolve_expr(expr);
-                self.resolve_type_expr(ty);
-            }
-            hir::ExprKind::Is { expr, pat } => {
-                self.resolve_expr(expr);
-                self.resolve_pat(pat);
-            }
-            hir::ExprKind::IsNot { expr, pat } => {
-                self.resolve_expr(expr);
-                self.resolve_pat(pat);
-            }
-            hir::ExprKind::Closure {
-                params,
-                body,
-                output,
-            } => {
-                for param in params.params(self.db).iter() {
-                    self.resolve_closure_param(*param);
-                }
-                self.resolve_expr(body);
-                if let Some(ty) = output {
-                    self.resolve_type_expr(ty);
-                }
-            }
-            hir::ExprKind::Field { expr, .. } => {
-                self.resolve_expr(expr);
-            }
-            hir::ExprKind::Method { expr, args, .. } => {
-                self.resolve_expr(expr);
-                for arg in args.args(self.db).iter() {
-                    match arg.kind(self.db) {
-                        hir::ArgKind::Labeled { value, .. }
-                        | hir::ArgKind::NonLabeled { value } => {
-                            self.resolve_expr(value);
-                        }
-                    }
-                }
-            }
-            hir::ExprKind::Record { path, fields } => {
-                self.insert_path(path.as_symbol_list(self.db), expr, PathNodeType::Record);
-                for field in fields.fields(self.db).iter() {
-                    self.resolve_expr(field.expr(self.db));
-                }
-            }
-            hir::ExprKind::Binary { lhs, rhs, .. } => {
-                self.resolve_expr(lhs);
-                self.resolve_expr(rhs);
-            }
-            hir::ExprKind::Unary { expr, .. } => {
-                self.resolve_expr(expr);
-            }
-            hir::ExprKind::Index { base, index } => {
-                self.resolve_expr(base);
-                self.resolve_expr(index);
-            }
-            hir::ExprKind::Call { func, args } => {
-                self.resolve_expr(func);
-                for arg in args.args(self.db).iter() {
-                    match arg.kind(self.db) {
-                        hir::ArgKind::Labeled { value, .. }
-                        | hir::ArgKind::NonLabeled { value } => self.resolve_expr(value),
-                    }
-                }
-            }
-            hir::ExprKind::Block { stmts } => {
-                for stmt in stmts.stmts(self.db).iter() {
-                    self.resolve_stmt(*stmt);
-                }
-            }
-            hir::ExprKind::Paren(expr) | hir::ExprKind::Return(expr) => self.resolve_expr(expr),
-            hir::ExprKind::If(if_expr) => {
-                self.resolve_if_expr(if_expr);
-            }
-            hir::ExprKind::Loop { block } => {
-                self.resolve_expr(block);
-            }
-            hir::ExprKind::While { cond, block } => {
-                self.resolve_expr(cond);
-                self.resolve_expr(block);
-            }
-            hir::ExprKind::For {
-                loop_expr,
-                iterable,
-                block,
-            } => {
-                self.resolve_expr(loop_expr);
-                self.resolve_expr(iterable);
-                self.resolve_expr(block);
-            }
-            hir::ExprKind::Tuple { exprs } => {
-                for expr in exprs.exprs(self.db).iter() {
-                    self.resolve_expr(*expr);
-                }
-            }
-            hir::ExprKind::Unit | hir::ExprKind::Lit(_) | hir::ExprKind::SelfExpr => {}
-        }
-    }
-
-    fn resolve_if_expr(&mut self, if_expr: hir::IfExpr<'db>) {
-        self.resolve_expr(if_expr.cond(self.db));
-        self.resolve_expr(if_expr.if_branch(self.db));
-        if let Some(else_branch) = if_expr.else_branch(self.db) {
-            match else_branch {
-                hir::ElseBranch::Block(expr) => self.resolve_expr(expr),
-                hir::ElseBranch::If(if_expr) => self.resolve_if_expr(if_expr),
-            }
-        }
-    }
-
-    fn resolve_stmt(&mut self, stmt: hir::Stmt<'db>) {
-        match stmt.kind(self.db) {
-            hir::StmtKind::Let { pat, ty, expr } => {
-                self.resolve_pat(pat);
-                if let Some(ty) = ty {
-                    self.resolve_type_expr(ty);
-                }
-                self.resolve_expr(expr);
-            }
-            hir::StmtKind::Expr { expr, .. } => {
-                self.resolve_expr(expr);
-            }
-        }
-    }
-
-    fn resolve_pat(&mut self, pat: hir::Pat<'db>) {
-        match pat.kind(self.db) {
-            hir::PatKind::Path(path) => {
-                self.insert_path(path.as_symbol_list(self.db), pat, PathNodeType::Path)
-            }
-            hir::PatKind::Paren(pat) => self.resolve_pat(pat),
-            hir::PatKind::Tuple(pat_list) => {
-                for pat in pat_list.patterns(self.db).iter() {
-                    self.resolve_pat(*pat);
-                }
-            }
-            hir::PatKind::Wildcard | hir::PatKind::Name(_) => {}
-        }
     }
 
     fn path_map(self) -> PathMap<'db> {
