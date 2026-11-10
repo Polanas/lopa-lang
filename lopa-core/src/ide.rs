@@ -1,5 +1,5 @@
 mod diagnostics;
-mod lowering;
+mod lower;
 mod resolve;
 mod scope;
 mod type_check;
@@ -8,7 +8,7 @@ pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
 };
 
-pub use lowering::*;
+pub use lower::*;
 pub use resolve::*;
 pub use scope::*;
 
