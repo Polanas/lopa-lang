@@ -379,7 +379,7 @@ impl<'db> PathResolveCtx<'db> {
     }
 
     fn resolve_elems_list(&mut self, elem_list: hir::MemberList<'db>) {
-        for elem in elem_list.elems(self.db).iter() {
+        for elem in elem_list.members(self.db).iter() {
             let MemberKind::Field(field) = elem.kind(self.db) else {
                 continue;
             };
@@ -1148,13 +1148,28 @@ mod test {
     }
 
     #[test]
+    fn inner_items() {
+        assert_resolve_diagnostics(
+            "mod test {
+                mod foo {
+                    struct X {
+                        idk: struct Y {};
+                    }
+                }
+                use foo::X;
+                use foo::Y;
+        }",
+        )
+    }
+
+    #[test]
     fn global_imports() {
         assert_resolve_diagnostics(
             "mod test {
                 mod foo {
                     mod bar {
                         struct X {
-                            idk: struct Y {}
+                            idk: struct Y {};
                         }
                     }
                 }

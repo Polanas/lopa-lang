@@ -15,6 +15,8 @@ pub enum ItemKind {
     Struct,
     Enum,
     Use,
+    Class,
+    Trait,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::SalsaValue)]

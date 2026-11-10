@@ -8,7 +8,6 @@ pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
 };
 
-pub use lower::*;
 pub use resolve::*;
 pub use scope::*;
 

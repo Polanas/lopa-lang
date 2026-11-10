@@ -1,11 +1,12 @@
-use std::{fmt::Debug, marker::PhantomData, process::Output};
+use std::{fmt::Debug, marker::PhantomData};
 
+use hashbrown::HashMap;
 use itertools::Itertools;
 use la_arena::{Arena, Idx};
 
 use crate::{
     ide::InFile,
-    parsing::{self, AstNode},
+    parsing::{self},
 };
 
 pub type ErasedAstId = Idx<parsing::NodeId>;
@@ -41,7 +42,7 @@ impl<A: parsing::AstNode<'static>> PartialEq for AstId<A> {
 
 impl<A: parsing::AstNode<'static>> Debug for AstId<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("AstPtr").field(&self.0).finish()
+        f.debug_tuple("AstId").field(&self.0).finish()
     }
 }
 
@@ -52,9 +53,9 @@ pub enum AstIdKind {
     Struct,
     Class,
     Trait,
+    Enum,
     Mod,
     Impl,
-    Enum,
     Use,
 }
 
@@ -100,10 +101,17 @@ impl_ast_id_item! {
     [UseItem, Use]
 }
 
-//TODO: rename this to ItemId
 #[derive(salsa::SalsaValue, PartialEq, Clone)]
 pub struct AstIdMap {
     arenas: Vec<Arena<parsing::NodeId>>,
+    node_to_ast: HashMap<parsing::NodeId, ErasedAstId>,
+}
+
+impl std::ops::Index<parsing::NodeId> for AstIdMap {
+    type Output = ErasedAstId;
+    fn index(&self, index: parsing::NodeId) -> &Self::Output {
+        self.node_to_ast.get(&index).unwrap()
+    }
 }
 
 impl AstIdMap {
@@ -112,17 +120,15 @@ impl AstIdMap {
             arenas: (0..=(AstIdKind::Use as usize))
                 .map(|_| Arena::new())
                 .collect_vec(),
+            node_to_ast: HashMap::new(),
         }
     }
 
     pub fn insert<'a, A: AstIdItem<'a>>(&mut self, item: A) -> A::Output {
         let arena = &mut self.arenas[A::KIND as u8 as usize];
-        A::as_ast_id(arena.alloc(item.id()))
-    }
-
-    pub fn get<A: AstIdItem<'static>>(&self, id: InFile<AstId<A>>) -> Option<parsing::NodeId> {
-        let arena = &self.arenas[A::KIND as u8 as usize];
-        arena.get(id.value.0).copied()
+        let id = arena.alloc(item.id());
+        self.node_to_ast.insert(item.id(), id);
+        A::as_ast_id(id)
     }
 }
 

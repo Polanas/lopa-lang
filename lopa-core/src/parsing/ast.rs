@@ -1011,6 +1011,8 @@ enums! {
         StructItem,
         EnumItem,
         UseItem,
+        ClassItem,
+        TraitItem,
     },
     Stmt {
         LetStmt,
@@ -1063,6 +1065,7 @@ enums! {
     ItemTypeExpr {
         StructItem,
         EnumItem,
+        ClassItem,
         TypeExpr: enum,
     },
     TypeExpr {

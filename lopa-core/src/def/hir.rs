@@ -366,30 +366,14 @@ pub struct Modules<'db> {
     pub modules: Vec<Module<'db>>,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
-pub enum InnerItem<'db> {
-    Struct(Struct<'db>),
-    Enum(Enum<'db>),
-    Function(Function<'db>),
-}
-
-impl<'db> InnerItem<'db> {
-    pub fn name(&self, db: &dyn salsa::Database) -> Symbol {
-        match self {
-            InnerItem::Struct(item) => item.name(db),
-            InnerItem::Enum(item) => item.name(db),
-            InnerItem::Function(item) => item.name(db),
-        }
-    }
-}
-
 #[salsa::tracked(debug)]
 pub struct ImplBlock<'db> {
     #[returns(copy)]
     pub file: ide::File,
-    #[tracked]
-    #[returns(copy)]
-    pub items: ImplItems<'db>,
+    //TODO: place impl items into contents
+    // #[tracked]
+    // #[returns(copy)]
+    // pub items: ImplItems<'db>,
     #[tracked]
     #[returns(copy)]
     pub id: ImplBlockId,
@@ -437,15 +421,6 @@ pub struct FunctionContents<'db> {
     pub output: Option<TypeExpr<'db>>,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, salsa::SalsaValue, Hash)]
-pub enum ItemFnParam<'db> {
-    SelfParam,
-    PatParam {
-        pat: Option<Pat<'db>>,
-        type_expr: Option<TypeExpr<'db>>,
-    },
-}
-
 #[derive(salsa::SalsaValue, PartialEq, Clone, Hash, Eq, Debug)]
 pub struct FieldBody<'db> {
     pub body_map: Arc<BodyMap>,
@@ -481,9 +456,6 @@ pub struct Class<'db> {
     #[returns(copy)]
     pub file: ide::File,
     #[tracked]
-    #[returns(deref)]
-    pub inner_items: Vec<InnerItem<'db>>,
-    #[tracked]
     #[returns(copy)]
     pub id: ClassId,
 }
@@ -503,9 +475,6 @@ pub struct Trait<'db> {
     pub name: Symbol,
     #[returns(copy)]
     pub file: ide::File,
-    #[tracked]
-    #[returns(deref)]
-    pub inner_items: Vec<InnerItem<'db>>,
     #[tracked]
     #[returns(copy)]
     pub id: TraitId,
@@ -527,9 +496,6 @@ pub struct Struct<'db> {
     #[returns(copy)]
     pub file: ide::File,
     #[tracked]
-    #[returns(deref)]
-    pub inner_items: Vec<InnerItem<'db>>,
-    #[tracked]
     #[returns(copy)]
     pub id: StructId,
 }
@@ -545,7 +511,7 @@ pub struct StructContents<'db> {
 #[salsa::tracked(debug)]
 pub struct MemberList<'db> {
     #[returns(deref)]
-    pub elems: Vec<Member<'db>>,
+    pub members: Vec<Member<'db>>,
 }
 
 #[salsa::tracked(debug)]
@@ -598,9 +564,6 @@ pub struct Enum<'db> {
     pub name: Symbol,
     #[returns(copy)]
     pub file: ide::File,
-    #[returns(deref)]
-    #[tracked]
-    pub inner_items: Vec<InnerItem<'db>>,
     #[tracked]
     #[returns(copy)]
     pub id: EnumId,
