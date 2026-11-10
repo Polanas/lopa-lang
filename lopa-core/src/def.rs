@@ -1,7 +1,6 @@
 mod ast_id_map;
 mod body_map;
 mod items_map;
-mod lowering;
 #[path = "def/use_tree_map.rs"]
 mod use_tree_map_mod;
 

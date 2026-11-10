@@ -16,27 +16,27 @@ pub struct BodyMap {
 }
 
 impl BodyMap {
-    pub(super) fn insert_expr(&mut self, expr: parsing::Expr) -> ExprId {
+    pub fn insert_expr(&mut self, expr: parsing::Expr) -> ExprId {
         ExprId(self.exprs.alloc(expr.id()))
     }
 
-    pub(super) fn insert_type_expr(&mut self, type_expr: parsing::TypeExpr) -> TypeExprId {
+    pub fn insert_type_expr(&mut self, type_expr: parsing::TypeExpr) -> TypeExprId {
         TypeExprId(self.type_exprs.alloc(type_expr.id()))
     }
 
-    pub(super) fn insert_pat(&mut self, pat: parsing::Pattern) -> PatId {
+    pub fn insert_pat(&mut self, pat: parsing::Pattern) -> PatId {
         PatId(self.pats.alloc(pat.id()))
     }
 
-    pub(super) fn insert_stmt(&mut self, stmt: parsing::Stmt) -> StmtId {
+    pub fn insert_stmt(&mut self, stmt: parsing::Stmt) -> StmtId {
         StmtId(self.stmts.alloc(stmt.id()))
     }
 
-    pub(super) fn insert_member(&mut self, member: parsing::Member) -> MemberId {
+    pub fn insert_member(&mut self, member: parsing::Member) -> MemberId {
         MemberId(self.members.alloc(member.id()))
     }
 
-    pub(super) fn insert_item_type_expr(
+    pub fn insert_item_type_expr(
         &mut self,
         type_expr: parsing::ItemTypeExpr,
     ) -> ItemTypeExprId {

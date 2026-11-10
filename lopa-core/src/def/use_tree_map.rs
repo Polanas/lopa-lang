@@ -11,7 +11,7 @@ pub struct UseTreeMap {
 }
 
 impl UseTreeMap {
-    pub(super) fn insert<'a>(&mut self, use_tree: parsing::UseTree<'a>) -> UseTreeId {
+    pub fn insert<'a>(&mut self, use_tree: parsing::UseTree<'a>) -> UseTreeId {
         UseTreeId(self.arena.alloc(use_tree.id()))
     }
 }

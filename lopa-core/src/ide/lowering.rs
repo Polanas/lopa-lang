@@ -3,7 +3,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 
 use crate::{
-    def::{AstIdMap, ItemsMap, Symbol, UseTreeMap, body_map::BodyMap, hir::*},
+    def::{AstIdMap, ItemsMap, Symbol, UseTreeMap, BodyMap, hir::*},
     ide::File,
     parsing::{self},
 };

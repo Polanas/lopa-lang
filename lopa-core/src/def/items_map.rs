@@ -86,15 +86,15 @@ impl<'db> std::ops::Index<InFile<AstId<parsing::UseItem<'static>>>> for ItemsMap
 }
 
 impl<'db> ItemsMap<'db> {
-    pub(super) fn insert_fn(&mut self, db: &'db dyn salsa::Database, item: Function<'db>) {
+    pub fn insert_fn(&mut self, db: &'db dyn salsa::Database, item: Function<'db>) {
         self.fn_items.insert(item.id(db).value.erased(), item);
     }
 
-    pub(super) fn insert_struct(&mut self, db: &'db dyn salsa::Database, item: Struct<'db>) {
+    pub fn insert_struct(&mut self, db: &'db dyn salsa::Database, item: Struct<'db>) {
         self.struct_items.insert(item.id(db).value.erased(), item);
     }
 
-    pub(super) fn insert_module(&mut self, db: &'db dyn salsa::Database, item: Module<'db>) {
+    pub fn insert_module(&mut self, db: &'db dyn salsa::Database, item: Module<'db>) {
         assert!(!matches!(item.data(db), ModuleData::Root { .. }));
 
         if let Some(id) = item.id(db) {
@@ -102,23 +102,23 @@ impl<'db> ItemsMap<'db> {
         }
     }
 
-    pub(super) fn insert_impl(&mut self, db: &'db dyn salsa::Database, item: ImplBlock<'db>) {
+    pub fn insert_impl(&mut self, db: &'db dyn salsa::Database, item: ImplBlock<'db>) {
         self.impl_items.insert(item.id(db).value.erased(), item);
     }
 
-    pub(super) fn insert_enum(&mut self, db: &'db dyn salsa::Database, item: Enum<'db>) {
+    pub fn insert_enum(&mut self, db: &'db dyn salsa::Database, item: Enum<'db>) {
         self.enum_items.insert(item.id(db).value.erased(), item);
     }
 
-    pub(super) fn insert_use(&mut self, db: &'db dyn salsa::Database, item: UseItem<'db>) {
+    pub fn insert_use(&mut self, db: &'db dyn salsa::Database, item: UseItem<'db>) {
         self.use_items.insert(item.id(db).value.erased(), item);
     }
 
-    pub(super) fn insert_class(&mut self, db: &'db dyn salsa::Database, item: Class<'db>) {
+    pub fn insert_class(&mut self, db: &'db dyn salsa::Database, item: Class<'db>) {
         self.class_items.insert(item.id(db).value.erased(), item);
     }
 
-    pub(super) fn insert_trait(&mut self, db: &'db dyn salsa::Database, item: Trait<'db>) {
+    pub fn insert_trait(&mut self, db: &'db dyn salsa::Database, item: Trait<'db>) {
         self.trait_items.insert(item.id(db).value.erased(), item);
     }
 }
