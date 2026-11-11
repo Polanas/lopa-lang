@@ -257,6 +257,8 @@ impl std::fmt::Display for UnaryOpKind {
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum PathNodeType {
-    Path,
+    Expr,
+    Type,
+    Pat,
     Record,
 }

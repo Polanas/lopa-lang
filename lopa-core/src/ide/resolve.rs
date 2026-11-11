@@ -2,28 +2,21 @@ use crate::{
     common::PathNodeType,
     def::{
         Symbol, SymbolList,
-        hir::{self, Enum, Function, HirNode, MemberKind, Module, Struct, TypeExpr, UseItem},
+        hir::{self, Enum, Function, HirNode, Module, Struct, UseItem},
     },
-    hir_walker::{HirWalker, walk_expr, walk_item},
-    ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleDef},
+    hir_walker::{HirWalker, walk_expr, walk_pat, walk_type_expr},
+    ide::{
+        Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleDef, TypeModuleDef, ValueModuleDef,
+    },
 };
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
-pub enum ResolveItemError {
-    NotFound,
-    SelfNotFound,
-    GotModule,
-    GotFunction,
-    Cycle,
-}
-
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
 pub enum ResolveItem<'db> {
-    Type(ModuleDef<'db>),
-    Value(ModuleDef<'db>),
+    Type(TypeModuleDef<'db>),
+    Value(ValueModuleDef<'db>),
     Both {
-        ty: ModuleDef<'db>,
-        value: ModuleDef<'db>,
+        ty: TypeModuleDef<'db>,
+        value: ValueModuleDef<'db>,
     },
 }
 
@@ -32,7 +25,7 @@ impl<'db> Struct<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        walk_item(db, &mut ctx, hir::Item::Struct(self));
+        ctx.walk_item(db, hir::Item::Struct(self));
         ctx.path_map()
     }
 }
@@ -41,7 +34,7 @@ impl<'db> Struct<'db> {
 impl<'db> Module<'db> {
     pub fn path_map(self, db: &'db dyn salsa::Database) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, self);
-        walk_item(db, &mut ctx, hir::Item::Module(self));
+        ctx.walk_item(db, hir::Item::Module(self));
         ctx.path_map()
     }
 }
@@ -51,7 +44,7 @@ impl<'db> Enum<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        walk_item(db, &mut ctx, hir::Item::Enum(self));
+        ctx.walk_item(db, hir::Item::Enum(self));
         ctx.path_map()
     }
 }
@@ -61,7 +54,7 @@ impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        walk_item(db, &mut ctx, hir::Item::Function(self));
+        ctx.walk_item(db, hir::Item::Function(self));
         ctx.path_map()
     }
 }
@@ -163,10 +156,10 @@ struct PathResolveCtx<'db> {
 }
 
 impl<'db> HirWalker<'db> for PathResolveCtx<'db> {
-    fn expr(&mut self, db: &'db dyn salsa::Database, expr: hir::Expr<'db>) {
+    fn walk_expr(&mut self, db: &'db dyn salsa::Database, expr: hir::Expr<'db>) {
         match expr.kind(db) {
             hir::ExprKind::Path(path) => {
-                self.insert_path(path.as_symbol_list(db), expr, PathNodeType::Path);
+                self.insert_path(path.as_symbol_list(db), expr, PathNodeType::Expr);
             }
             hir::ExprKind::Record { path, .. } => {
                 self.insert_path(path.as_symbol_list(self.db), expr, PathNodeType::Record);
@@ -176,10 +169,18 @@ impl<'db> HirWalker<'db> for PathResolveCtx<'db> {
         walk_expr(db, self, expr);
     }
 
-    fn pat(&mut self, db: &'db dyn salsa::Database, pat: hir::Pat<'db>) {
-        if let hir::PatKind::Path(path) = pat.kind(db) {
-            self.insert_path(path.as_symbol_list(db), pat, PathNodeType::Path);
+    fn walk_type_expr(&mut self, db: &'db dyn salsa::Database, type_expr: hir::TypeExpr<'db>) {
+        if let hir::TypeExprKind::Path(path) = type_expr.kind(db) {
+            self.insert_path(path.as_symbol_list(db), type_expr, PathNodeType::Type);
         }
+        walk_type_expr(db, self, type_expr);
+    }
+
+    fn walk_pat(&mut self, db: &'db dyn salsa::Database, pat: hir::Pat<'db>) {
+        if let hir::PatKind::Path(path) = pat.kind(db) {
+            self.insert_path(path.as_symbol_list(db), pat, PathNodeType::Pat);
+        }
+        walk_pat(db, self, pat);
     }
 }
 
@@ -201,7 +202,7 @@ impl<'db> PathResolveCtx<'db> {
         for global in scope.global_imports.iter() {
             if let Ok(ResolveItem::Type(ty) | ResolveItem::Both { ty, .. }) =
                 self.resolve_path(*global)
-                && let ModuleDef::Module(module) = ty
+                && let TypeModuleDef::Module(module) = ty
             {
                 self.global_import_modules.push(module);
             }
@@ -261,7 +262,7 @@ impl<'db> PathResolveCtx<'db> {
         let canonicalized = self.canonicalize(path);
         let mut symbols = canonicalized.symbols(self.db).iter().enumerate();
         let mut current_item = match symbols.next().unwrap().1.value(self.db) {
-            "root" => ResolveItem::Type(ModuleDef::Module(
+            "root" => ResolveItem::Type(TypeModuleDef::Module(
                 self.module.root(self.db).root_module(self.db).unwrap(),
             )),
             other => {
@@ -286,19 +287,20 @@ impl<'db> PathResolveCtx<'db> {
         for (id, symbol) in symbols {
             match current_item {
                 ResolveItem::Type(ty) | ResolveItem::Both { ty, .. } => match ty {
-                    ModuleDef::Struct(_)
-                    | ModuleDef::Enum(_)
-                    | ModuleDef::Class(_)
-                    | ModuleDef::Trait(_) => {
+                    TypeModuleDef::Struct(_)
+                    | TypeModuleDef::Enum(_)
+                    | TypeModuleDef::Class(_)
+                    | TypeModuleDef::Trait(_) => {
                         return Err(PathSegmentDiagnostic {
                             offset: id,
                             message: "accessing this item not availible yet".to_string(),
                         });
                     }
-                    ModuleDef::Module(item) => {
+                    TypeModuleDef::Module(item) => {
                         if symbol.value(self.db) == "super" {
-                            current_item =
-                                ResolveItem::Type(ModuleDef::Module(item.parent(self.db).unwrap()));
+                            current_item = ResolveItem::Type(TypeModuleDef::Module(
+                                item.parent(self.db).unwrap(),
+                            ));
                             continue;
                         }
                         let Some(item) = item.defs(self.db).resolve_item(*symbol) else {
@@ -312,10 +314,9 @@ impl<'db> PathResolveCtx<'db> {
                         };
                         current_item = item;
                     }
-                    ModuleDef::Function(_) => unreachable!(),
                 },
                 ResolveItem::Value(value) => match value {
-                    ModuleDef::Function(function) => {
+                    ValueModuleDef::Function(function) => {
                         return Err(PathSegmentDiagnostic {
                             offset: id,
                             message: format!(
@@ -323,13 +324,6 @@ impl<'db> PathResolveCtx<'db> {
                                 function.name(self.db).value(self.db)
                             ),
                         });
-                    }
-                    ModuleDef::Struct(_)
-                    | ModuleDef::Enum(_)
-                    | ModuleDef::Module(_)
-                    | ModuleDef::Class(_)
-                    | ModuleDef::Trait(_) => {
-                        unreachable!()
                     }
                 },
             }

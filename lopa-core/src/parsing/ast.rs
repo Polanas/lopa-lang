@@ -449,7 +449,7 @@ structs! {
         ty: TypeExpr,
     },
     PATH_TYPE = PathType {
-        value: Path,
+        path: Path,
     },
     DYN_TYPE = DynType {
         dyn_keyword: T![dyn],

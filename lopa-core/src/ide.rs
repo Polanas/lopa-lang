@@ -8,6 +8,7 @@ pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
 };
 
+use notify_rust::Notification;
 pub use resolve::*;
 pub use scope::*;
 
@@ -278,38 +279,36 @@ impl<'db> hir::Module<'db> {
             .cloned()
             .unwrap_or_else(|| Arc::new(vec![]))
     }
-}
 
-#[salsa::tracked(returns(clone))]
-pub fn module_diagnostics<'db>(
-    db: &'db dyn salsa::Database,
-    module: hir::Module<'db>,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = vec![];
-    //TODO: add resolve diagnosics
-    // diagnostics.extend(resolve_module(db, module));
-    diagnostics.extend(module.scope(db).diagnostics.clone());
+    #[salsa::tracked(returns(clone))]
+    pub fn diagnostics(self, db: &'db dyn salsa::Database) -> Vec<Diagnostic> {
+        let mut diagnostics = vec![];
+        diagnostics.extend(self.scope(db).diagnostics.clone());
 
-    for child in module.children(db).iter() {
-        if matches!(child.data(db), hir::ModuleData::Declaration { .. }) {
-            continue;
+        for child in self.children(db).iter() {
+            if matches!(child.data(db), hir::ModuleData::Declaration { .. }) {
+                continue;
+            }
+            let mut child_diagnostics = child.diagnostics(db);
+            diagnostics.append(&mut child_diagnostics);
         }
-        let mut child_diagnostics = module_diagnostics(db, *child);
-        diagnostics.append(&mut child_diagnostics);
-    }
-    for item in module.items(db).items(db) {
-        match item {
-            hir::Item::Struct(_) => {}
-            hir::Item::Function(function) => {}
-            hir::Item::Enum(_) => {}
-            hir::Item::Use(use_item) => {}
-            hir::Item::Impl(impl_block) => {}
-            hir::Item::Module(_) => {}
-            hir::Item::Class(class) => {}
-            hir::Item::Trait(_) => {}
+        for item in self.items(db).items(db) {
+            match item {
+                hir::Item::Function(item) => {
+                    let path_map = item.path_map(db, self);
+                    diagnostics.extend(path_map.diagnostics.clone());
+                }
+                hir::Item::Struct(_) => {}
+                hir::Item::Enum(_) => {}
+                hir::Item::Use(use_item) => {}
+                hir::Item::Impl(impl_block) => {}
+                hir::Item::Module(_) => {}
+                hir::Item::Class(class) => {}
+                hir::Item::Trait(_) => {}
+            }
         }
+        diagnostics
     }
-    diagnostics
 }
 
 #[salsa::tracked]
@@ -336,7 +335,7 @@ impl<'db> File {
         diagnostics.extend(module_tree.diagnostics.clone());
 
         if let Some(module) = self.module(db) {
-            diagnostics.extend(module_diagnostics(db, module));
+            diagnostics.extend(module.diagnostics(db));
         }
         diagnostics
     }
@@ -367,10 +366,21 @@ impl<'db> File {
                     let id = source[id];
                     let node = tree.get(id)?;
                     let path = match node_type {
-                        PathNodeType::Path => parsing::Path::cast(node),
+                        PathNodeType::Expr => {
+                            let path_expr = parsing::PathExpr::cast(node).unwrap();
+                            path_expr.path()
+                        }
                         PathNodeType::Record => {
                             let record = parsing::RecordExpr::cast(node).unwrap();
                             record.path()
+                        }
+                        PathNodeType::Type => {
+                            let path_type = parsing::PathType::cast(node).unwrap();
+                            path_type.path()
+                        }
+                        PathNodeType::Pat => {
+                            let path_pat = parsing::PathPattern::cast(node).unwrap();
+                            path_pat.path()
                         }
                     }
                     .unwrap();

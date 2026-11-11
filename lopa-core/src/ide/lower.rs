@@ -583,7 +583,7 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
                 self.alloc_type_expr(TypeExprKind::Paren(ty), type_expr)
             }
             parsing::TypeExpr::PathType(path_type) => {
-                let path = self.path(path_type.value()?)?;
+                let path = self.path(path_type.path()?)?;
                 self.alloc_type_expr(TypeExprKind::Path(path), type_expr)
             }
             parsing::TypeExpr::NilableType(nilable_type) => {
@@ -1352,6 +1352,7 @@ impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn contents(self, db: &'db dyn salsa::Database) -> FunctionContents<'db> {
         let ctx = body_map_ctx(db, self.file(db));
+        //TODO: investigate why this crashe
         ctx.fn_item(self).unwrap()
     }
 }

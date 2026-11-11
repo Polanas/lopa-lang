@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use la_arena::{Arena, ArenaMap, Idx};
+use la_arena::{Arena, Idx};
 
 use crate::{
     def::{
@@ -12,7 +12,40 @@ use crate::{
 
 #[derive(salsa::Supertype, Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
 pub enum ModuleDef<'db> {
+    Struct(Struct<'db>),
+    Class(Class<'db>),
+    Trait(Trait<'db>),
+    Enum(Enum<'db>),
+    Module(Module<'db>),
     Function(Function<'db>),
+}
+
+impl<'db> ModuleDef<'db> {
+    pub fn as_type(&self) -> Option<TypeModuleDef<'db>> {
+        Some(match self {
+            ModuleDef::Struct(item) => TypeModuleDef::Struct(*item),
+            ModuleDef::Class(item) => TypeModuleDef::Class(*item),
+            ModuleDef::Trait(item) => TypeModuleDef::Trait(*item),
+            ModuleDef::Enum(item) => TypeModuleDef::Enum(*item),
+            ModuleDef::Module(item) => TypeModuleDef::Module(*item),
+            ModuleDef::Function(_) => return None,
+        })
+    }
+
+    pub fn as_value(&self) -> Option<ValueModuleDef<'db>> {
+        Some(match self {
+            ModuleDef::Function(item) => ValueModuleDef::Function(*item),
+            ModuleDef::Struct(_)
+            | ModuleDef::Class(_)
+            | ModuleDef::Trait(_)
+            | ModuleDef::Enum(_)
+            | ModuleDef::Module(_) => return None,
+        })
+    }
+}
+
+#[derive(salsa::Supertype, Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
+pub enum TypeModuleDef<'db> {
     Struct(Struct<'db>),
     Class(Class<'db>),
     Trait(Trait<'db>),
@@ -20,10 +53,35 @@ pub enum ModuleDef<'db> {
     Module(Module<'db>),
 }
 
+impl<'db> TypeModuleDef<'db> {
+    pub fn as_mod_def(&self) -> ModuleDef<'db> {
+        match self {
+            TypeModuleDef::Struct(item) => ModuleDef::Struct(*item),
+            TypeModuleDef::Class(item) => ModuleDef::Class(*item),
+            TypeModuleDef::Trait(item) => ModuleDef::Trait(*item),
+            TypeModuleDef::Enum(item) => ModuleDef::Enum(*item),
+            TypeModuleDef::Module(item) => ModuleDef::Module(*item),
+        }
+    }
+}
+
+#[derive(salsa::Supertype, Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
+pub enum ValueModuleDef<'db> {
+    Function(Function<'db>),
+}
+
+impl<'db> ValueModuleDef<'db> {
+    pub fn as_mod_def(&self) -> ModuleDef<'db> {
+        match self {
+            ValueModuleDef::Function(item) => ModuleDef::Function(*item),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Default, salsa::SalsaValue)]
 pub struct ModuleDefs<'db> {
-    pub values: indexmap::IndexMap<Symbol, ModuleDef<'db>>,
-    pub types: indexmap::IndexMap<Symbol, ModuleDef<'db>>,
+    pub values: indexmap::IndexMap<Symbol, ValueModuleDef<'db>>,
+    pub types: indexmap::IndexMap<Symbol, TypeModuleDef<'db>>,
 }
 
 impl<'db> ModuleDefs<'db> {
@@ -182,27 +240,28 @@ impl<'db> Module<'db> {
 
     #[salsa::tracked(returns(ref))]
     pub fn defs(self, db: &'db dyn salsa::Database) -> ModuleDefs<'db> {
-        let mut values: indexmap::IndexMap<Symbol, ModuleDef<'db>> = Default::default();
-        let mut types: indexmap::IndexMap<Symbol, ModuleDef<'db>> = Default::default();
+        let mut values: indexmap::IndexMap<_, _> = Default::default();
+        let mut types: indexmap::IndexMap<_, _> = Default::default();
+
         for item in self.items(db).items(db).iter() {
             match item {
                 Item::Function(item) => {
-                    values.insert(item.name(db), ModuleDef::Function(*item));
+                    values.insert(item.name(db), ValueModuleDef::Function(*item));
                 }
                 Item::Struct(item) => {
-                    types.insert(item.name(db), ModuleDef::Struct(*item));
+                    types.insert(item.name(db), TypeModuleDef::Struct(*item));
                 }
                 Item::Enum(item) => {
-                    types.insert(item.name(db), ModuleDef::Enum(*item));
+                    types.insert(item.name(db), TypeModuleDef::Enum(*item));
                 }
                 Item::Module(item) => {
-                    types.insert(item.name(db), ModuleDef::Module(*item));
+                    types.insert(item.name(db), TypeModuleDef::Module(*item));
                 }
                 Item::Class(item) => {
-                    types.insert(item.name(db), ModuleDef::Class(*item));
+                    types.insert(item.name(db), TypeModuleDef::Class(*item));
                 }
                 Item::Trait(item) => {
-                    types.insert(item.name(db), ModuleDef::Trait(*item));
+                    types.insert(item.name(db), TypeModuleDef::Trait(*item));
                 }
                 Item::Use(_) | Item::Impl(_) => {}
             };

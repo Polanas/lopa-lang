@@ -1,9 +1,4 @@
-use notify_rust::Notification;
-
-use crate::{
-    ide::{self, Diagnostic, File, RenderedDiagnostic},
-    vfs::FileContent,
-};
+use crate::ide::{self, Diagnostic, File, RenderedDiagnostic};
 
 #[salsa::db]
 #[derive(Default, Clone)]
