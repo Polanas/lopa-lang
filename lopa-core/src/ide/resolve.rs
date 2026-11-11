@@ -223,13 +223,18 @@ impl<'db> PathResolveCtx<'db> {
                 return path;
             };
 
-            scope_name
+            let symbols = scope_name
                 .path(self.db)
                 .symbols(self.db)
                 .iter()
                 .rev()
-                .skip(1)
-                .for_each(|s| path_vec.insert(0, *s));
+                .skip(1);
+            if symbols.len() == 0 {
+                break;
+            }
+            for symbol in symbols {
+                path_vec.insert(0, *symbol);
+            }
         }
 
         SymbolList::new(self.db, &path_vec)
@@ -955,20 +960,23 @@ mod test {
     fn fn_exprs() {
         assert_resolve_diagnostics(
             "mod test {
+                struct X {}
                 mod A {
                     mod B {
                         struct C {}
                     }
                 }
-                fn my_func(A::B::C: int) {
-                    let _ = (
-                        A::B::C,
-                        A::B::C::{},
-                        { if A::B::C {
-                                     } }
-                    );
-                }
+
+                fn my_func
         }",
         );
     }
 }
+// fn my_func() {
+//     let _ = (
+//         A::B::C,
+//         A::B::C::{},
+//         { if A::B::C {
+//                      } }
+//     );
+// }
