@@ -88,6 +88,7 @@ impl<'db> ModuleDefs<'db> {
     pub fn resolve_item(&self, name: Symbol) -> Option<ResolveItem<'db>> {
         let value = self.values.get(&name).cloned();
         let ty = self.types.get(&name).cloned();
+
         Some(match (value, ty) {
             (Some(value), Some(ty)) => ResolveItem::Both { ty, value },
             (Some(value), None) => ResolveItem::Value(value),
@@ -432,6 +433,10 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
+    fn finish(self) -> ExprScopes {
+        self.scopes
+    }
+
     fn traverse_params(&mut self, params: hir::FnParamList<'db>) {
         let root = self.root_scope();
         for param in params.params(self.db) {
@@ -450,7 +455,7 @@ impl<'db> ExprScopesCtx<'db> {
         if let hir::ExprKind::Block { stmts } = expr.kind(self.db) {
             let root = self.root_scope();
             self.traverse_block(root, stmts);
-            self.scopes
+            self.finish()
         } else {
             panic!("expected block expression");
         }
@@ -612,9 +617,13 @@ impl<'db> ExprScopesCtx<'db> {
 impl<'db> hir::Function<'db> {
     #[salsa::tracked(returns(ref))]
     fn expr_scopes(self, db: &'db dyn salsa::Database) -> ExprScopes {
-        let mut scopes = ExprScopesCtx::new(db);
-        scopes.traverse_params(self.contents(db).params);
-        scopes.traverse(self.contents(db).body_expr)
+        let mut ctx = ExprScopesCtx::new(db);
+        ctx.traverse_params(self.contents(db).params);
+        if let Some(body) = self.contents(db).body_expr {
+            ctx.traverse(body)
+        } else {
+            ctx.finish()
+        }
     }
 }
 

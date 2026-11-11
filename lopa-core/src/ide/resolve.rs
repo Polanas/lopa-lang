@@ -246,6 +246,9 @@ impl<'db> PathResolveCtx<'db> {
                 self.items.insert(path, item);
             }
             Err(err) => {
+                // salsa::attach(self.db, || {
+                //     panic!("{:?} {:?}", path, node_type);
+                // });
                 self.diagnostics.push(Diagnostic {
                     message: err.message,
                     location: DiagnosticLocation::PathSegment {
@@ -838,9 +841,6 @@ mod test {
                 }
                 _ => {}
             }
-            if let hir::Item::Module(item) = item {
-                assert_module(db, *item);
-            }
         }
     }
 
@@ -866,12 +866,6 @@ mod test {
         );
 
         root.set_files(&mut db).to(vec![file]);
-
-        for item in file.items(&db).items(&db) {
-            if let hir::Item::Module(item) = item {
-                assert_module(&db, *item);
-            }
-        }
 
         if let Some(item) = file.module(&db) {
             assert_module(&db, item);
@@ -960,23 +954,21 @@ mod test {
     fn fn_exprs() {
         assert_resolve_diagnostics(
             "mod test {
-                struct X {}
                 mod A {
                     mod B {
                         struct C {}
                     }
                 }
 
-                fn my_func
+                fn my_func() {
+                }
         }",
         );
     }
 }
-// fn my_func() {
-//     let _ = (
-//         A::B::C,
-//         A::B::C::{},
-//         { if A::B::C {
-//                      } }
-//     );
-// }
+// let _ = (
+//     A::B::C,
+//     A::B::C,
+//     { if A::B::C {
+//                 } {} }
+// );

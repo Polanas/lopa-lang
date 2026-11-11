@@ -6,7 +6,7 @@ use crate::{
     common::PathNodeType,
     def::{
         ExprId, HirNodeId, PatId, Symbol, SymbolList, TypeExprId,
-        hir::{BodyMapSource, Expr, FnParam, Function, HirNode, Pat, Stmt, TypeExpr},
+        hir::{BodyMapSource, Expr, FnParam, Function, HirNode, Module, Pat, Stmt, TypeExpr},
         mir::{Type, TypeKind, TypeList},
     },
     hir_walker::{HirWalker, walk_type_expr},
@@ -26,6 +26,12 @@ pub struct TypeCheckMap<'db> {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, salsa::SalsaValue, Hash)]
+pub enum ExpectedTypeGotValueSource<'db> {
+    Module(Module<'db>),
+    Function(Function<'db>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, salsa::SalsaValue)]
 pub enum TypeDiagnostic<'db> {
     TypeMismatch {
@@ -41,8 +47,8 @@ pub enum TypeDiagnostic<'db> {
     NoSelf {
         type_expr: TypeExpr<'db>,
     },
-    ExpectedTypeGotFn {
-        name: Symbol,
+    ExpectedTypeGotValue {
+        source: ExpectedTypeGotValueSource<'db>,
     },
 }
 
@@ -134,34 +140,53 @@ impl<'db> TypeCheckCtx<'db> {
             });
             return Type::new(self.db, TypeKind::Unknown);
         };
-        // match item {
-        //     super::ResolveItem::Type(ty) | super::ResolveItem::Both { ty, .. } => match ty {
-        //         super::ModuleDef::Function(function) => todo!(),
-        //         super::ModuleDef::Struct(_) => todo!(),
-        //         super::ModuleDef::Class(class) => todo!(),
-        //         super::ModuleDef::Trait(_) => todo!(),
-        //         super::ModuleDef::Enum(_) => todo!(),
-        //         super::ModuleDef::Module(module) => todo!(),
-        //     },
-        //     super::ResolveItem::Value(module_def) => {
-        //         match module_def {
-        //             ModuleDef::Function(function) => todo!(),
-        //             ModuleDef::Struct(_) => todo!(),
-        //             ModuleDef::Class(class) => todo!(),
-        //             ModuleDef::Trait(_) => todo!(),
-        //             ModuleDef::Enum(_) => todo!(),
-        //             ModuleDef::Module(module) => todo!(),
-        //         }
-        //         let ModuleDef::Function(func) = *module_def else {
-        //             unreachable!();
-        //         };
-        //         self.error(TypeDiagnostic::ExpectedTypeGotFn {
-        //             name: func.name(self.db),
-        //         });
-        //         Type::new(self.db, TypeKind::Unknown)
-        //     }
-        // }
-        todo!()
+        match item {
+            super::ResolveItem::Type(ty) | super::ResolveItem::Both { ty, .. } => match ty {
+                super::TypeModuleDef::Struct(item) => Type::new(
+                    self.db,
+                    TypeKind::Struct {
+                        value: *item,
+                        generics: TypeList::new(self.db, []),
+                    },
+                ),
+                super::TypeModuleDef::Class(item) => Type::new(
+                    self.db,
+                    TypeKind::Class {
+                        value: *item,
+                        generics: TypeList::new(self.db, []),
+                    },
+                ),
+                super::TypeModuleDef::Trait(item) => Type::new(
+                    self.db,
+                    TypeKind::Trait {
+                        value: *item,
+                        generics: TypeList::new(self.db, []),
+                    },
+                ),
+                super::TypeModuleDef::Enum(item) => Type::new(
+                    self.db,
+                    TypeKind::Enum {
+                        value: *item,
+                        generics: TypeList::new(self.db, []),
+                    },
+                ),
+                super::TypeModuleDef::Module(item) => {
+                    self.error(TypeDiagnostic::ExpectedTypeGotValue {
+                        source: ExpectedTypeGotValueSource::Module(*item),
+                    });
+
+                    Type::new(self.db, TypeKind::Unknown)
+                }
+            },
+            super::ResolveItem::Value(def) => match def {
+                super::ValueModuleDef::Function(item) => {
+                    self.error(TypeDiagnostic::ExpectedTypeGotValue {
+                        source: ExpectedTypeGotValueSource::Function(*item),
+                    });
+                    Type::new(self.db, TypeKind::Unknown)
+                }
+            },
+        }
     }
 
     fn error(&mut self, diagnostic: TypeDiagnostic<'db>) {

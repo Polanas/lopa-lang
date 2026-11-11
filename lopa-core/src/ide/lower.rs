@@ -77,7 +77,7 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
             .and_then(|g| self.generics(g))
             .unwrap_or_else(|| Generics::new(self.db, vec![]));
 
-        let body_expr = ast_item.body().map(|b| self.block_expr(b))?;
+        let body_expr = ast_item.body().map(|b| self.block_expr(b));
         let output = ast_item
             .output()
             .and_then(|o| o.ty())
@@ -1352,7 +1352,6 @@ impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn contents(self, db: &'db dyn salsa::Database) -> FunctionContents<'db> {
         let ctx = body_map_ctx(db, self.file(db));
-        //TODO: investigate why this crashe
         ctx.fn_item(self).unwrap()
     }
 }

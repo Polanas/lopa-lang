@@ -366,7 +366,7 @@ pub struct Function<'db> {
 #[derive(Debug, Clone, PartialEq, salsa::SalsaValue, Hash, Eq)]
 pub struct FunctionContents<'db> {
     pub body_map: Arc<BodyMap>,
-    pub body_expr: Expr<'db>,
+    pub body_expr: Option<Expr<'db>>,
     pub params: FnParamList<'db>,
     pub generics: Generics<'db>,
     pub output: Option<TypeExpr<'db>>,

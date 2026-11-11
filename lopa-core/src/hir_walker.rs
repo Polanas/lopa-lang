@@ -59,7 +59,9 @@ pub fn walk_item<'db, W: HirWalker<'db> + ?Sized>(
                     }
                 }
             }
-            walker.walk_expr(db, contents.body_expr);
+            if let Some(body_expr) = contents.body_expr {
+                walker.walk_expr(db, body_expr);
+            }
         }
         hir::Item::Struct(item) => {
             let contents = item.contents(db);
