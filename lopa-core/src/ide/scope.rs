@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use la_arena::{Arena, Idx};
 
 use crate::{
     def::{
         ExprId, PatId, Symbol, SymbolList,
-        hir::{self, Class, Enum, Function, Item, Module, Struct, Trait},
+        hir::{self, Class, Enum, Expr, Function, Item, Module, Pat, Struct, Trait},
     },
     ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, ResolveItem},
 };
@@ -421,7 +421,7 @@ impl<'db, 'a> TraversUseTree<'db, 'a> {
 }
 
 pub struct ExprScopesCtx<'db> {
-    scopes: ExprScopes,
+    scopes: ExprScopes<'db>,
     db: &'db dyn salsa::Database,
 }
 
@@ -433,7 +433,7 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn finish(self) -> ExprScopes {
+    fn finish(self) -> ExprScopes<'db> {
         self.scopes
     }
 
@@ -451,7 +451,7 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse(mut self, expr: hir::Expr<'db>) -> ExprScopes {
+    fn traverse(mut self, expr: hir::Expr<'db>) -> ExprScopes<'db> {
         if let hir::ExprKind::Block { stmts } = expr.kind(self.db) {
             let root = self.root_scope();
             self.traverse_block(root, stmts);
@@ -461,8 +461,8 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse_expr(&mut self, expr: hir::Expr<'db>, scope: ScopeId) {
-        self.scopes.scope_by_expr.insert(expr.id(self.db), scope);
+    fn traverse_expr(&mut self, expr: hir::Expr<'db>, scope: ScopeId<'db>) {
+        self.scopes.scope_by_expr.insert(expr, scope);
         match expr.kind(self.db) {
             hir::ExprKind::Unit
             | hir::ExprKind::Lit(_)
@@ -554,13 +554,13 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse_block(&mut self, scope: Idx<ScopeData>, stmts: hir::StmtList<'db>) {
+    fn traverse_block(&mut self, scope: Idx<ScopeData<'db>>, stmts: hir::StmtList<'db>) {
         for stmt in stmts.stmts(self.db).iter() {
             self.traverse_stmt(*stmt, scope);
         }
     }
 
-    fn traverse_if_expr(&mut self, expr: hir::IfExpr<'db>, scope: ScopeId) {
+    fn traverse_if_expr(&mut self, expr: hir::IfExpr<'db>, scope: ScopeId<'db>) {
         self.traverse_expr(expr.cond(self.db), scope);
         self.traverse_expr(expr.if_branch(self.db), scope);
         if let Some(else_branch) = expr.else_branch(self.db) {
@@ -571,7 +571,7 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse_stmt(&mut self, stmt: hir::Stmt<'db>, scope: ScopeId) {
+    fn traverse_stmt(&mut self, stmt: hir::Stmt<'db>, scope: ScopeId<'db>) {
         match stmt.kind(self.db) {
             hir::StmtKind::Let { pat, expr, .. } => {
                 self.traverse_pat(pat, scope);
@@ -583,13 +583,12 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse_pat(&mut self, pat: hir::Pat<'db>, scope: ScopeId) {
+    fn traverse_pat(&mut self, pat: hir::Pat<'db>, scope: ScopeId<'db>) {
         match pat.kind(self.db) {
             hir::PatKind::Name(symbol) => {
-                self.scopes.scopes[scope].entries.push(ScopeEntry {
-                    name: symbol,
-                    pattern: pat.id(self.db),
-                });
+                self.scopes.scopes[scope]
+                    .entries
+                    .push(ScopeEntry { name: symbol, pat });
             }
             hir::PatKind::Wildcard => {}
             hir::PatKind::Path(_) => {}
@@ -602,7 +601,7 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn root_scope(&mut self) -> ScopeId {
+    fn root_scope(&mut self) -> ScopeId<'db> {
         if !self.scopes.scopes.is_empty() {
             return self.scopes.scopes.iter().next().unwrap().0;
         }
@@ -615,8 +614,8 @@ impl<'db> ExprScopesCtx<'db> {
 
 #[salsa::tracked]
 impl<'db> hir::Function<'db> {
-    #[salsa::tracked(returns(ref))]
-    fn expr_scopes(self, db: &'db dyn salsa::Database) -> ExprScopes {
+    #[salsa::tracked(returns(clone))]
+    fn expr_scopes(self, db: &'db dyn salsa::Database) -> Arc<ExprScopes<'db>> {
         let mut ctx = ExprScopesCtx::new(db);
         ctx.traverse_params(self.contents(db).params);
         if let Some(body) = self.contents(db).body_expr {
@@ -624,64 +623,69 @@ impl<'db> hir::Function<'db> {
         } else {
             ctx.finish()
         }
+        .into()
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Default, salsa::SalsaValue, Clone)]
-pub struct ExprScopes {
-    scopes: Arena<ScopeData>,
-    scope_by_expr: HashMap<ExprId, ScopeId>,
+pub struct ExprScopes<'db> {
+    scopes: Arena<ScopeData<'db>>,
+    scope_by_expr: HashMap<Expr<'db>, ScopeId<'db>>,
 }
 
-impl ExprScopes {
-    pub fn entries(&self, scope: ScopeId) -> &[ScopeEntry] {
+impl<'db> ExprScopes<'db> {
+    pub fn entries(&self, scope: ScopeId<'db>) -> &[ScopeEntry<'db>] {
         &self.scopes[scope].entries
     }
 
-    fn root_scope(&self) -> ScopeId {
+    fn root_scope(&self) -> ScopeId<'db> {
         self.scopes.iter().next().unwrap().0
     }
 
-    pub fn scope_for_expr(&self, expr_id: ExprId) -> Option<ScopeId> {
-        self.scope_by_expr.get(&expr_id).copied()
+    pub fn scope_for_expr(&self, expr: Expr<'db>) -> Option<ScopeId<'db>> {
+        self.scope_by_expr.get(&expr).copied()
     }
 
-    pub fn scope_chain(&self, scope: Option<ScopeId>) -> impl Iterator<Item = ScopeId> {
+    pub fn scope_chain(&self, scope: Option<ScopeId<'db>>) -> impl Iterator<Item = ScopeId<'db>> {
         std::iter::successors(scope, move |&scope| self.scopes[scope].parent)
     }
 
-    pub fn resolve_name_in_scope(&self, scope: ScopeId, name: Symbol) -> Option<&ScopeEntry> {
+    pub fn resolve_name_in_scope(
+        &self,
+        scope: ScopeId<'db>,
+        name: Symbol,
+    ) -> Option<&ScopeEntry<'db>> {
         self.scope_chain(Some(scope))
             .find_map(|scope| self.entries(scope).iter().rev().find(|it| it.name == name))
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ScopeEntry {
+#[derive(Debug, PartialEq, Eq, Clone, salsa::SalsaValue)]
+pub struct ScopeEntry<'db> {
     name: Symbol,
-    pattern: PatId,
+    pat: Pat<'db>,
 }
 
-impl ScopeEntry {
+impl<'db> ScopeEntry<'db> {
     pub fn name(&self) -> Symbol {
         self.name
     }
 
-    pub fn pattern(&self) -> PatId {
-        self.pattern
+    pub fn pat(&self) -> Pat<'db> {
+        self.pat
     }
 }
 
-pub type ScopeId = Idx<ScopeData>;
+pub type ScopeId<'db> = Idx<ScopeData<'db>>;
 
 #[derive(Debug, PartialEq, Eq, salsa::SalsaValue, Clone)]
-pub struct ScopeData {
-    parent: Option<ScopeId>,
-    entries: Vec<ScopeEntry>,
+pub struct ScopeData<'db> {
+    parent: Option<ScopeId<'db>>,
+    entries: Vec<ScopeEntry<'db>>,
 }
 
-impl ScopeData {
-    fn from_parent(parent: ScopeId) -> Self {
+impl<'db> ScopeData<'db> {
+    fn from_parent(parent: ScopeId<'db>) -> Self {
         Self {
             parent: Some(parent),
             entries: Default::default(),
@@ -700,7 +704,7 @@ mod test {
         ide::{self, ExprScopes},
     };
 
-    fn expr_scopes(source: &str) -> (ExprScopes, salsa::DatabaseImpl) {
+    fn check(source: &str, f: impl FnOnce(Arc<ExprScopes>, &dyn salsa::Database)) {
         let mut db = salsa::DatabaseImpl::default();
         let root = ide::Root::new(&db, vec![], PathBuf::from("test"));
         let file = ide::File::new(
@@ -724,41 +728,43 @@ mod test {
             })
             .unwrap();
 
-        (func.expr_scopes(&db).clone(), db)
+        f(func.expr_scopes(&db), &db);
     }
 
     #[test]
     fn fn_scope() {
-        let (scopes, db) = expr_scopes(
+        check(
             "fn test(value: i32) {
                 let x = 20;
                 {
                     let z = 12;
                 }
             }",
-        );
-        let root = scopes.root_scope();
-        assert!(
-            scopes
-                .resolve_name_in_scope(root, Symbol::new(&db, "x"))
-                .is_some()
-        );
-        assert!(
-            scopes
-                .resolve_name_in_scope(root, Symbol::new(&db, "value"))
-                .is_some()
-        );
-        assert!(
-            scopes
-                .resolve_name_in_scope(root, Symbol::new(&db, "z"))
-                .is_none()
-        );
+            |scopes, db| {
+                let root = scopes.root_scope();
+                assert!(
+                    scopes
+                        .resolve_name_in_scope(root, Symbol::new(db, "x"))
+                        .is_some()
+                );
+                assert!(
+                    scopes
+                        .resolve_name_in_scope(root, Symbol::new(db, "value"))
+                        .is_some()
+                );
+                assert!(
+                    scopes
+                        .resolve_name_in_scope(root, Symbol::new(db, "z"))
+                        .is_none()
+                );
 
-        let second_scope = scopes.scopes.iter().nth(1).unwrap().0;
-        assert!(
-            scopes
-                .resolve_name_in_scope(second_scope, Symbol::new(&db, "z"))
-                .is_some()
+                let second_scope = scopes.scopes.iter().nth(1).unwrap().0;
+                assert!(
+                    scopes
+                        .resolve_name_in_scope(second_scope, Symbol::new(db, "z"))
+                        .is_some()
+                );
+            },
         );
     }
 }

@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    common::{BinaryOpKind, LitKind, LuaBinaryOpKind, UnaryOpKind},
-    parsing::{Children, Node, NodeId, Syntax},
+    common::{BinaryOpKind, LitKind, LuaBinaryOpKind, TypeLitKind, UnaryOpKind}, parsing::{Children, Node, NodeId, Syntax},
 };
 
 trait NodeWrapper {
@@ -422,13 +421,13 @@ structs! {
     },
     LIT_TYPE = LitType {
         path: PathType,
-        pub fn kind(&self) -> Option<LitKind> {
+        pub fn kind(&self) -> Option<TypeLitKind> {
             let node = self.syntax().first()?;
             Some(match node.kind() {
-                Syntax::LIT_TYPE_STRING => LitKind::String,
-                Syntax::LIT_TYPE_INT => LitKind::Int,
-                Syntax::LIT_TYPE_BOOL => LitKind::Bool,
-                Syntax::LIT_TYPE_FLOAT => LitKind::Float,
+                Syntax::LIT_TYPE_STRING => TypeLitKind::String,
+                Syntax::LIT_TYPE_INT => TypeLitKind::Int,
+                Syntax::LIT_TYPE_BOOL => TypeLitKind::Bool,
+                Syntax::LIT_TYPE_FLOAT => TypeLitKind::Float,
                 _ => return None,
             })
         }

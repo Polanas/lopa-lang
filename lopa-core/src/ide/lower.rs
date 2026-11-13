@@ -704,8 +704,10 @@ struct Ctx<'db, 'ast, 's> {
     ast_file: parsing::File<'ast>,
     file: File,
     ast_id_map: AstIdMap,
+    parents: Parents,
     items_map: ItemsMap<'db>,
     items: Vec<Vec<Item<'db>>>,
+    modules: Vec<ModuleId>,
 }
 
 impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
@@ -715,15 +717,39 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         ast_file: parsing::File<'ast>,
         file: File,
     ) -> Self {
-        Self {
+        let mut ctx = Self {
             db,
             source,
             ast_file,
             file,
             ast_id_map: AstIdMap::new(),
             items_map: ItemsMap::default(),
-            items: Vec::new(),
-        }
+            items: Vec::default(),
+            parents: Parents::default(),
+            modules: Vec::default(),
+        };
+        //TODO: get back on this
+        ctx.push_module(file.module(db).unwrap().id(db).unwrap());
+        ctx
+    }
+
+    fn current_module(&self) -> ModuleId {
+        *self.modules.last().unwrap()
+    }
+
+    fn push_module(&mut self, id: ModuleId) {
+        self.modules.push(id);
+    }
+
+    fn pop_moudle(&mut self) {
+        self.modules.pop();
+    }
+
+    fn with_module<R>(&mut self, id: ModuleId, f: impl FnOnce(&mut Self) -> R) -> R {
+        self.push_module(id);
+        let result = f(self);
+        self.pop_moudle();
+        result
     }
 
     fn push_items(&mut self) {
@@ -744,13 +770,18 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         self.pop_items()
     }
 
-    fn lower(mut self) -> (Vec<Item<'db>>, AstIdMap, ItemsMap<'db>) {
+    fn lower(mut self) -> LowerOutput<'db> {
         let items = self.with_items(|this| {
             for item in this.ast_file.items() {
                 this.item(item);
             }
         });
-        (items, self.ast_id_map, self.items_map)
+        LowerOutput {
+            items: Items::new(self.db, items),
+            ast_id_map: self.ast_id_map.into(),
+            items_map: self.items_map.into(),
+            parents: self.parents.into(),
+        }
     }
 
     fn item(&mut self, item: parsing::Item<'ast>) {
@@ -872,31 +903,33 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
 
     fn mod_item(&mut self, mod_item: parsing::ModItem<'ast>) -> Option<()> {
         let id = self.ast_id_map.insert(mod_item);
-        let name = mod_item.name().and_then(|n| n.text(self.source))?;
-        let item = Module::new(
-            self.db,
-            Symbol::new(self.db, name),
-            match mod_item.semi() {
-                Some(_) => ModuleData::Declaration {
-                    id: ModuleId::new(id, self.file),
+        let id = ModuleId::new(id, self.file);
+
+        self.with_module(id, |this| {
+            let name = mod_item.name().and_then(|n| n.text(this.source))?;
+            let item = Module::new(
+                this.db,
+                Symbol::new(this.db, name),
+                match mod_item.semi() {
+                    Some(_) => ModuleData::Declaration { id },
+                    None => ModuleData::Definition {
+                        id,
+                        items: Items::new(
+                            this.db,
+                            this.with_items(|this| mod_item.items().for_each(|i| this.item(i))),
+                        ),
+                    },
                 },
-                None => ModuleData::Definition {
-                    id: ModuleId::new(id, self.file),
-                    items: Items::new(
-                        self.db,
-                        self.with_items(|this| mod_item.items().for_each(|i| this.item(i))),
-                    ),
+                match mod_item.semi() {
+                    Some(_) => ModuleKind::Declaration,
+                    None => ModuleKind::Definition,
                 },
-            },
-            match mod_item.semi() {
-                Some(_) => ModuleKind::Declaration,
-                None => ModuleKind::Definition,
-            },
-            self.file.root(self.db),
-        );
-        self.items_map.insert_module(self.db, item);
-        self.push_item(Item::Module(item));
-        Some(())
+                this.file.root(this.db),
+            );
+            this.items_map.insert_module(this.db, item);
+            this.push_item(Item::Module(item));
+            Some(())
+        })
     }
 
     fn members(&mut self, members: impl Iterator<Item = parsing::Member<'ast>>) {
@@ -1476,32 +1509,44 @@ impl<'db> File {
     }
 }
 
+#[derive(salsa::SalsaValue, PartialEq, Default)]
+pub struct Parents {
+    parents: indexmap::IndexMap<ItemId, ModuleId>,
+}
+
+#[derive(salsa::SalsaValue, PartialEq)]
+pub struct LowerOutput<'db> {
+    items: Items<'db>,
+    ast_id_map: Arc<AstIdMap>,
+    items_map: Arc<ItemsMap<'db>>,
+    parents: Arc<Parents>,
+}
+
 #[salsa::tracked]
 impl<'db> File {
     #[salsa::tracked(returns(clone))]
     pub fn items(self, db: &'db dyn salsa::Database) -> Items<'db> {
-        self.lower(db).0
+        self.lower(db).items
     }
 
     #[salsa::tracked(returns(clone))]
     pub fn ast_map(self, db: &dyn salsa::Database) -> Arc<AstIdMap> {
-        self.lower(db).1
+        self.lower(db).ast_id_map.clone()
     }
 
     #[salsa::tracked(returns(clone))]
     pub fn items_map(self, db: &'db dyn salsa::Database) -> Arc<ItemsMap<'db>> {
-        self.lower(db).2
+        self.lower(db).items_map.clone()
     }
 
-    #[salsa::tracked(returns(clone))]
-    fn lower(
-        self,
-        db: &'db dyn salsa::Database,
-    ) -> (Items<'db>, Arc<AstIdMap>, Arc<ItemsMap<'db>>) {
+    pub fn parents(self, db: &'db dyn salsa::Database) -> Arc<Parents> {
+        self.lower(db).parents.clone()
+    }
+
+    #[salsa::tracked(returns(ref))]
+    fn lower(self, db: &'db dyn salsa::Database) -> LowerOutput<'db> {
         let parse = self.parse(db);
         let ctx = Ctx::new(db, self.contents(db), parse.file(db).unwrap(), self);
-        let (items, id_map, items_map) = ctx.lower();
-        let items = Items::new(db, items);
-        (items, id_map.into(), items_map.into())
+        ctx.lower()
     }
 }

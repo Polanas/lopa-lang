@@ -1,4 +1,3 @@
-use notify_rust::Notification;
 
 use crate::def::hir;
 

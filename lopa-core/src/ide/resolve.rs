@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     common::PathNodeType,
     def::{
@@ -10,6 +12,8 @@ use crate::{
     },
 };
 
+//A::B::C //enum variant
+//
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
 pub enum ResolveItem<'db> {
     Type(TypeModuleDef<'db>),
@@ -51,11 +55,11 @@ impl<'db> Enum<'db> {
 
 #[salsa::tracked]
 impl<'db> Function<'db> {
-    #[salsa::tracked(returns(ref))]
-    pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
+    #[salsa::tracked(returns(clone))]
+    pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> Arc<PathMap<'db>> {
         let mut ctx = PathResolveCtx::new(db, module);
         ctx.walk_item(db, hir::Item::Function(self));
-        ctx.path_map()
+        ctx.path_map().into()
     }
 }
 
