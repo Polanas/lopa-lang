@@ -814,6 +814,7 @@ dependencies = [
  "rand",
  "salsa",
  "syntree",
+ "walkdir",
 ]
 
 [[package]]

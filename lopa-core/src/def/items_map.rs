@@ -3,7 +3,7 @@ use la_arena::{Arena, ArenaMap};
 use crate::{
     def::{
         AstId, ErasedAstId,
-        hir::{Class, Enum, Function, ImplBlock, Module, ModuleData, Struct, Trait, UseItem},
+        hir::{Class, Enum, Function, ImplBlock, Module, ModuleOrigin, Struct, Trait, UseItem},
     },
     ide::InFile,
     parsing,
@@ -95,8 +95,6 @@ impl<'db> ItemsMap<'db> {
     }
 
     pub fn insert_module(&mut self, db: &'db dyn salsa::Database, item: Module<'db>) {
-        assert!(!matches!(item.data(db), ModuleData::Root { .. }));
-
         if let Some(id) = item.id(db) {
             self.module_items.insert(id.value.erased(), item);
         }

@@ -568,39 +568,34 @@ pub struct UseTreeList<'db> {
     pub items: Vec<UseTree<'db>>,
 }
 
-#[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
-pub enum ModuleData<'db> {
-    Root { items: Items<'db> },
-    Definition { items: Items<'db>, id: ModuleId },
-    Declaration { id: ModuleId },
-}
-
-#[derive(salsa::SalsaValue, PartialEq, Clone, Copy, Hash, Debug, Eq)]
-pub enum ModuleKind {
-    Root,
-    Definition,
-    Declaration,
+#[derive(salsa::SalsaValue, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ModuleOrigin {
+    File(ide::File),
+    Directory {
+        path: std::path::PathBuf,
+        file: Option<ide::File>,
+    },
+    Definition {
+        id: ModuleId,
+    },
 }
 
 #[salsa::tracked(debug)]
 pub struct Module<'db> {
     #[returns(copy)]
     pub name: Symbol,
-    #[tracked]
-    #[returns(copy)]
-    pub data: ModuleData<'db>,
-    #[tracked]
-    #[returns(copy)]
-    pub kind: ModuleKind,
     #[returns(copy)]
     pub root: ide::Root,
+    #[returns(ref)]
+    pub origin: ModuleOrigin,
 }
 
 impl<'db> Module<'db> {
     pub fn id(&self, db: &'db dyn salsa::Database) -> Option<ModuleId> {
-        Some(match self.data(db) {
-            ModuleData::Definition { id, .. } | ModuleData::Declaration { id } => id,
-            _ => return None,
+        Some(if let ModuleOrigin::Definition { id } = self.origin(db) {
+            *id
+        } else {
+            return None;
         })
     }
 }

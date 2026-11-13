@@ -9,6 +9,7 @@ anyhow.workspace = true
 itertools.workspace = true
 indexmap.workspace = true
 salsa.workspace = true
+walkdir.workspace = true
 
 syntree = { path = "../syntree" }
 la-arena = { path = "../la-arena" }

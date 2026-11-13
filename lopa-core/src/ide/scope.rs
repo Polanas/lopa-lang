@@ -135,7 +135,7 @@ impl<'db> Module<'db> {
         let mut scope_names = ScopeNames::new(db);
 
         if let Some(parent) = self.parent(db)
-            && matches!(self.data(db), hir::ModuleData::Definition { .. })
+            && matches!(self.items(db), hir::ModuleData::Definition { .. })
         {
             let parent_scope = parent.scope(db);
             for (k, v) in parent_scope.values.iter() {
