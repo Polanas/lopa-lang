@@ -1,0 +1,9 @@
+---
+source: lopa-core/src/ide.rs
+expression: "&tree.stringify()"
+---
+root:
+  main,
+  game:
+    player,
+    enemy,

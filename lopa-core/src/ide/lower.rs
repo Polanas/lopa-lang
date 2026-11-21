@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use itertools::Itertools as _;
 
@@ -706,6 +706,8 @@ struct Ctx<'db, 'ast, 's> {
     ast_id_map: AstIdMap,
     items_map: ItemsMap<'db>,
     items: Vec<Vec<Item<'db>>>,
+    items_by_modules: HashMap<Module<'db>, Items<'db>>,
+    current_parent: Option<Module<'db>>,
 }
 
 impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
@@ -723,6 +725,8 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
             ast_id_map: AstIdMap::new(),
             items_map: ItemsMap::default(),
             items: Vec::new(),
+            items_by_modules: Default::default(),
+            current_parent: file.module(db),
         }
     }
 
@@ -744,13 +748,27 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
         self.pop_items()
     }
 
-    fn lower(mut self) -> (Vec<Item<'db>>, AstIdMap, ItemsMap<'db>) {
+    fn with_parent<R>(&mut self, f: impl FnOnce(&mut Self) -> R, parent: Module<'db>) -> R {
+        let old_parent = self.current_parent.take().unwrap();
+        self.current_parent = Some(parent);
+        let r = f(self);
+        self.current_parent = Some(old_parent);
+        r
+    }
+
+    fn lower(mut self) -> LowerResult<'db> {
         let items = self.with_items(|this| {
             for item in this.ast_file.items() {
                 this.item(item);
             }
         });
-        (items, self.ast_id_map, self.items_map)
+
+        LowerResult {
+            items: Items::new(self.db, items),
+            ast_id_map: self.ast_id_map.into(),
+            items_map: self.items_map.into(),
+            items_by_modules: self.items_by_modules,
+        }
     }
 
     fn item(&mut self, item: parsing::Item<'ast>) {
@@ -872,28 +890,30 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
 
     fn mod_item(&mut self, mod_item: parsing::ModItem<'ast>) -> Option<()> {
         let id = self.ast_id_map.insert(mod_item);
+        let id = ModuleId::new(id, self.file);
         let name = mod_item.name().and_then(|n| n.text(self.source))?;
         let item = Module::new(
             self.db,
             Symbol::new(self.db, name),
-            match mod_item.semi() {
-                Some(_) => ModuleData::Declaration {
-                    id: ModuleId::new(id, self.file),
-                },
-                None => ModuleData::Definition {
-                    id: ModuleId::new(id, self.file),
-                    items: Items::new(
-                        self.db,
-                        self.with_items(|this| mod_item.items().for_each(|i| this.item(i))),
-                    ),
-                },
-            },
-            match mod_item.semi() {
-                Some(_) => ModuleKind::Declaration,
-                None => ModuleKind::Definition,
-            },
             self.file.root(self.db),
+            ModuleOrigin::Definition {
+                id,
+                file: self.file,
+                parent: self.current_parent.unwrap(),
+            },
         );
+
+        let items = self.with_parent(
+            |this| {
+                Items::new(
+                    this.db,
+                    this.with_items(|this| mod_item.items().for_each(|i| this.item(i))),
+                )
+            },
+            item,
+        );
+
+        self.items_by_modules.insert(item, items);
         self.items_map.insert_module(self.db, item);
         self.push_item(Item::Module(item));
         Some(())
@@ -1476,32 +1496,32 @@ impl<'db> File {
     }
 }
 
+#[derive(salsa::SalsaValue, PartialEq, Clone)]
+pub struct LowerResult<'db> {
+    pub items: Items<'db>,
+    pub ast_id_map: Arc<AstIdMap>,
+    pub items_map: Arc<ItemsMap<'db>>,
+    pub items_by_modules: HashMap<Module<'db>, Items<'db>>,
+}
+
 #[salsa::tracked]
 impl<'db> File {
-    #[salsa::tracked(returns(clone))]
     pub fn items(self, db: &'db dyn salsa::Database) -> Items<'db> {
-        self.lower(db).0
+        self.lower(db).items
     }
 
-    #[salsa::tracked(returns(clone))]
     pub fn ast_map(self, db: &dyn salsa::Database) -> Arc<AstIdMap> {
-        self.lower(db).1
+        self.lower(db).ast_id_map.clone()
     }
 
-    #[salsa::tracked(returns(clone))]
     pub fn items_map(self, db: &'db dyn salsa::Database) -> Arc<ItemsMap<'db>> {
-        self.lower(db).2
+        self.lower(db).items_map.clone()
     }
 
-    #[salsa::tracked(returns(clone))]
-    fn lower(
-        self,
-        db: &'db dyn salsa::Database,
-    ) -> (Items<'db>, Arc<AstIdMap>, Arc<ItemsMap<'db>>) {
+    #[salsa::tracked(returns(ref))]
+    pub fn lower(self, db: &'db dyn salsa::Database) -> LowerResult<'db> {
         let parse = self.parse(db);
         let ctx = Ctx::new(db, self.contents(db), parse.file(db).unwrap(), self);
-        let (items, id_map, items_map) = ctx.lower();
-        let items = Items::new(db, items);
-        (items, id_map.into(), items_map.into())
+        ctx.lower()
     }
 }

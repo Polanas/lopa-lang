@@ -1,9 +1,9 @@
-use la_arena::{Arena, ArenaMap};
+use la_arena::ArenaMap;
 
 use crate::{
     def::{
         AstId, ErasedAstId,
-        hir::{Class, Enum, Function, ImplBlock, Module, ModuleOrigin, Struct, Trait, UseItem},
+        hir::{Class, Enum, Function, ImplBlock, Module, Struct, Trait, UseItem},
     },
     ide::InFile,
     parsing,
@@ -11,14 +11,14 @@ use crate::{
 
 #[derive(Debug, Clone, Default, PartialEq, salsa::SalsaValue)]
 pub struct ItemsMap<'db> {
-    fn_items: ArenaMap<ErasedAstId, Function<'db>>,
+    module_items: ArenaMap<ErasedAstId, Module<'db>>,
     struct_items: ArenaMap<ErasedAstId, Struct<'db>>,
     class_items: ArenaMap<ErasedAstId, Class<'db>>,
     trait_items: ArenaMap<ErasedAstId, Trait<'db>>,
-    module_items: ArenaMap<ErasedAstId, Module<'db>>,
     impl_items: ArenaMap<ErasedAstId, ImplBlock<'db>>,
     enum_items: ArenaMap<ErasedAstId, Enum<'db>>,
     use_items: ArenaMap<ErasedAstId, UseItem<'db>>,
+    fn_items: ArenaMap<ErasedAstId, Function<'db>>,
 }
 
 impl<'db> std::ops::Index<InFile<AstId<parsing::FnItem<'static>>>> for ItemsMap<'db> {

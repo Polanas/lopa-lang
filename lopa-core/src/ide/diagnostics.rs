@@ -14,7 +14,7 @@ pub enum DiagnosticKind {
 }
 
 #[derive(Clone, PartialEq, Debug, Eq, Hash)]
-pub enum DiagnosticLocation {
+    pub enum DiagnosticLocation {
     Module(ModuleId),
     Struct(StructId),
     Class(ClassId),

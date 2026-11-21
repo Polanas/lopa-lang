@@ -569,14 +569,17 @@ pub struct UseTreeList<'db> {
 }
 
 #[derive(salsa::SalsaValue, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ModuleOrigin {
+pub enum ModuleOrigin<'db> {
+    Root(ide::File),
     File(ide::File),
     Directory {
         path: std::path::PathBuf,
         file: Option<ide::File>,
     },
     Definition {
+        parent: Module<'db>,
         id: ModuleId,
+        file: ide::File,
     },
 }
 
@@ -587,16 +590,18 @@ pub struct Module<'db> {
     #[returns(copy)]
     pub root: ide::Root,
     #[returns(ref)]
-    pub origin: ModuleOrigin,
+    pub origin: ModuleOrigin<'db>,
 }
 
 impl<'db> Module<'db> {
     pub fn id(&self, db: &'db dyn salsa::Database) -> Option<ModuleId> {
-        Some(if let ModuleOrigin::Definition { id } = self.origin(db) {
-            *id
-        } else {
-            return None;
-        })
+        Some(
+            if let ModuleOrigin::Definition { id, .. } = self.origin(db) {
+                *id
+            } else {
+                return None;
+            },
+        )
     }
 }
 

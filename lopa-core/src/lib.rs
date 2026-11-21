@@ -4,6 +4,8 @@
 pub mod common;
 pub mod ide;
 pub mod vfs;
+#[macro_use]
+pub mod notify_macro;
 pub mod hir_walker;
 pub mod analysis;
 pub mod def;

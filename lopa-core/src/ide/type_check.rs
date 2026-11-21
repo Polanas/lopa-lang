@@ -69,6 +69,7 @@ struct TypeCheckCtx<'db> {
 }
 
 impl<'db> HirWalker<'db> for TypeCheckCtx<'db> {
+    type Context = ();
     // fn walk_type_expr(
     //     &mut self,
     //     db: &'db dyn salsa::Database,

@@ -1,12 +1,17 @@
+use std::collections::VecDeque;
+
+use itertools::Itertools;
+
 use crate::{
     common::PathNodeType,
     def::{
         Symbol, SymbolList,
-        hir::{self, Enum, Function, HirNode, Module, Struct, UseItem},
+        hir::{self, Enum, Function, HirNode, Item, Module, Struct, UseItem, UseTree},
     },
     hir_walker::{HirWalker, walk_expr, walk_pat, walk_type_expr},
     ide::{
-        Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleDef, TypeModuleDef, ValueModuleDef,
+        Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleTree, Root, ScopePath, TypeModuleDef,
+        ValueModuleDef,
     },
 };
 
@@ -25,7 +30,7 @@ impl<'db> Struct<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        ctx.walk_item(db, hir::Item::Struct(self));
+        ctx.walk_item(db, hir::Item::Struct(self), &mut ());
         ctx.path_map()
     }
 }
@@ -34,7 +39,8 @@ impl<'db> Struct<'db> {
 impl<'db> Module<'db> {
     pub fn path_map(self, db: &'db dyn salsa::Database) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, self);
-        ctx.walk_item(db, hir::Item::Module(self));
+        ctx.collect_global_imports();
+        ctx.walk_item(db, hir::Item::Module(self), &mut ());
         ctx.path_map()
     }
 }
@@ -44,7 +50,7 @@ impl<'db> Enum<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        ctx.walk_item(db, hir::Item::Enum(self));
+        ctx.walk_item(db, hir::Item::Enum(self), &mut ());
         ctx.path_map()
     }
 }
@@ -54,7 +60,7 @@ impl<'db> Function<'db> {
     #[salsa::tracked(returns(ref))]
     pub fn path_map(self, db: &'db dyn salsa::Database, module: Module<'db>) -> PathMap<'db> {
         let mut ctx = PathResolveCtx::new(db, module);
-        ctx.walk_item(db, hir::Item::Function(self));
+        ctx.walk_item(db, hir::Item::Function(self), &mut ());
         ctx.path_map()
     }
 }
@@ -156,7 +162,8 @@ struct PathResolveCtx<'db> {
 }
 
 impl<'db> HirWalker<'db> for PathResolveCtx<'db> {
-    fn walk_expr(&mut self, db: &'db dyn salsa::Database, expr: hir::Expr<'db>) {
+    type Context = ();
+    fn walk_expr(&mut self, db: &'db dyn salsa::Database, expr: hir::Expr<'db>, ctx: &mut ()) {
         match expr.kind(db) {
             hir::ExprKind::Path(path) => {
                 self.insert_path(path.as_symbol_list(db), expr, PathNodeType::Expr);
@@ -166,51 +173,54 @@ impl<'db> HirWalker<'db> for PathResolveCtx<'db> {
             }
             _ => {}
         }
-        walk_expr(db, self, expr);
+        walk_expr(db, self, expr, ctx);
     }
 
-    fn walk_type_expr(&mut self, db: &'db dyn salsa::Database, type_expr: hir::TypeExpr<'db>) {
+    fn walk_type_expr(
+        &mut self,
+        db: &'db dyn salsa::Database,
+        type_expr: hir::TypeExpr<'db>,
+        ctx: &mut (),
+    ) {
         if let hir::TypeExprKind::Path(path) = type_expr.kind(db) {
             self.insert_path(path.as_symbol_list(db), type_expr, PathNodeType::Type);
         }
-        walk_type_expr(db, self, type_expr);
+        walk_type_expr(db, self, type_expr, ctx);
     }
 
-    fn walk_pat(&mut self, db: &'db dyn salsa::Database, pat: hir::Pat<'db>) {
+    fn walk_pat(&mut self, db: &'db dyn salsa::Database, pat: hir::Pat<'db>, ctx: &mut ()) {
         if let hir::PatKind::Path(path) = pat.kind(db) {
             self.insert_path(path.as_symbol_list(db), pat, PathNodeType::Pat);
         }
-        walk_pat(db, self, pat);
+        walk_pat(db, self, pat, ctx);
     }
 }
 
 impl<'db> PathResolveCtx<'db> {
     fn new(db: &'db dyn salsa::Database, module: Module<'db>) -> Self {
-        let mut ctx = Self {
+        Self {
             db,
             module,
             diagnostics: Default::default(),
             items: Default::default(),
             global_import_modules: Default::default(),
-        };
-        ctx.collect_global_imports();
-        ctx
-    }
-
-    fn collect_global_imports(&mut self) {
-        let scope = self.module.scope(self.db);
-        for global in scope.global_imports.iter() {
-            if let Ok(ResolveItem::Type(ty) | ResolveItem::Both { ty, .. }) =
-                self.resolve_path(*global)
-                && let TypeModuleDef::Module(module) = ty
-            {
-                self.global_import_modules.push(module);
-            }
         }
     }
 
+    fn collect_global_imports(&mut self) {
+        // let scope = self.module.scope_names(self.db);
+        // for global in scope.global_imports.iter() {
+        //     if let Ok(ResolveItem::Type(ty) | ResolveItem::Both { ty, .. }) =
+        //         self.resolve_path(*global)
+        //         && let TypeModuleDef::Module(module) = ty
+        //     {
+        //         self.global_import_modules.push(module);
+        //     }
+        // }
+    }
+
     fn canonicalize(&mut self, path: SymbolList) -> SymbolList {
-        let scope = self.module.scope(self.db);
+        let scope = self.module.scope_names(self.db);
         let defs = self.module.defs(self.db);
         let mut path_vec = path.symbols(self.db).to_vec();
         loop {
@@ -267,78 +277,87 @@ impl<'db> PathResolveCtx<'db> {
         &mut self,
         path: SymbolList,
     ) -> Result<ResolveItem<'db>, PathSegmentDiagnostic> {
-        let canonicalized = self.canonicalize(path);
-        let mut symbols = canonicalized.symbols(self.db).iter().enumerate();
-        let mut current_item = match symbols.next().unwrap().1.value(self.db) {
-            "root" => ResolveItem::Type(TypeModuleDef::Module(
-                self.module.root(self.db).root_module(self.db).unwrap(),
-            )),
-            other => {
-                let other = Symbol::new(self.db, other);
-                let Some(item) = self.module.defs(self.db).resolve_item(other).or_else(|| {
-                    for module in self.global_import_modules.iter() {
-                        if let Some(item) = module.defs(self.db).resolve_item(other) {
-                            return Some(item);
-                        }
-                    }
-                    None
-                }) else {
-                    return Err(PathSegmentDiagnostic {
-                        offset: 0,
-                        message: format!("could not find `{}` in this scope", other.value(self.db)),
-                    });
-                };
-                item
-            }
-        };
-
-        for (id, symbol) in symbols {
-            match current_item {
-                ResolveItem::Type(ty) | ResolveItem::Both { ty, .. } => match ty {
-                    TypeModuleDef::Struct(_)
-                    | TypeModuleDef::Enum(_)
-                    | TypeModuleDef::Class(_)
-                    | TypeModuleDef::Trait(_) => {
-                        return Err(PathSegmentDiagnostic {
-                            offset: id,
-                            message: "accessing this item not availible yet".to_string(),
-                        });
-                    }
-                    TypeModuleDef::Module(item) => {
-                        if symbol.value(self.db) == "super" {
-                            current_item = ResolveItem::Type(TypeModuleDef::Module(
-                                item.parent(self.db).unwrap(),
-                            ));
-                            continue;
-                        }
-                        let Some(item) = item.defs(self.db).resolve_item(*symbol) else {
-                            return Err(PathSegmentDiagnostic {
-                                offset: id,
-                                message: format!(
-                                    "could not find `{}` in this scope",
-                                    symbol.value(self.db)
-                                ),
-                            });
-                        };
-                        current_item = item;
-                    }
-                },
-                ResolveItem::Value(value) => match value {
-                    ValueModuleDef::Function(function) => {
-                        return Err(PathSegmentDiagnostic {
-                            offset: id,
-                            message: format!(
-                                "could not find access members of function `{}`",
-                                function.name(self.db).value(self.db)
-                            ),
-                        });
-                    }
-                },
-            }
-        }
-
-        Ok(current_item)
+        let defs = self.module.defs(self.db);
+        let scope_names = self.module.scope_names(self.db);
+        todo!()
     }
+
+    // fn resolve_path(
+    //     &mut self,
+    //     path: SymbolList,
+    // ) -> Result<ResolveItem<'db>, PathSegmentDiagnostic> {
+    //     let canonicalized = self.canonicalize(path);
+    //     let mut symbols = canonicalized.symbols(self.db).iter().enumerate();
+    //     let mut current_item = match symbols.next().unwrap().1.value(self.db) {
+    //         "root" => ResolveItem::Type(TypeModuleDef::Module(
+    //             self.module.root(self.db).root_module(self.db).unwrap(),
+    //         )),
+    //         other => {
+    //             let other = Symbol::new(self.db, other);
+    //             let Some(item) = self.module.defs(self.db).resolve_item(other).or_else(|| {
+    //                 for module in self.global_import_modules.iter() {
+    //                     if let Some(item) = module.defs(self.db).resolve_item(other) {
+    //                         return Some(item);
+    //                     }
+    //                 }
+    //                 None
+    //             }) else {
+    //                 return Err(PathSegmentDiagnostic {
+    //                     offset: 0,
+    //                     message: format!("could not find `{}` in this scope", other.value(self.db)),
+    //                 });
+    //             };
+    //             item
+    //         }
+    //     };
+    //
+    //     for (id, symbol) in symbols {
+    //         match current_item {
+    //             ResolveItem::Type(ty) | ResolveItem::Both { ty, .. } => match ty {
+    //                 TypeModuleDef::Struct(_)
+    //                 | TypeModuleDef::Enum(_)
+    //                 | TypeModuleDef::Class(_)
+    //                 | TypeModuleDef::Trait(_) => {
+    //                     return Err(PathSegmentDiagnostic {
+    //                         offset: id,
+    //                         message: "accessing this item not availible yet".to_string(),
+    //                     });
+    //                 }
+    //                 TypeModuleDef::Module(item) => {
+    //                     if symbol.value(self.db) == "super" {
+    //                         current_item = ResolveItem::Type(TypeModuleDef::Module(
+    //                             item.parent(self.db).unwrap(),
+    //                         ));
+    //                         continue;
+    //                     }
+    //                     let Some(item) = item.defs(self.db).resolve_item(*symbol) else {
+    //                         return Err(PathSegmentDiagnostic {
+    //                             offset: id,
+    //                             message: format!(
+    //                                 "could not find `{}` in this scope",
+    //                                 symbol.value(self.db)
+    //                             ),
+    //                         });
+    //                     };
+    //                     current_item = item;
+    //                 }
+    //             },
+    //             ResolveItem::Value(value) => match value {
+    //                 ValueModuleDef::Function(function) => {
+    //                     return Err(PathSegmentDiagnostic {
+    //                         offset: id,
+    //                         message: format!(
+    //                             "could not find access members of function `{}`",
+    //                             function.name(self.db).value(self.db)
+    //                         ),
+    //                     });
+    //                 }
+    //             },
+    //         }
+    //     }
+    //
+    //     Ok(current_item)
+    // }
 
     fn insert_use_tree_path(
         &mut self,
@@ -383,438 +402,389 @@ impl<'db> PathResolveCtx<'db> {
     }
 }
 
-// #[salsa::tracked(returns(clone))]
-// pub fn resolve_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) -> Vec<Diagnostic> {
-//     let mut diagnostics = vec![];
-//
-//     for item in module.items(db).items(db).iter() {
-//         let hir::Item::Use(use_item) = item else {
-//             continue;
-//         };
-//
-//         let mut ctx = ResolveUseTree {
-//             db,
-//             diagnostics: &mut diagnostics,
-//             use_item: *use_item,
-//             module,
-//         };
-//
-//         if let Some(use_tree) = use_item.use_tree(db) {
-//             ctx.resolve(use_tree, SymbolList::new(db, []));
-//         }
-//     }
-//     diagnostics
-// }
-//
-// fn resolve_path_cycle_result<'db>(
-//     _db: &'db dyn salsa::Database,
-//     _id: salsa::Id,
-//     _module: Module<'db>,
-//     _path: SymbolList,
-// ) -> Option<ResolveItem<'db>> {
-//     None
-// }
+#[derive(salsa::SalsaValue, Clone, Debug, PartialEq, Default)]
+pub struct DefMap<'db> {
+    pub scopes: indexmap::IndexMap<Module<'db>, ResolvedModuleScope<'db>>,
+    pub diagnostics: Vec<Diagnostic>,
+}
 
-// #[salsa::tracked]
-// impl<'db> Module<'db> {
-//     #[salsa::tracked(returns(copy))]
-//     pub fn resolve_type_expr(
-//         self,
-//         db: &'db dyn salsa::Database,
-//         ty: hir::TypeExpr<'db>,
-//         generics: Option<mir::Generics<'db>>,
-//         self_ty: Option<Type<'db>>,
-//     ) -> Type<'db> {
-//         match ty.kind(db) {
-//             hir::TypeExprKind::Fn { params, output } => Type::new(
-//                 db,
-//                 TypeKind::BareFn(BareFn::new(
-//                     db,
-//                     BareFnParams::new(
-//                         db,
-//                         params
-//                             .params(db)
-//                             .iter()
-//                             .map(|p| {
-//                                 BareFnParam::new(
-//                                     db,
-//                                     p.name(db),
-//                                     p.ty(db)
-//                                         .map(|t| self.resolve_type_expr(db, t, generics, self_ty))
-//                                         .unwrap_or_else(|| Type::new(db, TypeKind::Unit)),
-//                                 )
-//                             })
-//                             .collect_vec(),
-//                     ),
-//                     output
-//                         .map(|t| self.resolve_type_expr(db, t, generics, self_ty))
-//                         .unwrap_or_else(|| Type::new(db, TypeKind::Unit)),
-//                 )),
-//             ),
-//             hir::TypeExprKind::Tuple(types) => Type::new(
-//                 db,
-//                 TypeKind::Tuple(TypeList::new(
-//                     db,
-//                     types
-//                         .types(db)
-//                         .iter()
-//                         .map(|t| self.resolve_type_expr(db, *t, generics, self_ty))
-//                         .collect_vec(),
-//                 )),
-//             ),
-//             hir::TypeExprKind::Path(_) => self.resolve_type_path(db, ty, generics, self_ty),
-//             hir::TypeExprKind::Dyn(bounds) => Type::new(
-//                 db,
-//                 TypeKind::Dyn(TypeList::new(
-//                     db,
-//                     bounds
-//                         .types(db)
-//                         .iter()
-//                         .map(|ty| self.resolve_type_path(db, *ty, generics, self_ty))
-//                         .collect_vec(),
-//                 )),
-//             ),
-//             hir::TypeExprKind::Nilable(type_expr) => Type::new(
-//                 db,
-//                 TypeKind::Nilable(self.resolve_type_expr(db, type_expr, generics, self_ty)),
-//             ),
-//             hir::TypeExprKind::Paren(type_expr) => {
-//                 self.resolve_type_expr(db, type_expr, generics, self_ty)
-//             }
-//             hir::TypeExprKind::Lit(lit_kind) => Type::new(db, TypeKind::Lit(lit_kind)),
-//             hir::TypeExprKind::Any => Type::new(db, TypeKind::Any),
-//             hir::TypeExprKind::Unit => Type::new(db, TypeKind::Unit),
-//             hir::TypeExprKind::Never => Type::new(db, TypeKind::Never),
-//             hir::TypeExprKind::SelfTy => {
-//                 if let Some(self_ty) = self_ty {
-//                     self_ty
-//                 } else {
-//                     //TODO: this diagnostic needs to be moved somewhere else
-//
-//                     // Diagnostic {
-//                     //     message: "cannot find type `Self` in this scope".to_string(),
-//                     //     location: DiagnosticLocation::TypeExpr {
-//                     //         id: ty.id(db),
-//                     //         source: ty.source(db).get_pure(db),
-//                     //     },
-//                     //     kind: DiagnosticKind::TypeError,
-//                     // }
-//                     // .accumulate(db);
-//                     Type::new(db, TypeKind::Unknown)
-//                 }
-//             }
-//         }
-//     }
-//
-//     #[salsa::tracked(returns(copy))]
-//     pub fn resolve_type_path(
-//         self,
-//         db: &'db dyn salsa::Database,
-//         path_expr: hir::TypeExpr<'db>,
-//         generics: Option<mir::Generics<'db>>,
-//         self_ty: Option<Type<'db>>,
-//     ) -> Type<'db> {
-//         let hir::TypeExprKind::Path(path) = path_expr.kind(db) else {
-//             unreachable!();
-//         };
-//         if let [first] = path.segments(db)
-//             && let Some(generics) = generics
-//             && let Some(param) = generics.param(db, first.name(db))
-//         {
-//             return Type::new(db, TypeKind::Generic(param.name(db)));
-//         }
-//
-//         //TODO: figure out what to do with stuff like
-//         //Foo<i32>::bar<Baz>
-//         // let generic_args = path.segments()
-//
-//         let Some(item) = self.resolve_path_item(db, path.as_symbol_list(db)) else {
-//             Diagnostic {
-//                 message: format!(
-//                     "cannot find type `{} in this scope",
-//                     path.segments(db).last().unwrap().name(db).value(db)
-//                 ),
-//                 location: DiagnosticLocation::TypeExpr {
-//                     id: path_expr.id(db),
-//                     source: path_expr.source(db).body_map(db),
-//                 },
-//                 kind: DiagnosticKind::TypeError,
-//             }
-//             .accumulate(db);
-//             return Type::new(db, TypeKind::Unknown);
-//         };
-//         match item {
-//             ResolveItem::Type(ty) | ResolveItem::Both { ty, .. } => match ty {
-//                 ModuleDef::Struct(item) => Type::new(
-//                     db,
-//                     TypeKind::Struct {
-//                         value: item,
-//                         generics: TypeList::new(db, []),
-//                     },
-//                 ),
-//                 ModuleDef::Enum(item) => Type::new(
-//                     db,
-//                     TypeKind::Enum {
-//                         value: item,
-//                         generics: TypeList::new(db, []),
-//                     },
-//                 ),
-//                 ModuleDef::Module(module) => {
-//                     Diagnostic {
-//                         message: format!(
-//                             "expected type, got module `{}`",
-//                             module.name(db).value(db)
-//                         ),
-//                         location: DiagnosticLocation::TypeExpr {
-//                             id: path_expr.id(db),
-//                             source: path_expr.source(db).body_map(db),
-//                         },
-//                         kind: DiagnosticKind::TypeError,
-//                     }
-//                     .accumulate(db);
-//                     Type::new(db, TypeKind::Unknown)
-//                 }
-//                 ModuleDef::Function(function) => unreachable!(),
-//             },
-//             ResolveItem::Value(value) => match value {
-//                 ModuleDef::Function(function) => {
-//                     Diagnostic {
-//                         message: format!(
-//                             "expected type, got function `{}`",
-//                             function.name(db).value(db)
-//                         ),
-//                         location: DiagnosticLocation::TypeExpr {
-//                             id: path_expr.id(db),
-//                             source: path_expr.source(db).body_map(db),
-//                         },
-//                         kind: DiagnosticKind::TypeError,
-//                     }
-//                     .accumulate(db);
-//                     Type::new(db, TypeKind::Unknown)
-//                 }
-//                 ModuleDef::Struct(_) | ModuleDef::Enum(_) | ModuleDef::Module(_) => todo!(),
-//             },
-//         }
-//     }
-//
-//     #[salsa::tracked(cycle_result=resolve_path_cycle_result, returns(copy))]
-//     pub fn resolve_path_item(
-//         self,
-//         db: &'db dyn salsa::Database,
-//         path: SymbolList,
-//     ) -> Option<ResolveItem<'db>> {
-//         fn resolve_path_inner<'db>(
-//             db: &'db dyn salsa::Database,
-//             module: Module<'db>,
-//             path: SymbolList,
-//         ) -> Option<ResolveItem<'db>> {
-//             let first = path.symbols(db).first()?;
-//             let mut current_item = match first.value(db) {
-//                 "root" => ResolveItem::Type(ModuleDef::Module(module.root(db).root_module(db)?)),
-//                 _ => module
-//                     .resolve_item_name(db, *path.symbols(db).first()?)
-//                     .or_else(|| {
-//                         let scope = module.scope(db);
-//                         for global_path in scope.global_imports() {
-//                             let mut global_path_clone = global_path.symbols(db).to_vec();
-//                             global_path_clone.push(*path.symbols(db).first()?);
-//                             if let Some(output) = module.resolve_path_item(db, *global_path) {
-//                                 return Some(output);
-//                             } else {
-//                                 continue;
-//                             }
-//                         }
-//                         None
-//                     })?,
-//             };
-//             for (id, segment) in path.symbols(db).iter().skip(1).enumerate() {
-//                 match current_item {
-//                     ResolveItem::Type(module_def) => match module_def {
-//                         ModuleDef::Struct(item) => {
-//                             if id == path.symbols(db).len() - 1 {
-//                                 return Some(ResolveItem::Type(ModuleDef::Struct(item)));
-//                             }
-//                             return None;
-//                         }
-//                         ModuleDef::Enum(item) => {
-//                             if id == path.symbols(db).len() - 1 {
-//                                 return Some(ResolveItem::Type(ModuleDef::Enum(item)));
-//                             }
-//                             return None;
-//                         }
-//                         ModuleDef::Module(item) => {
-//                             if id == path.symbols(db).len() - 1 {
-//                                 return Some(ResolveItem::Type(ModuleDef::Module(item)));
-//                             }
-//                             // if segment.value(db) == "self" {
-//                             //     continue;
-//                             // }
-//
-//                             //TODO: public/private imports
-//                             current_item = item.resolve_item_name(db, *segment)?;
-//                         }
-//                         ModuleDef::Function(_) => unreachable!(),
-//                     },
-//                     ResolveItem::Value(module_def) => match module_def {
-//                         ModuleDef::Function(item) => {
-//                             if id == path.symbols(db).len() - 1 {
-//                                 return Some(ResolveItem::Value(ModuleDef::Function(item)));
-//                             }
-//                             return None;
-//                         }
-//                         ModuleDef::Struct(_) | ModuleDef::Enum(_) | ModuleDef::Module(_) => {
-//                             unreachable!()
-//                         }
-//                     },
-//                     ResolveItem::Both { ty, value } => {
-//                         let ty = match ty {
-//                             ModuleDef::Struct(item) => {
-//                                 if id == path.symbols(db).len() - 1 {
-//                                     Some(ModuleDef::Struct(item))
-//                                 } else {
-//                                     None
-//                                 }
-//                             }
-//                             ModuleDef::Enum(item) => {
-//                                 if id == path.symbols(db).len() - 1 {
-//                                     Some(ModuleDef::Enum(item))
-//                                 } else {
-//                                     None
-//                                 }
-//                             }
-//                             ModuleDef::Module(item) => {
-//                                 if id == path.symbols(db).len() - 1 {
-//                                     Some(ModuleDef::Module(item))
-//                                 } else {
-//                                     // if segment.value(db) == "self" {
-//                                     //     continue;
-//                                     // }
-//
-//                                     //TODO: public/private imports
-//                                     current_item = item.resolve_item_name(db, *segment)?;
-//                                     None
-//                                 }
-//                             }
-//                             ModuleDef::Function(_) => unreachable!(),
-//                         };
-//                         let value = match value {
-//                             ModuleDef::Function(item) => {
-//                                 if id == path.symbols(db).len() - 1 {
-//                                     Some(ModuleDef::Function(item))
-//                                 } else {
-//                                     None
-//                                 }
-//                             }
-//                             ModuleDef::Struct(_) | ModuleDef::Enum(_) | ModuleDef::Module(_) => {
-//                                 unreachable!()
-//                             }
-//                         };
-//
-//                         match (ty, value) {
-//                             (Some(ty), Some(value)) => {
-//                                 return Some(ResolveItem::Both { ty, value });
-//                             }
-//                             (Some(ty), None) => return Some(ResolveItem::Type(ty)),
-//                             (None, Some(value)) => return Some(ResolveItem::Value(value)),
-//                             _ => {}
-//                         }
-//                     }
-//                 }
-//             }
-//             Some(current_item)
-//         }
-//
-//         let scope = self.scope(db);
-//         let first = path.symbols(db).first()?;
-//         if let Some(scope_name) = scope.r#type(*first).or_else(|| scope.value(*first)) {
-//             let mut outer = scope_name.path(db).symbols(db).to_vec();
-//             outer.remove(outer.len() - 1);
-//             for symbol in path.symbols(db).iter() {
-//                 outer.push(*symbol);
-//             }
-//
-//             let outer = SymbolList::new(db, outer);
-//             if outer == path {
-//                 resolve_path_inner(db, self, path)
-//             } else {
-//                 resolve_path_inner(db, self, outer)
-//             }
-//         } else {
-//             resolve_path_inner(db, self, path)
-//         }
-//     }
-//
-// }
+impl<'db> DefMap<'db> {
+    pub fn module_scope(&self, module: Module<'db>) -> &ResolvedModuleScope<'db> {
+        self.scopes.get(&module).unwrap()
+    }
 
-// struct ResolveUseTree<'db, 'a> {
-//     db: &'db dyn salsa::Database,
-//     diagnostics: &'a mut Vec<Diagnostic>,
-//     use_item: hir::UseItem<'db>,
-//     module: hir::Module<'db>,
-// }
-//
-// impl<'db, 'a> ResolveUseTree<'db, 'a> {
-//     fn push_diagnostic(&mut self, message: String, use_tree: hir::UseTree) {
-//         self.diagnostics.push(Diagnostic {
-//             message,
-//             location: DiagnosticLocation::UseTree {
-//                 use_id: self.use_item.id(self.db),
-//                 tree_id: use_tree.id(self.db),
-//             },
-//             kind: DiagnosticKind::ModuleError,
-//         });
-//     }
-//
-//     fn resolve(&mut self, use_tree: hir::UseTree, path: SymbolList) {
-//         match use_tree.kind(self.db) {
-//             hir::UseTreeKind::Name(name) => {
-//                 let path = path.push(self.db, name);
-//
-//                 if self.module.resolve_path_item(self.db, path).is_none() {
-//                     self.push_diagnostic(
-//                         format!("unresolved import: `{}`", name.value(self.db)),
-//                         use_tree,
-//                     );
-//                 }
-//             }
-//             hir::UseTreeKind::Path {
-//                 name,
-//                 use_tree: path_use_tree,
-//             } => {
-//                 let path = path.push(self.db, name);
-//                 if self.module.resolve_path_item(self.db, path).is_none() {
-//                     self.push_diagnostic(
-//                         format!("unresolved import `{}`", name.value(self.db)),
-//                         use_tree,
-//                     );
-//                 }
-//                 self.resolve(path_use_tree, path);
-//             }
-//             hir::UseTreeKind::Root {
-//                 use_tree: root_use_tree,
-//             } => {
-//                 let path = SymbolList::new(self.db, [Symbol::new(self.db, "root")]);
-//                 self.resolve(root_use_tree, path);
-//             }
-//             hir::UseTreeKind::TreeList(use_tree_list) => {
-//                 for item in use_tree_list.items(self.db) {
-//                     self.resolve(*item, path);
-//                 }
-//             }
-//             hir::UseTreeKind::Super {
-//                 use_tree: super_use_tree,
-//             } => {
-//                 let Some(parent) = self.module.parent(self.db) else {
-//                     return;
-//                 };
-//                 self.module = parent;
-//                 let path = parent.absolute_path(self.db);
-//                 self.resolve(super_use_tree, path);
-//             }
-//             hir::UseTreeKind::Global | hir::UseTreeKind::SelfUse => {}
-//         }
-//     }
-// }
+    pub fn module_scope_mut(&mut self, module: Module<'db>) -> &mut ResolvedModuleScope<'db> {
+        self.scopes.get_mut(&module).unwrap()
+    }
+}
+
+#[derive(salsa::SalsaValue, Clone, Debug, PartialEq, Default)]
+pub struct ResolvedModuleScope<'db> {
+    pub values: indexmap::IndexMap<Symbol, Vec<ValueModuleDef<'db>>>,
+    pub types: indexmap::IndexMap<Symbol, Vec<TypeModuleDef<'db>>>,
+    pub global_imports: Vec<Module<'db>>,
+}
+
+impl<'db> ResolvedModuleScope<'db> {
+    fn insert_value(&mut self, name: Symbol, value: ValueModuleDef<'db>) {
+        let values = self.values.entry(name).or_default();
+        if !values.contains(&value) {
+            values.push(value);
+        }
+    }
+
+    fn insert_type(&mut self, name: Symbol, ty: TypeModuleDef<'db>) {
+        let types = self.types.entry(name).or_default();
+        if !types.contains(&ty) {
+            types.push(ty);
+        }
+    }
+
+    fn insert_global_import(&mut self, module: Module<'db>) {
+        if !self.global_imports.contains(&module) {
+            self.global_imports.push(module);
+        }
+    }
+}
+
+#[derive(salsa::SalsaValue, Clone, Copy, PartialEq, Eq)]
+struct Import<'db> {
+    module: Module<'db>,
+    parent: Module<'db>,
+    tree: UseTree<'db>,
+    use_item: UseItem<'db>,
+}
+
+pub struct DefMapCtx<'db> {
+    def_map: DefMap<'db>,
+    mod_tree: &'db ModuleTree<'db>,
+    root: Root,
+    db: &'db dyn salsa::Database,
+    work_list: VecDeque<Import<'db>>,
+}
+
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
+enum ScopeEntry<'db> {
+    Value(ValueModuleDef<'db>),
+    Type(TypeModuleDef<'db>),
+}
+
+impl<'db> DefMapCtx<'db> {
+    //I call it the first rule of functions,
+    //which is, functions should be small.
+    //And the second rule: they should be *smaller than that*
+    fn def_map(mut self) -> DefMap<'db> {
+        self.collect_defs();
+        self.resolve_tree();
+        self.report_errors();
+        self.def_map
+    }
+
+    fn resolve_tree(&mut self) {
+        loop {
+            let mut old_work_list = std::mem::take(&mut self.work_list);
+            let mut progress = false;
+            while let Some(import) = old_work_list.pop_front() {
+                match import.tree.kind(self.db) {
+                    hir::UseTreeKind::TreeList(list) => {
+                        for &tree in list.items(self.db) {
+                            progress = true;
+                            self.work_list.push_back(Import { tree, ..import });
+                        }
+                    }
+                    hir::UseTreeKind::Path { name, use_tree } => {
+                        let Some(items) = self.resolve_name(import.module, name) else {
+                            self.work_list.push_back(import);
+                            continue;
+                        };
+                        let modules = items
+                            .into_iter()
+                            .filter_map(|i| match i {
+                                ScopeEntry::Type(TypeModuleDef::Module(m)) => Some(m),
+                                _ => None,
+                            })
+                            .collect_vec();
+
+                        match modules.as_slice() {
+                            [module] => {
+                                progress = true;
+                                self.work_list.push_back(Import {
+                                    parent: *module,
+                                    tree: use_tree,
+                                    ..import
+                                });
+                            }
+                            [_, ..] | [] => {
+                                self.work_list.push_back(import);
+                                continue;
+                            }
+                        }
+                    }
+                    hir::UseTreeKind::Super { use_tree } => {
+                        let Some(parent) = import.module.parent(self.db) else {
+                            self.def_map.diagnostics.push(Diagnostic {
+                                message: "too many leading `super` keywords".to_string(),
+                                location: DiagnosticLocation::UseTree {
+                                    use_id: import.use_item.id(self.db),
+                                    tree_id: use_tree.id(self.db),
+                                },
+                                kind: DiagnosticKind::ModuleError,
+                            });
+                            continue;
+                        };
+                        progress = true;
+                        self.work_list.push_back(Import {
+                            parent,
+                            tree: use_tree,
+                            ..import
+                        });
+                    }
+                    hir::UseTreeKind::Root { use_tree } => {
+                        let Some(root_module) = self.root.root_module(self.db) else {
+                            continue;
+                        };
+                        progress = true;
+                        self.work_list.push_back(Import {
+                            parent: root_module,
+                            module: root_module,
+                            tree: use_tree,
+                            use_item: import.use_item,
+                        });
+                    }
+                    hir::UseTreeKind::Name(symbol) => {
+                        let Some(entries) = self.resolve_name(import.parent, symbol) else {
+                            self.work_list.push_back(import);
+                            continue;
+                        };
+
+                        let scope = self.def_map.module_scope_mut(import.module);
+                        match entries.as_slice() {
+                            [entry] => {
+                                progress = true;
+                                match entry {
+                                    ScopeEntry::Value(value) => scope.insert_value(symbol, *value),
+                                    ScopeEntry::Type(ty) => scope.insert_type(symbol, *ty),
+                                }
+                            }
+                            [ScopeEntry::Type(ty), ScopeEntry::Value(value)]
+                            | [ScopeEntry::Value(value), ScopeEntry::Type(ty)] => {
+                                progress = true;
+                                scope.insert_value(symbol, *value);
+                                scope.insert_type(symbol, *ty);
+                            }
+                            _ => {
+                                self.work_list.push_back(import);
+                                continue;
+                            }
+                        }
+                    }
+                    hir::UseTreeKind::Global => {
+                        progress = true;
+                        self.def_map
+                            .module_scope_mut(import.module)
+                            .insert_global_import(import.parent);
+                    }
+                    hir::UseTreeKind::SelfUse => {
+                        progress = true;
+                        self.def_map.module_scope_mut(import.module).insert_type(
+                            import.parent.name(self.db),
+                            TypeModuleDef::Module(import.parent),
+                        );
+                    }
+                }
+            }
+            if !progress {
+                break;
+            }
+        }
+    }
+
+    fn report_errors(&mut self) {
+        while let Some(import) = self.work_list.pop_front() {
+            match import.tree.kind(self.db) {
+                hir::UseTreeKind::Path { name, .. } => {
+                    let Some(items) = self.resolve_name(import.module, name) else {
+                        self.def_map.diagnostics.push(Diagnostic {
+                            message: format!("unresolved import {}", name.value(self.db)),
+                            location: DiagnosticLocation::UseTree {
+                                use_id: import.use_item.id(self.db),
+                                tree_id: import.tree.id(self.db),
+                            },
+                            kind: DiagnosticKind::ModuleError,
+                        });
+                        continue;
+                    };
+                    let modules = items
+                        .into_iter()
+                        .filter_map(|i| match i {
+                            ScopeEntry::Type(TypeModuleDef::Module(m)) => Some(m),
+                            _ => None,
+                        })
+                        .collect_vec();
+                    match modules.as_slice() {
+                        [] => {
+                            self.def_map.diagnostics.push(Diagnostic {
+                                message: format!("unresolved import {}", name.value(self.db)),
+                                location: DiagnosticLocation::UseTree {
+                                    use_id: import.use_item.id(self.db),
+                                    tree_id: import.tree.id(self.db),
+                                },
+                                kind: DiagnosticKind::ModuleError,
+                            });
+                        }
+                        [_, ..] => {
+                            self.def_map.diagnostics.push(Diagnostic {
+                                message: format!(
+                                    "name {} is defined multiple times",
+                                    name.value(self.db)
+                                ),
+                                location: DiagnosticLocation::UseTree {
+                                    use_id: import.use_item.id(self.db),
+                                    tree_id: import.tree.id(self.db),
+                                },
+                                kind: DiagnosticKind::ModuleError,
+                            });
+                        }
+                    }
+                }
+                hir::UseTreeKind::Name(name) => {
+                    let Some(entries) = self.resolve_name(import.module, name) else {
+                        self.def_map.diagnostics.push(Diagnostic {
+                            message: format!("unresolved import {}", name.value(self.db)),
+                            location: DiagnosticLocation::UseTree {
+                                use_id: import.use_item.id(self.db),
+                                tree_id: import.tree.id(self.db),
+                            },
+                            kind: DiagnosticKind::ModuleError,
+                        });
+                        continue;
+                    };
+                    match entries.as_slice() {
+                        [] => {
+                            self.def_map.diagnostics.push(Diagnostic {
+                                message: format!("unresolved import {}", name.value(self.db)),
+                                location: DiagnosticLocation::UseTree {
+                                    use_id: import.use_item.id(self.db),
+                                    tree_id: import.tree.id(self.db),
+                                },
+                                kind: DiagnosticKind::ModuleError,
+                            });
+                        }
+                        [_, ..] => {
+                            self.def_map.diagnostics.push(Diagnostic {
+                                message: format!(
+                                    "name {} is defined multiple times",
+                                    name.value(self.db)
+                                ),
+                                location: DiagnosticLocation::UseTree {
+                                    use_id: import.use_item.id(self.db),
+                                    tree_id: import.tree.id(self.db),
+                                },
+                                kind: DiagnosticKind::ModuleError,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn resolve_name(&self, module: Module<'db>, name: Symbol) -> Option<Vec<ScopeEntry<'db>>> {
+        let mut items = vec![];
+
+        let scope = self.def_map.scopes.get(&module)?;
+
+        if let Some(values) = scope.values.get(&name) {
+            values
+                .iter()
+                .for_each(|v| items.push(ScopeEntry::Value(*v)));
+        }
+        if let Some(types) = scope.types.get(&name) {
+            types.iter().for_each(|v| items.push(ScopeEntry::Type(*v)));
+        }
+
+        for global_import in scope.global_imports.iter() {
+            items.extend(
+                self.resolve_name(*global_import, name)
+                    .into_iter()
+                    .flatten(),
+            );
+        }
+
+        if items.is_empty() { None } else { Some(items) }
+    }
+
+    fn collect_defs(&mut self) {
+        self.visit_module_tree(|this, module| {
+            let mut scopes = ResolvedModuleScope::default();
+            for item in module.items(this.db).items(this.db) {
+                match item {
+                    Item::Function(item) => {
+                        scopes.insert_value(item.name(this.db), ValueModuleDef::Function(*item));
+                    }
+                    Item::Struct(item) => {
+                        scopes.insert_type(item.name(this.db), TypeModuleDef::Struct(*item));
+                    }
+                    Item::Class(item) => {
+                        scopes.insert_type(item.name(this.db), TypeModuleDef::Class(*item));
+                    }
+                    Item::Trait(item) => {
+                        scopes.insert_type(item.name(this.db), TypeModuleDef::Trait(*item));
+                    }
+                    Item::Enum(item) => {
+                        scopes.insert_type(item.name(this.db), TypeModuleDef::Enum(*item));
+                    }
+                    Item::Module(item) => {
+                        scopes.insert_type(item.name(this.db), TypeModuleDef::Module(*item));
+                    }
+                    Item::Use(item) => {
+                        if let Some(tree) = item.use_tree(this.db) {
+                            this.work_list.push_back(Import {
+                                module,
+                                use_item: *item,
+                                tree,
+                                parent: module,
+                            });
+                        }
+                    }
+                    Item::Impl(_) => {}
+                }
+            }
+            this.def_map.scopes.insert(module, scopes);
+        });
+    }
+
+    fn visit_module_tree(&mut self, mut f: impl FnMut(&mut Self, Module<'db>)) {
+        let root = self.root.root_module(self.db).unwrap();
+        self.visit_module(root, &mut f);
+    }
+
+    fn visit_module<F: FnMut(&mut Self, Module<'db>)>(&mut self, module: Module<'db>, f: &mut F) {
+        f(self, module);
+        for item in module.items(self.db).items(self.db) {
+            if let Item::Module(module) = item {
+                self.visit_module(*module, f);
+            }
+        }
+    }
+}
+
+#[salsa::tracked]
+impl<'db> Root {
+    #[salsa::tracked(returns(ref))]
+    pub fn def_map(self, db: &'db dyn salsa::Database) -> DefMap<'db> {
+        let ctx = DefMapCtx {
+            def_map: DefMap::default(),
+            mod_tree: self.module_tree(db),
+            work_list: Default::default(),
+            db,
+            root: self,
+        };
+        ctx.def_map()
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -824,8 +794,54 @@ mod test {
 
     use crate::{
         def::hir::{self, Function, Module},
-        ide::{self},
+        ide::{self, DefMap},
     };
+
+    fn print_def_map<'db>(db: &'db dyn salsa::Database, def_map: DefMap<'db>) {
+        struct PrintCtx<'db> {
+            db: &'db dyn salsa::Database,
+            def_map: DefMap<'db>,
+            output: String,
+            depth: u32,
+        }
+
+        impl<'db> PrintCtx<'db> {
+            fn print_module(&mut self, module: Module<'db>) {
+                let scope = self.def_map.module_scope(module);
+                for types in 
+            }
+        }
+        // fn print_module<'db>(db: &'db dyn salsa::Database, def_map: DefMap<'db> {}
+        // salsa::attach(db, || {
+        //
+        // });
+    }
+
+    #[test]
+    fn def_map() {
+        let source = "
+            mod bar {
+                pub mod foo {}
+            }
+            use bar::*;
+            use foo;
+        ";
+        let mut db = salsa::DatabaseImpl::default();
+        let root = ide::Root::new(&db, vec![], PathBuf::from("test"));
+
+        let file = ide::File::new(
+            &db,
+            Arc::from(source),
+            PathBuf::from("test/src/main.lopa"),
+            root,
+        );
+
+        root.set_files(&mut db).to(vec![file]);
+        salsa::attach(&db, || {
+            let def_map = root.def_map(&db);
+            dbg!(def_map);
+        });
+    }
 
     fn assert_module<'db>(db: &'db dyn salsa::Database, module: Module<'db>) {
         let path_map = module.path_map(db);
@@ -972,3 +988,19 @@ mod test {
 //     { if A::B::C {
 //                 } {} }
 // );
+
+/*
+Name resolution notes.
+
+How I imagine it should work:
+1. Collect defs (values + types) for module
+2. Collect scope names per module:
+    Scope names are all names accessible through a module, including `use` statements.
+3. Find a local scope of a module, derived from 2: IndexMap<Symbol, Item>
+4. Collect all paths that are referenced in a module, and check if they are valid (via PathMap)
+
+Main difficulty lies in 3., as it seems like this step already requried name resolution, which should only happen at 4.
+Solution: reuse PathMap for 3. and 4.?
+
+
+*/
