@@ -1,0 +1,18 @@
+---
+source: lopa-core/src/ide/def_map.rs
+expression: "def_map(\"\n            mod bar {\n                pub mod foo {}\n            }\n            mod baz {\n                pub mod foo {}\n            }\n            use bar::*;\n            use baz::*;\n            use foo;\n            \")"
+---
+root: 
+  types: 
+    bar: root::bar,
+    baz: root::baz,
+  diagnostic: 
+    name `foo` is defined multiple times
+root::bar: 
+  types: 
+    foo: root::bar::foo,
+root::bar::foo: 
+root::baz: 
+  types: 
+    foo: root::baz::foo,
+root::baz::foo:

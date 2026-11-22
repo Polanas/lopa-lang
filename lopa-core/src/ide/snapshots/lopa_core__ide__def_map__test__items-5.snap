@@ -1,0 +1,14 @@
+---
+source: lopa-core/src/ide/def_map.rs
+expression: "def_map(\"\n            mod foo {\n                use super::bar::test;\n            }\n            mod bar {\n                fn test() {}\n            }\n            \")"
+---
+root: 
+  types: 
+    foo: root::foo,
+    bar: root::bar,
+root::foo: 
+  values: 
+    test: root::bar,
+root::bar: 
+  values: 
+    test: root::bar,

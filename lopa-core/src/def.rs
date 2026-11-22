@@ -95,8 +95,8 @@ pub struct SymbolList {
 }
 
 impl SymbolList {
-    pub fn to_symbol(self, db: &dyn salsa::Database) -> Symbol {
-        Symbol::new(db, self.symbols(db).iter().map(|s| s.value(db)).join("::"))
+    pub fn as_path(self, db: &dyn salsa::Database) -> String {
+        self.symbols(db).iter().map(|s| s.value(db)).join("::")
     }
 
     pub fn push(self, db: &dyn salsa::Database, symbol: Symbol) -> Self {

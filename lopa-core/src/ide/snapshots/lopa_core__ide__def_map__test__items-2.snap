@@ -1,0 +1,11 @@
+---
+source: lopa-core/src/ide/def_map.rs
+expression: "def_map(\"\n            mod foo {}\n            mod foo {}\n            \")"
+---
+root: 
+  types: 
+    foo: root::foo,
+  diagnostic: 
+    the name `foo` is defined multiple times
+root::foo: 
+root::foo:

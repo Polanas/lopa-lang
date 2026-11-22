@@ -1,0 +1,11 @@
+---
+source: lopa-core/src/ide/def_map.rs
+expression: "def_map(\"\n            struct X {}\n            mod inner {\n                use super::X;\n            }\n            \")"
+---
+root: 
+  types: 
+    X: root::X,
+    inner: root::inner,
+root::inner: 
+  types: 
+    X: root::X,

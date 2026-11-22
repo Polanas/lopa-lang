@@ -1,0 +1,10 @@
+---
+source: lopa-core/src/ide/def_map.rs
+expression: "def_map(\"\n            mod foo {}\n            use root::foo;\n            use root::foo1;\n            \")"
+---
+root: 
+  types: 
+    foo: root::foo,
+  diagnostic: 
+    unresolved import `foo1`
+root::foo:

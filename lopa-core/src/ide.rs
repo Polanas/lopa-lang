@@ -1,3 +1,4 @@
+mod def_map;
 mod diagnostics;
 mod lower;
 mod resolve;
@@ -8,6 +9,7 @@ pub use diagnostics::{
     Diagnostic, DiagnosticKind, DiagnosticLocation, RenderedDiagnostic, Severity,
 };
 
+pub use def_map::*;
 use la_arena::{Arena, Idx};
 pub use resolve::*;
 pub use scope::*;
@@ -20,7 +22,6 @@ use crate::{
         self, Symbol, SymbolList,
         hir::{self, Item},
     },
-    notify,
     parsing::{self, AstNode},
 };
 use std::{
@@ -348,6 +349,19 @@ impl<T> InFile<T> {
 
 #[salsa::tracked]
 impl<'db> hir::Module<'db> {
+    //Only explicitly defined items
+    #[salsa::tracked(returns(copy))]
+    pub fn inner_items(self, db: &'db dyn salsa::Database) -> hir::Items<'db> {
+        match self.origin(db) {
+            hir::ModuleOrigin::Root(file) | hir::ModuleOrigin::File(file) => file.items(db),
+            hir::ModuleOrigin::Directory { file, .. } => file
+                .map(|f| f.items(db))
+                .unwrap_or_else(|| hir::Items::new(db, vec![])),
+            hir::ModuleOrigin::Definition { .. } => self.items(db),
+        }
+    }
+
+    //All items of a module, including ones not explicitly defined (relevant for root and dir modules)
     #[salsa::tracked(returns(copy))]
     pub fn items(self, db: &'db dyn salsa::Database) -> hir::Items<'db> {
         match self.origin(db) {
@@ -432,7 +446,7 @@ impl<'db> hir::Module<'db> {
             hir::ModuleOrigin::File(_) | hir::ModuleOrigin::Directory { .. } => {
                 module_tree.parents.get(&self).cloned()
             }
-            hir::ModuleOrigin::Definition { parent, id, file } => Some(*parent),
+            hir::ModuleOrigin::Definition { parent, .. } => Some(*parent),
         }
     }
 
@@ -457,26 +471,28 @@ impl<'db> hir::Module<'db> {
     #[salsa::tracked(returns(clone))]
     pub fn diagnostics(self, db: &'db dyn salsa::Database) -> Vec<Diagnostic> {
         let mut diagnostics = vec![];
-        diagnostics.extend(self.scope_names(db).diagnostics.clone());
+        diagnostics.extend(self.resolved_scope(db).diagnostics.clone());
 
-        for child in self.children(db).modules(db).iter() {
-            let mut child_diagnostics = child.diagnostics(db);
-            diagnostics.append(&mut child_diagnostics);
-        }
-        for item in self.items(db).items(db) {
+        // for child in self.children(db).modules(db).iter() {
+        //     let mut child_diagnostics = child.diagnostics(db);
+        //     diagnostics.append(&mut child_diagnostics);
+        // }
+        for item in self.inner_items(db).items(db) {
             match item {
                 hir::Item::Function(item) => {
-                    let path_map = item.path_map(db, self);
-                    diagnostics.extend(path_map.diagnostics.clone());
+                    // let path_map = item.path_map(db, self);
+                    // diagnostics.extend(path_map.diagnostics.clone());
                 }
                 hir::Item::Struct(_) => {}
                 hir::Item::Enum(_) => {}
                 hir::Item::Use(item) => {
-                    let path_map = item.path_map(db, self);
-                    diagnostics.extend(path_map.diagnostics.clone());
+                    // let path_map = item.path_map(db, self);
+                    // diagnostics.extend(path_map.diagnostics.clone());
                 }
                 hir::Item::Impl(impl_block) => {}
-                hir::Item::Module(_) => {}
+                hir::Item::Module(item) => {
+                    diagnostics.extend(item.diagnostics(db).clone());
+                }
                 hir::Item::Class(class) => {}
                 hir::Item::Trait(_) => {}
             }
@@ -499,7 +515,6 @@ impl<'db> File {
     pub fn diagnostics(self, db: &dyn salsa::Database) -> Vec<Diagnostic> {
         let mut diagnostics = vec![];
         let parse = self.parse(db);
-        let module_tree = self.root(db).module_tree(db);
         diagnostics.extend(parse.errors(db).clone().into_iter().map(|e| Diagnostic {
             message: e.kind.to_string(),
             location: DiagnosticLocation::Range(e.range.clone()),
@@ -669,7 +684,7 @@ impl<'db> File {
                     })
                 }
                 DiagnosticLocation::UseTree { use_id, tree_id } => {
-                    let use_item = use_id.file.items_map(db)[use_id];
+                    let use_item = use_id.file.items_map(db)[use_id].item;
                     let use_tree_map = use_item.use_tree_map(db)?;
                     let use_tree = use_tree_map[tree_id];
                     let node = tree.get(use_tree)?;

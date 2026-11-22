@@ -7,7 +7,6 @@ use crate::{
         ExprId, PatId, Symbol, SymbolList,
         hir::{self, Class, Enum, Function, Item, Module, Struct, Trait},
     },
-    hir_walker::{self, HirWalker},
     ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, ResolveItem},
 };
 
@@ -64,6 +63,26 @@ impl<'db> TypeModuleDef<'db> {
             TypeModuleDef::Module(item) => ModuleDef::Module(*item),
         }
     }
+
+    pub fn name(&self, db: &'db dyn salsa::Database) -> Symbol {
+        match self {
+            TypeModuleDef::Struct(item) => item.name(db),
+            TypeModuleDef::Class(item) => item.name(db),
+            TypeModuleDef::Trait(item) => item.name(db),
+            TypeModuleDef::Enum(item) => item.name(db),
+            TypeModuleDef::Module(item) => item.name(db),
+        }
+    }
+
+    pub fn location(&self, db: &'db dyn salsa::Database) -> DiagnosticLocation {
+        match self {
+            TypeModuleDef::Struct(item) => DiagnosticLocation::Struct(item.id(db)),
+            TypeModuleDef::Class(item) => DiagnosticLocation::Class(item.id(db)),
+            TypeModuleDef::Trait(item) => DiagnosticLocation::Trait(item.id(db)),
+            TypeModuleDef::Enum(item) => DiagnosticLocation::Enum(item.id(db)),
+            TypeModuleDef::Module(item) => DiagnosticLocation::Module(item.id(db).expect("if Im asking for a location of a module, it shouldn't be a directory one without a file defined (which is the only way it could not have ast id)")),
+        }
+    }
 }
 
 #[derive(salsa::Supertype, Clone, Copy, PartialEq, Eq, Hash, Debug, salsa::SalsaValue)]
@@ -75,6 +94,18 @@ impl<'db> ValueModuleDef<'db> {
     pub fn as_mod_def(&self) -> ModuleDef<'db> {
         match self {
             ValueModuleDef::Function(item) => ModuleDef::Function(*item),
+        }
+    }
+
+    pub fn name(&self, db: &'db dyn salsa::Database) -> Symbol {
+        match self {
+            ValueModuleDef::Function(item) => item.name(db),
+        }
+    }
+
+    pub fn location(&self, db: &'db dyn salsa::Database) -> DiagnosticLocation {
+        match self {
+            ValueModuleDef::Function(item) => DiagnosticLocation::Function(item.id(db)),
         }
     }
 }
@@ -99,161 +130,8 @@ impl<'db> ModuleDefs<'db> {
     }
 }
 
-#[derive(salsa::SalsaValue, Clone, Debug, PartialEq, Copy)]
-pub struct Import<'db> {
-    path: ScopePath<'db>,
-    kind: ImportKind,
-}
-
-#[derive(salsa::SalsaValue, Clone, Debug, PartialEq, Copy)]
-pub enum ImportKind {
-    Single,
-    Global,
-}
-
-#[derive(Clone, PartialEq, Default, salsa::SalsaValue)]
-pub struct ModuleScopeNames<'db> {
-    pub values: indexmap::IndexMap<Symbol, ScopePath<'db>>,
-    pub types: indexmap::IndexMap<Symbol, ScopePath<'db>>,
-
-    pub imports: Vec<Import<'db>>,
-    pub diagnostics: Vec<Diagnostic>,
-}
-
-impl<'db> ModuleScopeNames<'db> {
-    pub fn value(&self, name: Symbol) -> Option<&ScopePath<'db>> {
-        self.values.get(&name)
-    }
-
-    pub fn ty(&self, name: Symbol) -> Option<&ScopePath<'db>> {
-        self.types.get(&name)
-    }
-
-    pub fn types(&self) -> &indexmap::IndexMap<Symbol, ScopePath<'db>> {
-        &self.types
-    }
-}
-
-pub struct ModuleScope<'db> {
-    pub values: indexmap::IndexMap<Symbol, Item<'db>>,
-    pub types: indexmap::IndexMap<Symbol, Item<'db>>,
-
-    pub alobal_imports: Vec<Module<'db>>,
-    pub diagnostics: Vec<Diagnostic>,
-}
-
 #[salsa::tracked]
 impl<'db> Module<'db> {
-    #[salsa::tracked(returns(ref))]
-    pub fn scope_names(self, db: &'db dyn salsa::Database) -> ModuleScopeNames<'db> {
-        let items = self.items(db).items(db);
-
-        let mut scope = ModuleScopeNames::default();
-        let mut scope_names = ScopeNames::new(db);
-
-        if let Some(parent) = self.parent(db) {
-            let parent_scope = parent.scope_names(db);
-            for (k, v) in parent_scope.values.iter() {
-                scope_names.values.insert(*k, *v);
-            }
-            for (k, v) in parent_scope.types.iter() {
-                scope_names.types.insert(*k, *v);
-            }
-        }
-
-        for item in items.iter() {
-            match item {
-                Item::Struct(item) => {
-                    scope_names.insert_type(
-                        item.name(db),
-                        ScopePath::new(
-                            db,
-                            SymbolList::new(db, [item.name(db)]),
-                            DiagnosticLocation::Struct(item.id(db)),
-                        ),
-                        &mut scope.diagnostics,
-                    );
-                }
-                Item::Class(item) => {
-                    scope_names.insert_type(
-                        item.name(db),
-                        ScopePath::new(
-                            db,
-                            SymbolList::new(db, [item.name(db)]),
-                            DiagnosticLocation::Class(item.id(db)),
-                        ),
-                        &mut scope.diagnostics,
-                    );
-                }
-                Item::Trait(item) => {
-                    scope_names.insert_type(
-                        item.name(db),
-                        ScopePath::new(
-                            db,
-                            SymbolList::new(db, [item.name(db)]),
-                            DiagnosticLocation::Trait(item.id(db)),
-                        ),
-                        &mut scope.diagnostics,
-                    );
-                }
-                Item::Function(item) => {
-                    scope_names.insert_value(
-                        item.name(db),
-                        ScopePath::new(
-                            db,
-                            SymbolList::new(db, [item.name(db)]),
-                            DiagnosticLocation::Function(item.id(db)),
-                        ),
-                        &mut scope.diagnostics,
-                    );
-                }
-                Item::Enum(item) => {
-                    scope_names.insert_type(
-                        item.name(db),
-                        ScopePath::new(
-                            db,
-                            SymbolList::new(db, [item.name(db)]),
-                            DiagnosticLocation::Enum(item.id(db)),
-                        ),
-                        &mut scope.diagnostics,
-                    );
-                }
-                Item::Module(item) => {
-                    if let Some(id) = item.id(db) {
-                        scope_names.insert_type(
-                            item.name(db),
-                            ScopePath::new(
-                                db,
-                                SymbolList::new(db, [item.name(db)]),
-                                DiagnosticLocation::Module(id),
-                            ),
-                            &mut scope.diagnostics,
-                        );
-                    }
-                }
-                Item::Use(item) => {
-                    let mut traverse_ctx = TraverseUseTree {
-                        db,
-                        use_item: *item,
-                        names: &mut scope_names,
-                        current_module: self,
-                        imports: &mut scope.imports,
-                        diagnostics: &mut scope.diagnostics,
-                    };
-                    if let Some(use_tree) = item.use_tree(db) {
-                        traverse_ctx.traverse(use_tree, SymbolList::new(db, []));
-                    }
-                }
-                Item::Impl(_) => {}
-            }
-        }
-
-        scope.values = scope_names.values;
-        scope.types = scope_names.types;
-
-        scope
-    }
-
     #[salsa::tracked(returns(ref))]
     pub fn defs(self, db: &'db dyn salsa::Database) -> ModuleDefs<'db> {
         let mut values: indexmap::IndexMap<_, _> = Default::default();
@@ -284,165 +162,6 @@ impl<'db> Module<'db> {
         }
 
         ModuleDefs { values, types }
-    }
-}
-
-#[salsa::tracked(debug)]
-pub struct ScopePath<'db> {
-    #[returns(copy)]
-    pub path: SymbolList,
-    #[returns(clone)]
-    pub location: DiagnosticLocation,
-}
-
-struct ScopeNames<'db> {
-    db: &'db dyn salsa::Database,
-    values: indexmap::IndexMap<Symbol, ScopePath<'db>>,
-    types: indexmap::IndexMap<Symbol, ScopePath<'db>>,
-}
-
-impl<'db> ScopeNames<'db> {
-    fn new(db: &'db dyn salsa::Database) -> Self {
-        Self {
-            db,
-            values: Default::default(),
-            types: Default::default(),
-        }
-    }
-
-    fn insert(
-        name: Symbol,
-        scope_name: ScopePath<'db>,
-        db: &dyn salsa::Database,
-        names: &mut indexmap::IndexMap<Symbol, ScopePath<'db>>,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        if let Some(_) = names.insert(name, scope_name) {
-            //TODO: remove these diagnostics from here?
-            // diagnostics.push(Diagnostic {
-            //     message: format!("the name `{}` is defined multiple times", name.value(db)),
-            //     location: scope_name.location(db),
-            //     kind: DiagnosticKind::ModuleError,
-            // });
-        }
-    }
-
-    fn insert_value_and_type(
-        &mut self,
-        name: Symbol,
-        scope_name: ScopePath<'db>,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        self.insert_value(name, scope_name, diagnostics);
-        self.insert_type(name, scope_name, diagnostics);
-    }
-
-    fn insert_value(
-        &mut self,
-        name: Symbol,
-        scope_name: ScopePath<'db>,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        Self::insert(name, scope_name, self.db, &mut self.values, diagnostics);
-    }
-
-    fn insert_type(
-        &mut self,
-        name: Symbol,
-        scope_name: ScopePath<'db>,
-        diagnostics: &mut Vec<Diagnostic>,
-    ) {
-        Self::insert(name, scope_name, self.db, &mut self.types, diagnostics);
-    }
-}
-
-struct TraverseUseTree<'db, 'a> {
-    db: &'db dyn salsa::Database,
-    use_item: hir::UseItem<'db>,
-    current_module: hir::Module<'db>,
-    names: &'a mut ScopeNames<'db>,
-    imports: &'a mut Vec<Import<'db>>,
-    diagnostics: &'a mut Vec<Diagnostic>,
-}
-
-impl<'db, 'a> TraverseUseTree<'db, 'a> {
-    fn traverse(&mut self, use_tree: hir::UseTree, path: SymbolList) -> Option<()> {
-        match use_tree.kind(self.db) {
-            hir::UseTreeKind::Name(name) => {
-                let path = path.push(self.db, name);
-                let scope_path = ScopePath::new(
-                    self.db,
-                    path,
-                    DiagnosticLocation::UseTree {
-                        use_id: self.use_item.id(self.db),
-                        tree_id: use_tree.id(self.db),
-                    },
-                );
-                self.names
-                    .insert_value_and_type(name, scope_path, self.diagnostics);
-                self.imports.push(Import {
-                    path: scope_path,
-                    kind: ImportKind::Single,
-                });
-            }
-            hir::UseTreeKind::SelfUse => {
-                self.names.insert_value_and_type(
-                    *path.symbols(self.db).last().unwrap(),
-                    ScopePath::new(
-                        self.db,
-                        path,
-                        DiagnosticLocation::UseTree {
-                            use_id: self.use_item.id(self.db),
-                            tree_id: use_tree.id(self.db),
-                        },
-                    ),
-                    self.diagnostics,
-                );
-            }
-            hir::UseTreeKind::Path { name, use_tree } => {
-                let path = path.push(self.db, name);
-                self.traverse(use_tree, path)?;
-            }
-            hir::UseTreeKind::TreeList(use_tree_list) => {
-                for item in use_tree_list.items(self.db).iter() {
-                    self.traverse(*item, path);
-                }
-            }
-            hir::UseTreeKind::Root { use_tree } => {
-                let path = SymbolList::new(self.db, [Symbol::new(self.db, "root")]);
-                self.traverse(use_tree, path);
-            }
-            hir::UseTreeKind::Super {
-                use_tree: super_use_tree,
-            } => {
-                let Some(parent) = self.current_module.parent(self.db) else {
-                    self.diagnostics.push(Diagnostic {
-                        message: "too many leading `super` keywords".to_string(),
-                        location: DiagnosticLocation::UseTree {
-                            use_id: self.use_item.id(self.db),
-                            tree_id: use_tree.id(self.db),
-                        },
-                        kind: DiagnosticKind::ModuleError,
-                    });
-                    return None;
-                };
-                self.current_module = parent;
-                let path = parent.absolute_path(self.db);
-                self.traverse(super_use_tree, path)?;
-            }
-            hir::UseTreeKind::Global => self.imports.push(Import {
-                path: ScopePath::new(
-                    self.db,
-                    path,
-                    DiagnosticLocation::UseTree {
-                        use_id: self.use_item.id(self.db),
-                        tree_id: use_tree.id(self.db),
-                    },
-                ),
-                kind: ImportKind::Global,
-            }),
-        }
-        Some(())
     }
 }
 
@@ -717,7 +436,7 @@ impl ScopeData {
 
 #[cfg(test)]
 mod test {
-    use std::{path::PathBuf, sync::Arc, thread::scope};
+    use std::{path::PathBuf, sync::Arc};
 
     use salsa::Setter as _;
 
