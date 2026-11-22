@@ -3,7 +3,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 use crate::{
-    common::{BinaryOpKind, LitKind, UnaryOpKind},
+    common::{BinaryOpKind, LitKind, TypeLitKind, UnaryOpKind},
     def::{
         AstId, BodyMap, ExprId, HirNodeId, ItemTypeExprId, MemberId, PatId, StmtId, Symbol,
         SymbolList, TypeExprId, UseTreeId,
@@ -281,10 +281,10 @@ pub type ClassId = InFile<AstId<parsing::ClassItem<'static>>>;
 pub type TraitId = InFile<AstId<parsing::TraitItem<'static>>>;
 pub type EnumId = InFile<AstId<parsing::EnumItem<'static>>>;
 pub type UseItemId = InFile<AstId<parsing::UseItem<'static>>>;
-pub type ModuleId = InFile<AstId<parsing::ModItem<'static>>>;
 pub type ImplBlockId = InFile<AstId<parsing::ImplItem<'static>>>;
+pub type ModuleId = InFile<AstId<parsing::ModItem<'static>>>;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, salsa::SalsaValue)]
 pub enum ItemId {
     Function(FunctionId),
     Struct(StructId),
@@ -352,6 +352,7 @@ pub enum ImplTypes<'db> {
     },
 }
 
+//TODO: add parent: Item<'db> field?
 #[salsa::tracked(debug)]
 pub struct Function<'db> {
     #[returns(copy)]
@@ -670,7 +671,7 @@ pub enum TypeExprKind<'db> {
     Never,
     SelfTy,
     Tuple(TypeExprList<'db>),
-    Lit(LitKind),
+    Lit(TypeLitKind),
     Path(Path<'db>),
     Dyn(TypeExprList<'db>),
     Nilable(TypeExpr<'db>),

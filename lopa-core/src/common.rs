@@ -8,6 +8,14 @@ pub enum LitKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::SalsaValue)]
+pub enum TypeLitKind {
+    Float,
+    Int,
+    String,
+    Bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, salsa::SalsaValue)]
 pub enum ItemKind {
     Function,
     Mod,

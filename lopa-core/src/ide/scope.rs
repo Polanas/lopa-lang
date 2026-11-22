@@ -196,7 +196,7 @@ impl<'db> ExprScopesCtx<'db> {
         }
     }
 
-    fn traverse(mut self, expr: hir::Expr<'db>) -> ExprScopes {
+    fn traverse(mut self, expr: hir::Expr<'db>) -> ExprScopes<'db> {
         if let hir::ExprKind::Block { stmts } = expr.kind(self.db) {
             let root = self.root_scope();
             self.traverse_block(root, stmts);
@@ -379,7 +379,7 @@ pub struct ExprScopes<'db> {
 }
 
 impl<'db> ExprScopes<'db> {
-    pub fn entries(&self, scope: ScopeId<'db>) -> &[ScopeEntry] {
+    pub fn entries(&self, scope: ScopeId<'db>) -> &[ScopeEntry<'db>] {
         &self.scopes[scope].entries
     }
 
@@ -395,7 +395,7 @@ impl<'db> ExprScopes<'db> {
         std::iter::successors(scope, move |&scope| self.scopes[scope].parent)
     }
 
-    pub fn resolve_name_in_scope(&self, scope: ScopeId<'db>, name: Symbol) -> Option<&ScopeEntry> {
+    pub fn resolve_name_in_scope(&self, scope: ScopeId<'db>, name: Symbol) -> Option<&ScopeEntry<'db>> {
         self.scope_chain(Some(scope))
             .find_map(|scope| self.entries(scope).iter().rev().find(|it| it.name == name))
     }

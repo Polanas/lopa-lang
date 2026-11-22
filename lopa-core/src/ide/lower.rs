@@ -787,7 +787,6 @@ impl<'db, 'ast, 's> Ctx<'db, 'ast, 's> {
                 this.item(item);
             }
         });
-
         LowerResult {
             items: Items::new(self.db, items),
             ast_id_map: self.ast_id_map.into(),
