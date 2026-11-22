@@ -8,8 +8,8 @@ use crate::{
         hir::{self, Item, Module, UseItem, UseTree},
     },
     ide::{
-        Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleTree, Root, TypeModuleDef,
-        ValueModuleDef,
+        Diagnostic, DiagnosticKind, DiagnosticLocation, ModuleTree, ResolveItem, Root,
+        TypeModuleDef, ValueModuleDef,
     },
 };
 
@@ -33,6 +33,15 @@ pub struct ResolvedModuleScope<'db> {
 }
 
 impl<'db> ResolvedModuleScope<'db> {
+    pub fn resolve_name(&self, name: Symbol) -> Option<ResolveItem<'db>> {
+        Some(match (self.types.get(&name), self.values.get(&name)) {
+            (None, Some(&value)) => ResolveItem::Value(value),
+            (Some(&ty), None) => ResolveItem::Type(ty),
+            (Some(&ty), Some(&value)) => ResolveItem::Both { ty, value },
+            (None, None) => return None,
+        })
+    }
+
     fn insert_value(
         &mut self,
         db: &'db dyn salsa::Database,
@@ -193,7 +202,7 @@ impl<'db> DefMapCtx<'db> {
                                     message: "too many leading `super` keywords".to_string(),
                                     location: DiagnosticLocation::UseTree {
                                         use_id: import.use_item.id(self.db),
-                                        tree_id: use_tree.id(self.db),
+                                        tree_id: import.tree.id(self.db),
                                     },
                                     kind: DiagnosticKind::ModuleError,
                                 });
@@ -407,6 +416,7 @@ impl<'db> DefMapCtx<'db> {
             items.push(ScopeEntry::Type(*ty))
         }
 
+        //TODO: resolve cycles
         for global_import in scope.global_imports.iter() {
             items.extend(
                 self.resolve_name(*global_import, name)
@@ -505,9 +515,11 @@ impl<'db> Root {
 
 #[salsa::tracked]
 impl<'db> Module<'db> {
-    #[salsa::tracked(returns(ref))]
-    pub fn resolved_scope(self, db: &'db dyn salsa::Database) -> Arc<ResolvedModuleScope<'db>> {
-        self.root(db).def_map(db).scopes.get(&self).unwrap().clone()
+    pub fn resolved_scope(
+        self,
+        db: &'db dyn salsa::Database,
+    ) -> &'db Arc<ResolvedModuleScope<'db>> {
+        self.root(db).def_map(db).scopes.get(&self).unwrap()
     }
 }
 

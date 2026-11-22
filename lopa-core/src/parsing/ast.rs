@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    common::{BinaryOpKind, LitKind, LuaBinaryOpKind, UnaryOpKind},
+    common::{BinaryOpKind, LitKind, LuaBinaryOpKind, PathSegmentIdent, UnaryOpKind},
     parsing::{Children, Node, NodeId, Syntax},
 };
 
@@ -675,7 +675,7 @@ structs! {
                 Syntax::INT => LitKind::Int,
                 Syntax::FLOAT => LitKind::Float,
                 Syntax::STRING => LitKind::String,
-                Syntax::TRUE_KW | Syntax::FALSE_KW => LitKind::Bool,
+                T![true] | T![false] => LitKind::Bool,
                 _ => return None,
             })
         }
@@ -686,14 +686,17 @@ structs! {
     PATH_SEGMENT = PathSegment {
         generic_args: GenericArgs,
 
-        pub fn ident(&self, source: &'a str) -> Option<&'a str> {
+        pub fn ident(&self, source: &'a str) -> Option<PathSegmentIdent<'a>> {
             self.0.children().filter(|node| node.is_empty()).filter_map(|node| match node.kind() {
-                Syntax::SUPER_KW => Some("super"),
-                Syntax::ROOT_KW => Some("root"),
-                Syntax::IDENT => Some(&source[node.range()]),
-                _ => None,
+                T![super] => Some(PathSegmentIdent::Super),
+                T![root] => Some(PathSegmentIdent::Root),
+                T![self] => Some(PathSegmentIdent::Slf),
+                T![Self] => Some(PathSegmentIdent::SelfType),
+                T![ident] => Some(PathSegmentIdent::Symbol(&source[node.range()])),
+                _ => None
             }).next()
         }
+
     },
     COMPILER_ATTRIB_LIST = CompilerAttribList {
         attribs: [CompilerAttrib],

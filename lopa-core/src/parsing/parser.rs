@@ -53,7 +53,7 @@ const ITEM_FIRST: TokenSet = TokenSet::new(&[
 ]);
 const MEMBER_FIRST: TokenSet = TokenSet::new(&[T![fn], IDENT]);
 const USE_FIRST: TokenSet = TokenSet::new(&[T!["{"], IDENT, T![*], T![self], T![root], T![super]]);
-const PATH_FIRST: TokenSet = TokenSet::new(&[T![root], T![super], IDENT]);
+const PATH_FIRST: TokenSet = TokenSet::new(&[T![root], T![super], T![self], T![Self], IDENT]);
 
 const GENERIC_ANCHOR: TokenSet = TokenSet::new(&[T![;], T!["{"], T!["("], T![")"], T![:], T![?]]);
 
@@ -1020,12 +1020,20 @@ impl<'a> Parser<'a> {
     }
 
     fn path_segment(&mut self, kind: PathKind) {
-        self.with(PATH_SEGMENT, |this| {
-            if this.at(T![root]) {
+        self.with(PATH_SEGMENT, |this| match this.peek() {
+            T![root] => {
                 this.expect(T![root]);
-            } else if this.at(T![super]) {
+            }
+            T![super] => {
                 this.expect(T![super]);
-            } else {
+            }
+            T![self] => {
+                this.expect(T![self]);
+            }
+            T![Self] => {
+                this.expect(T![Self]);
+            }
+            _ => {
                 this.expect(IDENT);
                 if this.at(T![<]) {
                     match kind {
@@ -2344,6 +2352,8 @@ mod test {
         insta::assert_snapshot!(parse("root", |p| p.path_segment(PathKind::Expr)));
         insta::assert_snapshot!(parse("super", |p| p.path_segment(PathKind::Expr)));
         insta::assert_snapshot!(parse("G<T1,T2>", |p| p.path_segment(PathKind::Expr)));
+        insta::assert_snapshot!(parse("self::field", |p| p.path_segment(PathKind::Expr)));
+        insta::assert_snapshot!(parse("Self::func", |p| p.path_segment(PathKind::Expr)));
     }
 
     #[test]

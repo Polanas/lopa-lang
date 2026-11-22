@@ -719,7 +719,13 @@ impl<'db> Path<'db> {
             db,
             self.segments(db)
                 .iter()
-                .map(|s| s.name(db))
+                .map(|s| match s.kind(db) {
+                    PathSegmentKind::Root => Symbol::new(db, "root"),
+                    PathSegmentKind::Super => Symbol::new(db, "super"),
+                    PathSegmentKind::Slf => Symbol::new(db, "self"),
+                    PathSegmentKind::SelfType => Symbol::new(db, "Self"),
+                    PathSegmentKind::Symbol(symbol) => symbol,
+                })
                 .collect_vec()
                 .as_slice(),
         )
@@ -735,9 +741,18 @@ pub struct PathList<'db> {
 #[salsa::tracked(debug)]
 pub struct PathSegment<'db> {
     #[returns(copy)]
-    pub name: Symbol,
+    pub kind: PathSegmentKind,
     #[returns(copy)]
     pub args: GenericArgs<'db>,
+}
+
+#[derive(salsa::SalsaValue, Hash, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum PathSegmentKind {
+    Root,
+    Super,
+    Slf,      // self::blabla
+    SelfType, // Self::blabla
+    Symbol(Symbol),
 }
 
 #[salsa::tracked(debug)]

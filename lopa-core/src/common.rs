@@ -256,6 +256,15 @@ impl std::fmt::Display for UnaryOpKind {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
+pub enum PathSegmentIdent<'a> {
+    Root,
+    Super,
+    Slf,      // self::blabla
+    SelfType, // Self::blabla
+    Symbol(&'a str),
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum PathNodeType {
     Expr,
     Type,

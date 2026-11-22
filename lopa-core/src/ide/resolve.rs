@@ -2,10 +2,10 @@ use crate::{
     common::PathNodeType,
     def::{
         Symbol, SymbolList,
-        hir::{self, Enum, Function, HirNode, Item, Module, Struct, UseItem, UseTree},
+        hir::{self, Enum, Function, HirNode, Item, Module, PathSegment, Struct, UseItem, UseTree},
     },
     hir_walker::{HirWalker, walk_expr, walk_pat, walk_type_expr},
-    ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, TypeModuleDef, ValueModuleDef},
+    ide::{Diagnostic, DiagnosticKind, DiagnosticLocation, Root, TypeModuleDef, ValueModuleDef},
 };
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, salsa::SalsaValue)]
@@ -16,6 +16,22 @@ pub enum ResolveItem<'db> {
         ty: TypeModuleDef<'db>,
         value: ValueModuleDef<'db>,
     },
+}
+
+impl<'db> ResolveItem<'db> {
+    pub fn ty(&self) -> Option<TypeModuleDef<'db>> {
+        Some(match self {
+            ResolveItem::Type(ty) | ResolveItem::Both { ty, .. } => *ty,
+            ResolveItem::Value(_) => return None,
+        })
+    }
+
+    pub fn value(&self) -> Option<ValueModuleDef<'db>> {
+        Some(match self {
+            ResolveItem::Value(value) | ResolveItem::Both { value, .. } => *value,
+            ResolveItem::Type(_) => return None,
+        })
+    }
 }
 
 #[salsa::tracked]
@@ -150,6 +166,7 @@ struct PathResolveCtx<'db> {
     db: &'db dyn salsa::Database,
     module: Module<'db>,
     diagnostics: Vec<Diagnostic>,
+    root: Root,
     items: indexmap::IndexMap<SymbolList, ResolveItem<'db>>,
     global_import_modules: Vec<Module<'db>>,
 }
@@ -197,6 +214,7 @@ impl<'db> PathResolveCtx<'db> {
             diagnostics: Default::default(),
             items: Default::default(),
             global_import_modules: Default::default(),
+            root: module.root(db),
         }
     }
 
@@ -271,9 +289,42 @@ impl<'db> PathResolveCtx<'db> {
         &mut self,
         path: SymbolList,
     ) -> Result<ResolveItem<'db>, PathSegmentDiagnostic> {
-        // let defs = self.module.defs(self.db);
-        // let scope_names = self.module.scope_names(self.db);
+        let mut scope = self.module.resolved_scope(self.db);
+        let mut symbols = path.symbols(self.db).iter();
+        // let Some(mut current) = scope.resolve_name(*symbols.next().unwrap()) else {
+        //     return Err(PathSegmentDiagnostic {
+        //         offset: 0,
+        //         message: format!("could not find `{}` in this scope", ),
+        //     });
+        // };
         todo!()
+    }
+
+    fn resolve_name(
+        &mut self,
+        segment: PathSegment<'db>,
+        parent: ResolveItem<'db>,
+    ) -> Result<ResolveItem<'db>, String> {
+        match segment.kind(self.db) {
+            hir::PathSegmentKind::Root => Ok(ResolveItem::Type(TypeModuleDef::Module(
+                self.root.root_module(self.db).unwrap(),
+            ))),
+            hir::PathSegmentKind::Super => {
+                if let Some(TypeModuleDef::Module(module)) = parent.ty() {
+                    todo!()
+                    // if let Some(parent) = module.parent(self.db) {
+                    //
+                    // }
+                } else {
+                    Err(String::from(
+                        "`super` in paths can only be used in start position, or after another `super`",
+                    ))
+                }
+            }
+            hir::PathSegmentKind::Slf => todo!(),
+            hir::PathSegmentKind::SelfType => todo!(),
+            hir::PathSegmentKind::Symbol(symbol) => todo!(),
+        }
     }
 
     // fn resolve_path(

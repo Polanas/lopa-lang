@@ -555,7 +555,15 @@ impl<'db, 's> BodyMapCtx<'db, 's> {
     fn path_segment(&mut self, path_segment: parsing::PathSegment) -> Option<PathSegment<'db>> {
         Some(PathSegment::new(
             self.db,
-            Symbol::new(self.db, path_segment.ident(self.source)?),
+            match path_segment.ident(self.source)? {
+                crate::common::PathSegmentIdent::Root => PathSegmentKind::Root,
+                crate::common::PathSegmentIdent::Super => PathSegmentKind::Super,
+                crate::common::PathSegmentIdent::Slf => PathSegmentKind::Slf,
+                crate::common::PathSegmentIdent::SelfType => PathSegmentKind::SelfType,
+                crate::common::PathSegmentIdent::Symbol(s) => {
+                    PathSegmentKind::Symbol(Symbol::new(self.db, s))
+                }
+            },
             GenericArgs::new(
                 self.db,
                 path_segment
@@ -1363,12 +1371,12 @@ impl<'db> File {
         self.lower(db).items
     }
 
-    pub fn ast_map(self, db: &dyn salsa::Database) -> Arc<AstIdMap> {
-        self.lower(db).ast_id_map.clone()
+    pub fn ast_map(self, db: &dyn salsa::Database) -> &Arc<AstIdMap> {
+        &self.lower(db).ast_id_map
     }
 
-    pub fn items_map(self, db: &'db dyn salsa::Database) -> Arc<ItemsMap<'db>> {
-        self.lower(db).items_map.clone()
+    pub fn items_map(self, db: &'db dyn salsa::Database) -> &'db Arc<ItemsMap<'db>> {
+        &self.lower(db).items_map
     }
 
     #[salsa::tracked(returns(ref))]

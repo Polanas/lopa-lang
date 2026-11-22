@@ -473,10 +473,6 @@ impl<'db> hir::Module<'db> {
         let mut diagnostics = vec![];
         diagnostics.extend(self.resolved_scope(db).diagnostics.clone());
 
-        // for child in self.children(db).modules(db).iter() {
-        //     let mut child_diagnostics = child.diagnostics(db);
-        //     diagnostics.append(&mut child_diagnostics);
-        // }
         for item in self.inner_items(db).items(db) {
             match item {
                 hir::Item::Function(item) => {
@@ -571,9 +567,11 @@ impl<'db> File {
                         }
                     }
                     .unwrap();
-                    let segment = path.segments().nth(offset).unwrap(); //TODO: apparently this can
-                    //crash(?)
+
+                    //TODO: apparently this can crash(?)
+                    let segment = path.segments().nth(offset).unwrap();
                     let range = segment.0.children().next().unwrap().range();
+
                     Some(RenderedDiagnostic {
                         message: d.message,
                         range,
@@ -688,9 +686,10 @@ impl<'db> File {
                     let use_tree_map = use_item.use_tree_map(db)?;
                     let use_tree = use_tree_map[tree_id];
                     let node = tree.get(use_tree)?;
+                    let range = node.children().next().unwrap().range();
                     Some(RenderedDiagnostic {
                         message: d.message,
-                        range: node.range(),
+                        range,
                         kind: d.kind,
                     })
                 }
